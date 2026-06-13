@@ -41,8 +41,10 @@ work merges.
 
 ### Phase 0 status
 
-The release workflow runs semantic-release in **dry-run mode** until the product
-stack and packaging exist; no tags/releases are written yet.
+The release workflow is a **manual-dispatch placeholder** that does not run on
+push. semantic-release verifies push access to `main` even in dry-run, and branch
+protection blocks that — so no release runs until the push mechanism below is
+wired (TASK-0203). The semantic-release config lives in `.releaserc.json`.
 
 ### Known constraint — pushing to protected `main`
 

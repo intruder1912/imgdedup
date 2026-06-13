@@ -39,7 +39,9 @@ before anything merges.
 
 - **No secrets in the repo**; secret scanning runs in CI (gitleaks now;
   language-specific scanners added in Phase 2).
-- **Dependency review** on PRs; Dependabot keeps dependencies and Actions current.
+- **Dependabot** keeps dependencies and GitHub Actions current. (GitHub
+  dependency-review requires Advanced Security, unavailable on free private repos;
+  a language-level dependency audit is added in Phase 2 — TASK-0208.)
 - **Security review** by the architect on every PR (untrusted input, safe
   file/path handling, least-privilege CI tokens).
 - Language-specific static analysis (e.g., CodeQL, dependency audit) added with
