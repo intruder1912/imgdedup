@@ -37,6 +37,19 @@ The only one who **merges** PRs (the merge gate). Approves PRDs and ADRs,
 arbitrates open questions, and holds final say. Agents act on the owner's behalf
 but never self-merge.
 
+## Model assignment
+
+Each subagent is pinned to a model in its `.claude/agents/*.md` frontmatter,
+balancing capability against cost — reasoning-heavy roles use Opus, execution
+roles use Sonnet:
+
+| Subagent | Model |
+|---|---|
+| `product-owner` | opus |
+| `architect` | opus |
+| `implementer` | sonnet |
+| `tester` | sonnet |
+
 ## Hand-offs
 
 ```

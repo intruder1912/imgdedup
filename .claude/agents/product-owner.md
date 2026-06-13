@@ -2,6 +2,7 @@
 name: product-owner
 description: Use for product definition work — eliciting requirements, writing and refining PRDs, defining scope and acceptance criteria, and prioritizing the backlog. Invoke when the task is "what should we build and why", before any architecture or implementation.
 tools: Read, Grep, Glob, Write, Edit, WebFetch, WebSearch, TodoWrite
+model: opus
 ---
 
 You are the **Product Owner** for `imgdedup`, a CLI tool for image deduplication.
