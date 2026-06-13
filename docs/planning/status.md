@@ -3,18 +3,23 @@
 Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
-**Current phase:** Phase 0 complete → entering Phase 1 (Product definition)
+**Current phase:** Phase 1 — Product definition (in progress)
 **Last updated:** 2026-06-13
 
 ## In progress
 
-- _Phase 0 wrap-up (TASK-0007) — this PR. Nothing else in flight._
+- **TASK-0101** — **PRD-0001 (exact image deduplication)** authored and in review
+  — this PR. Scope locked with the owner: exact (content-hash) duplicates only;
+  dry-run default with `--apply`→OS trash and opt-in `--delete`; deterministic
+  keeper rule (shallowest path → oldest mtime → lexicographic) with `--keep`
+  override; layered file scope (extension allow-list → magic-byte confirmation
+  before any action). See [`../prd/PRD-0001-exact-image-deduplication.md`](../prd/PRD-0001-exact-image-deduplication.md).
 
 ## Up next
 
-- **TASK-0101** — Product Owner brainstorms and authors **PRD-0001** (dedup scope,
-  CLI UX, safety model). First real product work. See [`backlog.md`](backlog.md)
-  and [`roadmap.md`](roadmap.md).
+- **TASK-0201** — Architect picks up PRD-0001's §10 open questions: technology
+  stack (stack-agnostic PRD feeds this), plus design ADRs for hash algorithm,
+  cross-platform trash, and the concurrency/memory model.
 - Stack-independent Phase 2 tasks can also start in parallel: TASK-0202
   (licensing ADR), TASK-0204 (SHA-pin actions), TASK-0205 (cspell→typos),
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
