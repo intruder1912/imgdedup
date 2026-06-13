@@ -31,7 +31,7 @@ Status mirrors [`status.md`](status.md).
 
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
-| TASK-0101 | Brainstorm + author PRD-0001 (dedup scope, UX, safety) | product-owner | todo | no | TASK-0007 |
+| TASK-0101 | Brainstorm + author [PRD-0001](../prd/PRD-0001-exact-image-deduplication.md) (exact-dedup scope, UX, safety) | product-owner | in-progress | no | TASK-0007 |
 
 ## Phase 2 — Architecture & toolchain
 

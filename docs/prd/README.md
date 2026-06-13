@@ -19,6 +19,6 @@ architecture ([ADRs](../adr/)) and implementation.
 
 | PRD | Title | Status |
 |---|---|---|
-| _none yet_ | First PRD is authored in Phase 1 (dedup scope, UX, safety). | — |
+| [PRD-0001](PRD-0001-exact-image-deduplication.md) | Exact image deduplication (scope, UX, safety) | in review |
 
 > Status values: `draft` → `in review` → `approved` → `superseded`.
