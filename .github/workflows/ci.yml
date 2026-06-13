@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Minimal default permissions; jobs widen only if needed.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Lint Markdown
+        run: npx -y markdownlint-cli2 "**/*.md"
+
+  spellcheck:
+    name: spellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Spell-check docs
+        run: npx -y cspell --no-progress "**/*.md"
+
+  structure:
+    name: structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify required repository structure
+        run: |
+          set -euo pipefail
+          required=(
+            "CLAUDE.md"
+            "README.md"
+            "CONTRIBUTING.md"
+            "SECURITY.md"
+            "CHANGELOG.md"
+            ".claude/agents/product-owner.md"
+            ".claude/agents/architect.md"
+            ".claude/agents/implementer.md"
+            ".claude/agents/tester.md"
+            "docs/process/sdlc.md"
+            "docs/planning/roadmap.md"
+            "docs/planning/backlog.md"
+            "docs/planning/status.md"
+            "docs/prd/README.md"
+            "docs/prd/TEMPLATE.md"
+            "docs/adr/README.md"
+            "docs/adr/TEMPLATE.md"
+            "docs/adr/0001-record-architecture-decisions.md"
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error file=$f::required file is missing"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            echo "Repository structure check failed."
+            exit 1
+          fi
+          echo "Repository structure OK."
+
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    # PR-title lint only applies to pull requests (squash uses the title as the
+    # commit on main and drives the release).
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Validate PR title is a Conventional Commit
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            test
+            refactor
+            perf
+            build
+            ci
+            chore
+            style
+            revert
+
+  linkcheck:
+    name: linkcheck (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: "--config lychee.toml --no-progress './**/*.md'"
+          fail: false

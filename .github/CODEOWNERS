@@ -1,0 +1,8 @@
+# Code owners — auto-requests review from the owner on every PR.
+#
+# NOTE: branch protection must NOT enable "require review from Code Owners",
+# or it would force an approving review and re-create the self-approval
+# deadlock (see docs/adr/0003-main-branch-protection-and-merge-model.md).
+# This file only auto-requests review; it does not gate the merge.
+
+* @intruder1912
