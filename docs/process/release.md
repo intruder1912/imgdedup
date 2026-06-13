@@ -28,9 +28,12 @@ No release happens when only release-neutral commits (`docs`, `chore`, `ci`,
 
 ## Status — Phase 0 skeleton
 
-The release workflow currently runs semantic-release in **dry-run mode only**, so
-it computes and reports the would-be release without writing tags, releases, or
-commits. This is intentional until the product stack and packaging exist.
+The release workflow is a **manual-dispatch placeholder** and does not run on
+push. Even semantic-release's dry-run verifies it can push a tag to `main`, which
+branch protection blocks (no direct pushes) — so automated release cannot run
+until the push mechanism below is in place. The semantic-release configuration
+lives in `.releaserc.json` ready for Phase 2. Enabling real releases is
+**TASK-0203**.
 
 ### Known constraint to resolve in Phase 2
 

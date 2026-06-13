@@ -1,36 +1,30 @@
 name: Release
 
+# Phase 0 placeholder — manual dispatch only.
+#
+# Full automated releases (semantic-release computing the SemVer bump, generating
+# CHANGELOG/GitHub Release notes, tagging, and attaching binaries) require pushing
+# a tag to the protected `main` branch. That needs a release bot / GitHub App or a
+# release-as-asset approach, which is tracked as TASK-0203 and wired in Phase 2.
+# Until then this workflow does NOT run on push (so it cannot red-flag `main`) and
+# only documents intent when dispatched manually.
+# See docs/process/release.md and docs/adr/0004-conventional-commits-semver-and-releases.md.
+
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
-# Phase 0 skeleton: dry-run only — computes and reports the would-be release
-# WITHOUT writing tags, releases, or commits. Real publishing (and the
-# protected-main push mechanism) is wired in Phase 2.
-# See docs/process/release.md and docs/adr/0004-*.
 permissions:
   contents: read
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   release:
-    name: semantic-release (dry-run)
+    name: release (placeholder)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Run semantic-release (dry-run)
-        uses: cycjimmy/semantic-release-action@v4
-        with:
-          dry_run: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Explain placeholder status
+        run: |
+          echo "Release automation is a Phase 0 placeholder."
+          echo "semantic-release config lives in .releaserc.json."
+          echo "Real publishing is enabled in Phase 2 (TASK-0203), once the"
+          echo "protected-main push mechanism is in place."
+          echo "See docs/process/release.md and docs/adr/0004-*."

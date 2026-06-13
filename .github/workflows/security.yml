@@ -20,22 +20,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Run the gitleaks CLI via its official image (no GitHub API integration,
+      # so it works on a private personal repo under a least-privilege token).
+      # Scans the full git history; non-zero exit = leaks found = job fails.
       - name: Scan for secrets (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --redact --no-banner --verbose
 
-  dependency-review:
-    name: dependency-review
-    runs-on: ubuntu-latest
-    # Dependency review only runs on PRs (it diffs the base..head dependency set).
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
+  # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,
+  # which is unavailable on free private repositories. Dependency hygiene is
+  # currently provided by Dependabot; a language-level dependency audit
+  # (e.g. cargo audit / npm audit) is added with the stack in Phase 2
+  # (TASK-0208 / TASK-0209). Re-enable dependency-review if GHAS becomes
+  # available or the repository is made public.

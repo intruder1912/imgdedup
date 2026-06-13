@@ -25,8 +25,10 @@ Security is a gate on every change, not an afterthought:
 
 - **No secrets in the repository.** Secrets are kept out of version control
   (see [`.gitignore`](.gitignore)); a secret-scanning check runs in CI.
-- **Dependency review** runs on pull requests; Dependabot proposes regular
-  dependency and GitHub Actions updates.
+- **Dependabot** proposes regular dependency and GitHub Actions updates.
+  (GitHub's dependency-review requires Advanced Security, which is unavailable on
+  free private repositories; a language-level dependency audit is added in
+  Phase 2.)
 - **Security review** is part of the architect's review on every PR.
 - **Least privilege** for CI: workflow tokens are scoped to the minimum
   permissions required.
