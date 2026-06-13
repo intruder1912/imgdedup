@@ -33,5 +33,25 @@ Status mirrors [`status.md`](status.md).
 |---|---|---|---|---|---|
 | TASK-0101 | Brainstorm + author PRD-0001 (dedup scope, UX, safety) | product-owner | todo | no | TASK-0007 |
 
+## Phase 2 — Architecture & toolchain
+
+Includes design ADRs and the concrete items deliberately deferred from Phase 0.
+Several of these are stack-independent and can start as soon as Phase 0 is
+wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
+
+| ID | Task | Role | Status | Parallel | Depends on |
+|---|---|---|---|---|---|
+| TASK-0201 | Author technology-stack selection ADR (fully open comparison) | architect | todo | no | TASK-0101 |
+| TASK-0202 | Author licensing ADR (decide license before any public release) | architect | todo | yes | TASK-0007 |
+| TASK-0203 | Wire full semantic-release publishing; resolve push to protected `main` (release bot / GitHub App or release-as-asset) — flips dry-run off | architect | todo | no | TASK-0201 |
+| TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening) | architect | todo | yes | TASK-0007 |
+| TASK-0205 | Evaluate replacing cspell with `typos` for spell checking | architect | todo | yes | TASK-0007 |
+| TASK-0206 | Promote link check (lychee) from informational to a required CI gate | architect | todo | yes | TASK-0007 |
+| TASK-0207 | Add language toolchain: build, format, lint, test, coverage threshold, local git hooks; wire into `make validate` and CI | architect | todo | no | TASK-0201 |
+| TASK-0208 | Add CodeQL + dependency audit for the chosen language | architect | todo | no | TASK-0201 |
+| TASK-0209 | Add Dependabot package ecosystem for the chosen stack | architect | todo | yes | TASK-0201 |
+| TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | todo | yes | TASK-0007 |
+| TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases | architect | todo | no | TASK-0203, TASK-0207 |
+
 > Further Phase 1+ tasks are added as PRDs and ADRs are written. Keep this table
 > and the `tasks/` specs in sync with reality in every PR.

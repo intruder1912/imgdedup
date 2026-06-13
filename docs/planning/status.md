@@ -8,30 +8,38 @@ first file to read when resuming work.
 
 ## In progress
 
-- **TASK-0001** — Bootstrap repo foundation (docs, crew, structures, configs).
-  Orchestrator-executed. Local scaffolding being created.
+- **TASK-0002** — Create the private GitHub repo (`intruder1912/imgdedup`) and
+  push `main`. Unblocked (`gh` re-authenticated).
 
 ## Up next
 
-- **TASK-0002** — Create the private GitHub repo and push `main`
-  (**blocked on `gh` re-authentication** by the owner: `gh auth refresh -h github.com`).
-- **TASK-0003 → TASK-0007** — branch protection, CI skeleton, security/release
-  skeleton, SDLC smoke test, Phase 0 wrap-up. See [`backlog.md`](backlog.md).
+- **TASK-0003 → TASK-0007** — branch protection + squash-only settings, then the
+  SDLC smoke-test PR, then Phase 0 wrap-up. See [`backlog.md`](backlog.md).
 
 ## Done
 
-- _Nothing merged yet — Phase 0 in progress._
+- **TASK-0001** — Bootstrap repo foundation (docs, crew, structures, configs).
+  Committed locally on `main` (two commits); local validation green. _Not pushed
+  yet — pushed as part of TASK-0002._
 
 ## Blockers / waiting on owner
 
-- **`gh` auth invalid.** GitHub steps (TASK-0002+) cannot run until the owner
-  re-authenticates the `gh` CLI.
-- **Project `.claude/settings.json`** (permission allowlist) intentionally
-  deferred — add later via the harness config tooling if desired.
+- _None currently._ (`gh` re-authenticated 2026-06-13; GitHub steps unblocked.)
 
-## Open decisions (tracked for later)
+## Deferred from Phase 0 — tracked as backlog tasks
 
-- Technology stack — to be selected in a fully-open ADR (Phase 2).
-- Licensing — to be recorded in an ADR before any public release.
-- semantic-release vs protected `main` push — wiring decided in Phase 2 (see
-  [`../process/release.md`](../process/release.md)).
+Every item intentionally deferred during the bootstrap now has a task in
+[`backlog.md`](backlog.md) so nothing is lost in prose:
+
+- Technology stack selection — **TASK-0201** (fully-open ADR).
+- Licensing decision — **TASK-0202** (ADR before any public release).
+- Full semantic-release wiring + protected-`main` push mechanism — **TASK-0203**
+  (see [`../process/release.md`](../process/release.md), ADR-0004).
+- Pin GitHub Actions to commit SHAs — **TASK-0204**.
+- Re-evaluate cspell → `typos` — **TASK-0205**.
+- Promote link check to a required gate — **TASK-0206**.
+- Language toolchain (build/lint/fmt/test/coverage/hooks) — **TASK-0207**.
+- CodeQL + dependency audit — **TASK-0208**.
+- Dependabot package ecosystem for the stack — **TASK-0209**.
+- Project `.claude/settings.json` permission allowlist — **TASK-0210**.
+- Prebuilt binaries on releases — **TASK-0211**.
