@@ -1,0 +1,17 @@
+# lychee link-checker configuration (used by CI).
+# Link checking is informational in Phase 0 (not a required check) and is
+# promoted to a required gate in Phase 2.
+
+# Network behavior
+max_retries = 3
+timeout = 20
+accept = [200, 206, 301, 302, 308, 429]
+
+# The repository is private and not yet pushed publicly; skip self-references
+# and common non-resolvable placeholders.
+exclude = [
+  "^https://github.com/intruder1912/imgdedup",
+]
+
+# Don't fail on mail links or localhost.
+exclude_mail = true

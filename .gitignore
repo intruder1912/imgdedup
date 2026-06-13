@@ -1,0 +1,35 @@
+# ---- OS / editor noise ----
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# ---- Logs / temp ----
+*.log
+tmp/
+*.tmp
+
+# ---- Node-based repo meta-tooling (commitlint / markdownlint / semantic-release) ----
+# NOTE: this is tooling only, NOT the product stack (see docs/adr).
+node_modules/
+.npm/
+
+# ---- Build / coverage artifacts (language-specific entries added in Phase 2) ----
+dist/
+build/
+coverage/
+*.out
+
+# ---- Claude Code local (machine-specific) settings ----
+.claude/settings.local.json
+
+# ---- Secrets (never commit) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
