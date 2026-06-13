@@ -29,7 +29,7 @@ jobs:
         with:
           node-version: "20"
       - name: Run semantic-release (dry-run)
-        uses: cycjimmy/semantic-release-action@v4
+        uses: cycjimmy/semantic-release-action@v6
         with:
           dry_run: true
         env:
