@@ -65,11 +65,18 @@ Full detail in [`docs/process/sdlc.md`](docs/process/sdlc.md). In short:
 
 ```
 pick task → branch (feature/…) → brainstorm/design if needed
-  → TDD implement → local validation (make validate) → fix findings
-  → commit (Conventional) → push → open PR (conventional title + description)
-  → CI must pass → architect-agent review (comments) → HUMAN OWNER merges (squash)
+  → produce/iterate artifact (TDD for code) → local validation (make validate)
+  → architect review on the working-tree diff (iterate until converged)
+  → commit (Conventional) → push → open PR (record the review; conventional title)
+  → CI must pass → architect confirms → HUMAN OWNER merges (squash)
   → branch auto-deletes → update planning docs
 ```
+
+Review comes in two kinds, scaled to the artifact: a **lightweight document
+review** for PRDs/ADRs/process docs and a **heavyweight code review** for
+implementation. To keep turnaround low the substantive review runs on the
+*uncommitted* diff; it is recorded on the PR, where a quick confirmation pass runs
+before merge.
 
 `main` is protected: PRs required, CI checks required, linear history, **0
 required approvals** (the human owner is the gate and merges; this avoids the
