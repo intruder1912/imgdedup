@@ -3,24 +3,38 @@
 Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
-**Current phase:** Phase 0 — Foundation
+**Current phase:** Phase 0 complete → entering Phase 1 (Product definition)
 **Last updated:** 2026-06-13
 
 ## In progress
 
-- **TASK-0002** — Create the private GitHub repo (`intruder1912/imgdedup`) and
-  push `main`. Unblocked (`gh` re-authenticated).
+- _Phase 0 wrap-up (TASK-0007) — this PR. Nothing else in flight._
 
 ## Up next
 
-- **TASK-0003 → TASK-0007** — branch protection + squash-only settings, then the
-  SDLC smoke-test PR, then Phase 0 wrap-up. See [`backlog.md`](backlog.md).
+- **TASK-0101** — Product Owner brainstorms and authors **PRD-0001** (dedup scope,
+  CLI UX, safety model). First real product work. See [`backlog.md`](backlog.md)
+  and [`roadmap.md`](roadmap.md).
+- Stack-independent Phase 2 tasks can also start in parallel: TASK-0202
+  (licensing ADR), TASK-0204 (SHA-pin actions), TASK-0205 (cspell→typos),
+  TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
 
-- **TASK-0001** — Bootstrap repo foundation (docs, crew, structures, configs).
-  Committed locally on `main` (two commits); local validation green. _Not pushed
-  yet — pushed as part of TASK-0002._
+- **TASK-0001..0007 — Phase 0 Foundation complete.** Private repo
+  `intruder1912/imgdedup`; `main` protected (required checks `markdownlint`,
+  `spellcheck`, `structure`, `pr-title`, `secret-scan`; PR-required; 0 approvals;
+  linear history; squash-only; auto-delete branches). Agent crew, process docs,
+  PRD/ADR/planning structures, and CI/security all in place. SDLC proven by
+  smoke-test PR #6 (owner reviewed + merged — self-approval deadlock confirmed
+  resolved).
+
+## Housekeeping (owner action, optional)
+
+- **Dependabot PRs** opened during bootstrap: #1, #3, #5 are obsolete (they bump
+  actions removed in #6) and can be closed; #2 (amannn) and #4 (checkout) are
+  valid version bumps to rebase + merge. (Agents are blocked from acting on
+  Dependabot-authored PRs without explicit authorization.)
 
 ## Blockers / waiting on owner
 

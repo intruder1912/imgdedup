@@ -19,13 +19,13 @@ Status mirrors [`status.md`](status.md).
 
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
-| TASK-0001 | Bootstrap repo foundation (docs, crew, structures, configs) | architect | in-progress | no | — |
-| TASK-0002 | Create private GitHub repo and push `main` | architect | todo | no | TASK-0001 |
-| TASK-0003 | Configure branch protection + squash-only merge settings | architect | todo | no | TASK-0002 |
-| TASK-0004 | CI skeleton workflow (md-lint, spell, links, commitlint, structure) | architect | todo | no | TASK-0001 |
-| TASK-0005 | Dependabot + security scan + release skeleton (dry-run) | architect | todo | no | TASK-0001 |
-| TASK-0006 | SDLC smoke-test PR (prove review + merge end-to-end) | architect | todo | no | TASK-0003, TASK-0004, TASK-0005 |
-| TASK-0007 | Phase 0 wrap-up: mark foundation complete, queue Phase 1 | architect | todo | no | TASK-0006 |
+| TASK-0001 | Bootstrap repo foundation (docs, crew, structures, configs) | architect | done | no | — |
+| TASK-0002 | Create private GitHub repo and push `main` | architect | done | no | TASK-0001 |
+| TASK-0003 | Configure branch protection + squash-only merge settings | architect | done | no | TASK-0002 |
+| TASK-0004 | CI skeleton workflow (md-lint, spell, links, commitlint, structure) | architect | done | no | TASK-0001 |
+| TASK-0005 | Dependabot + security scan + release skeleton | architect | done | no | TASK-0001 |
+| TASK-0006 | SDLC smoke-test PR (prove review + merge end-to-end) — PR #6 | architect | done | no | TASK-0003, TASK-0004, TASK-0005 |
+| TASK-0007 | Phase 0 wrap-up: mark foundation complete, queue Phase 1 | architect | done | no | TASK-0006 |
 
 ## Phase 1 — Product definition
 
