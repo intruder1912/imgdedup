@@ -16,6 +16,7 @@
     "deduper",
     "dedupers",
     "scriptable",
+    "TOCTOU",
     "perceptual",
     "PRDs",
     "ADRs",

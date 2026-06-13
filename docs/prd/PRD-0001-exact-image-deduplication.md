@@ -90,18 +90,26 @@ User stories:
   magic-byte signature. Files that fail confirmation are ignored and never
   removed.
 - **FR-4:** Group files that are exact duplicates — byte-for-byte identical
-  content — using a collision-resistant content hash. Every file in a group is
-  identical to the others.
+  content — using a collision-resistant content hash as the matching primitive.
+  Because the tool deletes files, a hash match alone must not authorize removal:
+  before any non-keeper is trashed or deleted, its content is **byte-for-byte
+  verified** against the keeper of its group. The hash is a fast pre-filter; the
+  byte comparison is the authority. (Cost is bounded by duplicate volume, since
+  only same-size, same-hash candidates are ever compared — see FR-5.)
 - **FR-5:** Apply a size pre-grouping optimization: only files that share an exact
   byte size are hashed against each other. This must not change the resulting
   groups versus naively hashing every candidate.
 - **FR-6:** Do not follow symbolic links and skip hidden files/directories by
   default; provide opt-in flags to include each.
 - **FR-7:** Select exactly one **keeper** per duplicate group by a deterministic,
-  documented rule: shallowest path depth, then oldest modification time, then
-  lexicographic path as the final tie-break. Results are reproducible across runs.
-- **FR-8:** `--keep {shortest|oldest|newest}` overrides the primary keeper
-  criterion (later criteria still break ties).
+  documented rule. The default (`--keep shortest`) primary criterion is the
+  **shortest path**, defined as fewest path segments (shallowest) and then fewest
+  characters; ties are broken by oldest modification time, then by lexicographic
+  path order. Results are reproducible across runs and platforms.
+- **FR-8:** `--keep {shortest|oldest|newest}` selects the primary keeper
+  criterion (`shortest` is the default; `oldest`/`newest` use modification time).
+  The remaining criteria from FR-7 still break ties in a fixed order, so the
+  outcome is always deterministic.
 - **FR-9:** Default to a **dry run**: report duplicate groups and the actions that
   *would* be taken, modifying nothing on disk.
 - **FR-10:** `--apply` moves every non-keeper in each group to the operating
@@ -116,11 +124,23 @@ User stories:
 - **FR-14:** `--json` emits machine-readable output (groups, keeper, intended or
   performed actions, and totals) suitable for scripting.
 - **FR-15:** Exit `0` on success and a distinct non-zero code on error.
+- **FR-16:** Re-validate at apply time. Because the scan (which selects groups and
+  keepers) and `--apply` are separate passes, immediately before trashing or
+  deleting a non-keeper the tool re-confirms the file still exists, is still a
+  regular file (not newly a symlink), and still matches its keeper per FR-4. If a
+  file changed since the scan, it is skipped with a warning rather than removed.
+- **FR-17:** Treat hard links as already-deduplicated. Files that are hard links to
+  the same underlying content (same device and inode / file identity) share
+  storage, so removing one frees nothing. Such files are not proposed for removal,
+  are never trashed or deleted on that basis, and are excluded from the
+  reclaimable-space figure (FR-13). They may be reported as an informational note.
 
 ## 7. Non-functional requirements
 
 - **NFR-1 (safety invariant):** The keeper of every group is never trashed or
-  deleted. No run may leave a group with zero surviving copies.
+  deleted, and no run may leave a group with zero surviving copies. No file is
+  ever removed without a byte-for-byte content match against its surviving keeper
+  (FR-4) re-validated at apply time (FR-16).
 - **NFR-2 (no collateral damage):** A non-image is never trashed or deleted;
   magic-byte confirmation (FR-3) precedes every destructive action.
 - **NFR-3 (determinism):** For a given filesystem state and flags, results and
@@ -199,19 +219,51 @@ Behavior:
   hashing every candidate.
 - **AC-10 (NFR-6):** Given an unreadable file in the scan path, when run, then the
   file is reported and skipped and the run completes successfully.
-- **AC-11 (FR-9 → FR-10 parity):** Given the same tree, the groups and intended
-  removals reported by a dry run exactly match what `--apply` then performs.
+- **AC-11 (FR-9 → FR-10 parity):** Given a tree **left unchanged between runs**,
+  the groups and intended removals reported by a dry run match what a subsequent
+  `--apply` performs.
+- **AC-12 (FR-15, §8):** Given `--delete` without `--apply`, when run, then the
+  tool exits non-zero with a clear error and removes nothing; given a successful
+  run it exits `0`, and given a run-level failure it exits with a distinct
+  non-zero code.
+- **AC-13 (FR-13):** Given duplicate groups, when run, then the summary reports
+  each group's keeper and removed files, the group and file counts, and the
+  reclaimable space.
+- **AC-14 (FR-6, NFR-2):** Given a directory containing a symlink and a hidden
+  file, when run with defaults, then neither is followed/included; when run with
+  `--follow-symlinks` / `--hidden`, then each is included accordingly.
+- **AC-15 (FR-1):** Given duplicates nested in subdirectories, when run with
+  defaults they are found; when run with `--no-recurse` only top-level files of
+  each path are considered.
+- **AC-16 (NFR-3):** Given the same tree and flags, two separate runs produce
+  identical groups and keeper choices.
+- **AC-17 (FR-16, NFR-6):** Given a non-keeper that is modified or replaced
+  between the scan and `--apply`, when applied, then that file is skipped with a
+  warning and not removed, and the remaining groups are still applied normally.
+- **AC-18 (FR-17):** Given two hard links to the same content, when scanned, then
+  neither is proposed for removal and they do not contribute to reclaimable space.
 
 ## 10. Open questions
 
 Handed to the architect (Phase 2) unless noted:
 
 - **Hash algorithm:** which collision-resistant content hash (e.g. SHA-256 vs
-  BLAKE3) best balances collision resistance and throughput? (design ADR)
+  BLAKE3) best balances collision resistance and throughput? Note the byte-verify
+  requirement (FR-4) means the hash need not be cryptographically collision-proof
+  on its own. (design ADR)
+- **Byte-verification strategy:** how to verify content equality efficiently
+  within a group (streamed pairwise vs. against the keeper) without re-reading
+  data needlessly, given the NFR-4 scale targets. (design ADR)
+- **Hard-link / file-identity detection:** how to determine same-content links
+  (device + inode on POSIX; file ID on Windows) portably, for FR-17. (design ADR)
 - **Cross-platform trash:** how to move to the trash/recycle bin reliably on
   Linux, macOS, and Windows (native APIs vs a maintained library)? (design ADR)
 - **Concurrency & memory model:** parallel hashing strategy and memory bounds for
   the NFR-4 scale targets. (design ADR)
+- **Magic-byte coverage:** the image-signature set must cover every extension in
+  the default allow-list (FR-2/FR-3); confirm detection for each format. (design)
+- **Case-insensitive filesystems:** the lexicographic tie-break (FR-7) must be
+  defined unambiguously where paths differ only by case. (design)
 - **Exit-code semantics:** should "duplicates found" be signaled via a distinct
   exit code (useful in scripts), separate from error codes? (product follow-up)
 - **Technology stack:** language and CLI framework — this PRD is stack-agnostic
@@ -221,13 +273,21 @@ Handed to the architect (Phase 2) unless noted:
 
 - **Risk — accidental data loss:** highest-stakes risk. Mitigated by the dry-run
   default (FR-9), recoverable trash default (FR-10), opt-in permanent delete
-  (FR-11), the keeper safety invariant (NFR-1), and dry-run/apply parity (AC-11).
+  (FR-11), the keeper safety invariant (NFR-1), byte-verification before removal
+  (FR-4), and apply-time re-validation (FR-16).
 - **Risk — trashing a non-image:** mitigated by magic-byte confirmation before any
   action (FR-3, NFR-2).
 - **Risk — missed images with wrong/missing extensions:** accepted, documented
   limitation; future `--sniff-all` flag (§4, §10).
-- **Risk — hash collision causing a false "duplicate":** mitigated by requiring a
-  collision-resistant hash; algorithm choice is an open architecture question.
+- **Risk — hash collision causing a false "duplicate":** mitigated by byte-for-byte
+  verification before any removal (FR-4), so a hash collision can never cause data
+  loss; hash choice is still an open architecture question.
+- **Risk — TOCTOU between scan and apply:** a file may change between the dry-run
+  scan and `--apply` (including being swapped for a symlink). Mitigated by
+  re-validation at apply time (FR-16); AC-11 parity is scoped to an unchanged tree.
+- **Risk — hard links misreported as reclaimable:** removing one link frees no
+  space and may discard a path the user considers distinct. Mitigated by FR-17
+  (hard links are not proposed for removal and excluded from reclaimable space).
 - **Dependencies:** technology-stack ADR (TASK-0201) and design ADRs (hashing,
   cross-platform trash, concurrency) depend on this PRD; implementation tasks are
   seeded into the backlog once those ADRs land.
