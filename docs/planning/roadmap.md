@@ -7,14 +7,16 @@ implement → review cycle. This file is the high-level map;
 [`backlog.md`](backlog.md) holds the fine-grained tasks and
 [`status.md`](status.md) the live state.
 
-## Phase 0 — Foundation *(in progress)*
+## Phase 0 — Foundation *(complete — 2026-06-13)*
 
 Establish governance, process, AI crew, documentation, planning structures, and
 stack-agnostic CI/release scaffolding so all later work is repo-driven.
 
-Exit criteria: private repo on GitHub; protected `main` with required CI checks
+Exit criteria (all met): private repo on GitHub; protected `main` with required
+CI checks (`markdownlint`, `spellcheck`, `structure`, `pr-title`, `secret-scan`)
 and squash-only merges; agent crew + process docs + PRD/ADR/planning structures
-in place; SDLC proven end-to-end by a smoke-test PR.
+in place; SDLC proven end-to-end by smoke-test PR #6 (owner reviewed and merged —
+no self-approval deadlock).
 
 ## Phase 1 — Product definition
 
