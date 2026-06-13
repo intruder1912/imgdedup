@@ -16,6 +16,10 @@ from the repo content alone.
 - **Small, focused changes**, each finished by a sensible Conventional Commit.
 - **Local validation before push.** CI is the enforcement boundary, not the first
   place you discover problems.
+- **Review before commit.** For fast turnaround, the architect reviews the
+  *uncommitted* working-tree diff and the author iterates before a single commit
+  lands; the review is then recorded on the PR (see
+  [Review kinds and timing](#review-kinds-and-timing)).
 
 ## The cycle
 
@@ -33,10 +37,16 @@ from the repo content alone.
    update status.md (in progress)                 make validate  ──► fix findings
                                                               │
                                                               ▼
-                                  Conventional Commit ──► push ──► open PR
-                                                              │
+                                  architect review (working-tree diff) ◄──┐
+                                                              │           │ revise
+                                                              ▼           │
+                                              converged?  ──── no ────────┘
+                                                              │ yes
                                                               ▼
-                              CI required checks pass ──► architect review (comments)
+                                  Conventional Commit ──► push ──► open PR
+                                                              │   (record the review)
+                                                              ▼
+                              CI required checks pass ──► architect confirms (comments)
                                                               │
                                                               ▼
                                   HUMAN OWNER merges (squash) ──► branch auto-deletes
@@ -61,20 +71,53 @@ from the repo content alone.
 5. **Validate locally:** `make validate` — Markdown lint, spell check, link
    check, and (once code exists) format check, lint, and the test suite. **Fix
    every finding before pushing.**
-6. **Commit** with a Conventional Commit message (see [`commits.md`](commits.md)).
-   Choose commit granularity to match the task chunk.
-7. **Push and open a PR.** The PR **title must be a valid Conventional Commit**
+6. **Review before commit.** Hand the *uncommitted* working-tree diff to the
+   **architect** for review (see [Review kinds and timing](#review-kinds-and-timing)
+   below), revise, and repeat until it converges. This keeps refinement off the
+   commit/CI cycle.
+7. **Commit** — once the review loop has converged — with a Conventional Commit
+   message (see [`commits.md`](commits.md)). Choose commit granularity to match
+   the task chunk.
+8. **Push and open a PR.** The PR **title must be a valid Conventional Commit**
    (merges are squash-only, so the title becomes the `main` commit and drives the
-   release). Fill in the PR template.
-8. **CI.** Required checks must pass. Pushing work that fails local validation is
+   release). Fill in the PR template, and **record the architect's review on the
+   PR** so the audit trail holds.
+9. **CI.** Required checks must pass. Pushing work that fails local validation is
    a process violation.
-9. **Review.** The **architect** agent reviews for correctness, design, security,
-   tests, and conventions, leaving comments. Address them.
-10. **Merge.** The **human owner** is the sole merge gate (squash-merge). See
+10. **Confirm.** The architect runs a quick confirmation pass on the PR (the
+    substantive review already happened in step 6). Address any remaining comments.
+11. **Merge.** The **human owner** is the sole merge gate (squash-merge). See
     [`../adr/0003-main-branch-protection-and-merge-model.md`](../adr/0003-main-branch-protection-and-merge-model.md).
-11. **Release.** Qualifying merges to `main` trigger automated SemVer releases
+12. **Release.** Qualifying merges to `main` trigger automated SemVer releases
     (see [`release.md`](release.md)).
-12. **Close the loop.** Ensure planning docs reflect the new reality (done/next).
+13. **Close the loop.** Ensure planning docs reflect the new reality (done/next).
+
+## Review kinds and timing
+
+The architect performs **two distinct kinds of review**, scaled to the artifact:
+
+- **Document review (PRDs, ADRs, process docs)** — *lightweight, fast.* Checks
+  feasibility, risk-awareness, scope (YAGNI — neither over- nor under-specified),
+  testable acceptance criteria, internal consistency, and that security and
+  edge-case *considerations* are acknowledged. No code is involved.
+- **Code review (implementation)** — *heavyweight.* Checks correctness and logic,
+  security vulnerabilities, TDD/coverage and meaningful assertions, design and
+  unit boundaries, and convention adherence.
+
+**Review before commit (low-turnaround loop).** To keep iteration fast — and
+avoid a commit/push/CI cycle per revision — the review runs on the *uncommitted*
+working-tree diff (`git diff main`): author drafts → `make validate` → architect
+reviews the diff → author revises → repeat until it converges, then a **single
+commit** lands and the PR is opened. This is the default for documents and small
+changes; code changes where CI signal is itself part of the review (long diffs,
+new dependencies — anywhere green checks materially inform the review) may instead
+iterate on the PR. Either way:
+
+- The architect's review is **recorded on the PR** when it opens (the review is
+  posted there), so "the architect reviewed every PR" holds, and a quick
+  confirmation pass runs on the PR before merge.
+- The **human owner remains the sole merge gate** (ADR-0003); 0 approvals are
+  required and the architect never blocks via a GitHub approval.
 
 ## Definition of Done (every change)
 

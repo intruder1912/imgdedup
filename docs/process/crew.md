@@ -18,8 +18,13 @@ backlog. Hands architecture questions to the architect.
 
 Owns *how*. Turns PRDs into design and records decisions as ADRs in
 [`../adr/`](../adr/), including the fully-open technology-stack selection. **Also
-reviews every PR** for correctness, design, security, tests, and conventions —
-leaving comments (not a blocking GitHub approval).
+reviews every PR**, in one of two modes scaled to the artifact: a *lightweight
+document review* of PRDs/ADRs/process docs (feasibility, risk, scope/YAGNI,
+testable acceptance criteria, consistency) or a *heavyweight code review* of
+implementation (correctness, security, tests/TDD, design, conventions). To keep
+turnaround low, the review runs on the **uncommitted working-tree diff** and is
+then **recorded on the PR** — comments only, never a blocking GitHub approval.
+See [`sdlc.md`](sdlc.md).
 
 ### Implementer — [`implementer`](../../.claude/agents/implementer.md)
 
@@ -71,12 +76,18 @@ Backlog / tasks ◄────────────────────�
                                           Human Owner merges
 ```
 
+PRDs and ADRs go through the same **review-before-commit** loop as code: the
+author hands the architect the uncommitted working-tree diff, iterates until it
+converges, then makes a single commit and opens the PR with the review recorded
+on it (see [`sdlc.md`](sdlc.md)).
+
 ## Shared rules (all roles)
 
 - Read [`../../CLAUDE.md`](../../CLAUDE.md) first; the repo is the source of truth.
 - Brainstorm and grill on gaps before producing PRDs, ADRs, or features.
-- Follow the [SDLC](sdlc.md): branch → TDD → local validation → Conventional
-  Commit → PR → review → owner merge.
+- Follow the [SDLC](sdlc.md): branch → draft/TDD → local validation → architect
+  review on the working-tree diff → Conventional Commit → PR (review recorded) →
+  owner merge.
 - Use `git` and `gh` CLI only (no MCP) for version control and GitHub.
 - Update planning docs in the same PR as the work.
 
