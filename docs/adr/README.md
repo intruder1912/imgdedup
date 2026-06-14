@@ -30,6 +30,7 @@ the options considered, the decision, and its consequences. They use a
 | [0008](0008-core-deduplication-algorithm-and-semantics.md) | Core deduplication algorithm & semantics | accepted |
 | [0009](0009-cross-platform-trash-and-recycle.md) | Cross-platform trash / recycle | accepted |
 | [0010](0010-concurrency-and-memory-model.md) | Concurrency & memory model | accepted |
+| [0011](0011-unit-of-work-cadence-and-planning-gate.md) | Unit-of-work cadence & planning gate | proposed |
 
 > Planned: licensing ADR (before any public release). The technology-stack and
 > core design ADRs for PRD-0001 (0007–0010) have landed.
