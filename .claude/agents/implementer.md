@@ -27,6 +27,8 @@ maintainable production code — under **mandatory Test-Driven Development**.
 5. **Security-aware coding.** Validate untrusted input, handle file/path
    operations safely, never log or commit secrets.
 6. **Update docs and planning** affected by your change in the same PR.
+7. **Maintain technical documentation** (rustdoc on public items / `docs/` design
+   notes) for the code you write — part of Definition of Done, reviewed as code.
 
 ## Workflow
 
@@ -46,4 +48,5 @@ maintainable production code — under **mandatory Test-Driven Development**.
 ## Definition of done
 
 Acceptance criteria met and demonstrated by tests; local validation and CI green;
-docs/planning updated; all architect review threads resolved.
+technical docs (rustdoc / `docs/` design notes) and planning updated; all
+architect review threads resolved.

@@ -16,9 +16,9 @@ from the repo content alone.
 - **Small, focused changes**, each finished by a sensible Conventional Commit.
 - **Local validation before push.** CI is the enforcement boundary, not the first
   place you discover problems.
-- **Review before commit.** For fast turnaround, the architect reviews the
-  *uncommitted* working-tree diff and the author iterates before a single commit
-  lands; the review is then recorded on the PR (see
+- **Review before the PR opens.** For fast turnaround, the architect reviews the
+  **branch diff vs `main`** and the author iterates on the branch (pushes are
+  CI-free) before the PR is opened; the review is then recorded on the PR (see
   [Review kinds and timing](#review-kinds-and-timing)).
 
 ## The cycle
@@ -34,16 +34,16 @@ from the repo content alone.
         │                                         TDD: failing test → pass → refactor
         │                                                     │
         ▼                                                     ▼
-   update status.md (in progress)                 make validate  ──► fix findings
+   status.md (in progress, rides this PR)         make validate  ──► fix findings
                                                               │
                                                               ▼
-                                  architect review (working-tree diff) ◄──┐
+                                  architect review (branch diff vs main) ◄─┐
                                                               │           │ revise
                                                               ▼           │
                                               converged?  ──── no ────────┘
                                                               │ yes
                                                               ▼
-                                  Conventional Commit ──► push ──► open PR
+                                  commits ──► push (CI-free) ──► open PR (ready)
                                                               │   (review recorded as threads)
                                                               ▼
            ┌──────── stage-two loop (orchestrator-driven) ───────┐◄────────┐
@@ -63,10 +63,30 @@ from the repo content alone.
 
 ## Steps in detail
 
+0. **Classify the unit of work.** Before branching, decide the class —
+   **feature**, **fix**, or **chore** — which sets the cadence (branch prefix,
+   expected lifetime, what rides along, CI weight, review kind). See the
+   classification table below and
+   [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md). A
+   **branch = one unit of work**: it carries everything that unit needs —
+   design (PRD/ADR if applicable), TDD code, technical and user docs, **and**
+   the planning/status update — into a **single squash PR**.
+
+   | Class | Branch prefix | Lifetime / commits | Rides along | CI weight | Review kind |
+   |---|---|---|---|---|---|
+   | **feature** | `feature/…` | longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner) + planning update | full CI | heavyweight code review |
+   | **fix** | `fix/…` | short, few commits | failing test + fix + doc touch-ups + planning update | full CI | scoped code review |
+   | **chore** | `chore/`, `docs/`, `refactor/`, `test/` | process changes, standalone tech/user doc edits, isolated planning/grooming, standalone ADRs/PRDs | the doc/planning/process edit itself | docs-only units skip the Rust matrix | lightweight document review |
+
+   Rule of thumb: docs that **accompany** a feature ride the feature branch;
+   **standalone** doc/planning work is a chore unit.
+
 1. **Select work.** Take the next task from
    [`../planning/backlog.md`](../planning/backlog.md) (each non-trivial task has a
    spec in [`../planning/tasks/`](../planning/tasks/)). Mark it *in progress* in
-   [`../planning/status.md`](../planning/status.md).
+   [`../planning/status.md`](../planning/status.md). The **planning/status update
+   rides the unit's own branch/PR** — there is no separate doc-only PR for it.
+   The status flip for a task lands in that task's own PR.
 2. **Branch.** From up-to-date `main`, create `feature/<slug>`, `fix/<slug>`,
    `chore/<slug>`, or `docs/<slug>` (see
    [`branching.md`](branching.md)).
@@ -77,14 +97,21 @@ from the repo content alone.
 5. **Validate locally:** `make validate` — Markdown lint, spell check, link
    check, and (once code exists) format check, lint, and the test suite. **Fix
    every finding before pushing.**
-6. **Review before commit.** Hand the *uncommitted* working-tree diff to the
-   **architect** for review (see [Review kinds and timing](#review-kinds-and-timing)
-   below), revise, and repeat until it converges. This keeps refinement off the
-   commit/CI cycle.
-7. **Commit** — once the review loop has converged — with a Conventional Commit
-   message (see [`commits.md`](commits.md)). Choose commit granularity to match
-   the task chunk.
-8. **Push and open a PR.** The PR **title must be a valid Conventional Commit**
+6. **Review before the PR opens.** Because a unit now spans **many commits** on
+   the branch, the architect reviews the **branch diff vs `main` before the PR is
+   opened** (see [Review kinds and timing](#review-kinds-and-timing) below); the
+   author iterates on the branch (pushes are CI-free) and repeats until it
+   converges. This keeps refinement off the CI cycle. **Hold the PR:** pushing to a
+   topic branch triggers no CI (CI fires only on `pull_request` and push-to-`main`)
+   — work and push freely, and open the PR only once the unit is converged **and**
+   architect-reviewed.
+7. **Commit** — as the unit progresses — with Conventional Commit messages (see
+   [`commits.md`](commits.md)). Choose commit granularity to match the work; the
+   per-commit messages collapse into the squash, so only the **PR title** drives
+   the release.
+8. **Push and open a PR.** The PR opens in **ready** state (not draft); a green
+   `ci-gate` plus a confirmation pass are the merge gate. The PR **title must be a
+   valid Conventional Commit**
    (merges are squash-only, so the title becomes the `main` commit and drives the
    release). Fill in the PR template. **Record the architect's review on the PR**:
    a short prose summary as the overview, plus any substantive finding as its own
@@ -122,11 +149,12 @@ The architect performs **two distinct kinds of review**, scaled to the artifact:
   security vulnerabilities, TDD/coverage and meaningful assertions, design and
   unit boundaries, and convention adherence.
 
-**Review before commit (low-turnaround loop).** To keep iteration fast — and
-avoid a commit/push/CI cycle per revision — the review runs on the *uncommitted*
-working-tree diff (`git diff main`): author drafts → `make validate` → architect
-reviews the diff → author revises → repeat until it converges, then a **single
-commit** lands and the PR is opened. This is the default for documents and small
+**Review before the PR opens (low-turnaround loop).** To keep iteration fast —
+and avoid a CI cycle per revision — the review runs on the **branch diff vs
+`main`** (`git diff main`): author drafts → `make validate` → architect reviews
+the diff → author revises → repeat on the branch (pushes are CI-free) until it
+converges, then the PR is opened **ready** (not draft). A green `ci-gate` plus a
+confirmation pass are the merge gate. This is the default for documents and small
 changes; code changes where CI signal is itself part of the review (long diffs,
 new dependencies — anywhere green checks materially inform the review) may instead
 iterate on the PR. Either way:
@@ -153,5 +181,9 @@ threads**, not a single prose comment. See
 - Acceptance criteria met; behavior covered by meaningful tests (TDD).
 - `make validate` and CI green; security gate satisfied.
 - Conventional Commit / PR title; docs and planning updated.
+- **Technical docs** (implementer — rustdoc on public items / `docs/` design
+  notes) and **user-facing docs** (product-owner — CLI/usage guide, README)
+  updated with the behavior they describe; not deferred to a later doc PR.
+- **Planning/status updated in this same PR** (a free ride on the unit's branch).
 - All review threads resolved and required checks green (the ADR-0003 gate);
   human owner merged.

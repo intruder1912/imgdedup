@@ -52,6 +52,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0209 | Add Dependabot package ecosystem for the chosen stack | architect | todo | yes | TASK-0201 |
 | TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | todo | yes | TASK-0007 |
 | TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases | architect | todo | no | TASK-0203, TASK-0207 |
+| TASK-0212 | [Unit-of-work cadence & planning gate](tasks/TASK-0212-process-unit-of-work-cadence.md) (implements [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md); `ci-gate` + path-filtered Rust matrix) | architect | done | no | — |
 
 > **Phase 2 design ADRs landed:** TASK-0201 produced
 > [ADR-0007](../adr/0007-technology-stack-rust-clap.md) (stack = Rust + clap) plus
@@ -74,7 +75,7 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
-| TASK-0301 | [Crate scaffold, CLI surface & toolchain](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md) (fulfils TASK-0207; blocks all Phase 3) | implementer | todo | no | — |
+| TASK-0301 | [Crate scaffold, CLI surface & toolchain](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md) (fulfils TASK-0207; blocks all Phase 3) | implementer | done | no | — |
 | TASK-0302 | [File enumeration & scope](tasks/TASK-0302-file-enumeration-and-scope.md) (FR-1/2/6, NFR-6) | implementer | todo | yes | TASK-0301 |
 | TASK-0303 | [Magic-byte image confirmation](tasks/TASK-0303-magic-byte-image-confirmation.md) (FR-3, NFR-2) | implementer | todo | yes | TASK-0301 |
 | TASK-0304 | [Core dedup engine](tasks/TASK-0304-core-dedup-engine.md) — size→hash→verify→identity (FR-4/5/17, NFR-1) | implementer | todo | no | TASK-0302, TASK-0303 |

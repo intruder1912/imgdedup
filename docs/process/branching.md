@@ -12,7 +12,14 @@ with short-lived topic branches merged via reviewed pull requests.
 
 ## Topic branches
 
-Create from up-to-date `main`. Keep them short-lived and focused (one task).
+Create from up-to-date `main`. A **branch = one unit of work**: it carries
+everything that unit needs — design (PRD/ADR if applicable), TDD code, technical
+and user docs, **and** the planning/status update — into one squash PR. Classify
+the unit up front as **feature**, **fix**, or **chore**, which sets the cadence
+(prefix, lifetime, CI weight, review kind); see
+[ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md). Docs that
+**accompany** a feature ride the feature branch; **standalone** doc/planning work
+is its own chore unit.
 
 | Prefix | Use for |
 |---|---|
@@ -31,8 +38,11 @@ Naming: `prefix/<short-kebab-slug>`, optionally suffixed with a task id, e.g.
 1. `git switch -c feature/<slug>` from current `main`.
 2. Commit in focused increments (Conventional Commits).
 3. Keep up to date with `main` (rebase preferred to preserve linear history).
-4. Open a PR; the **PR title** is the Conventional Commit that lands on `main`.
-5. After merge, the branch is **auto-deleted**. Delete your local copy too.
+4. **Hold the PR.** Pushing to a topic branch triggers no CI — work and push
+   freely. Open the PR only once the unit is **converged and architect-reviewed**;
+   it opens in **ready** state (not draft).
+5. The **PR title** is the Conventional Commit that lands on `main`.
+6. After merge, the branch is **auto-deleted**. Delete your local copy too.
 
 ## Merge strategy
 

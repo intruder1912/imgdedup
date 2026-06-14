@@ -8,21 +8,17 @@ first file to read when resuming work.
 
 ## In progress
 
-- **TASK-0301 — Crate scaffold, CLI surface & toolchain.** Rust binary crate
-  (`Cargo.toml`, `Cargo.lock`), `rust-toolchain.toml` pinning 1.93.1 with
-  rustfmt+clippy, full PRD §8 clap-derive surface, exit-code constants module
-  (0/1/2/3), unit + integration tests covering the CLI surface and exit codes,
-  `make validate` Rust targets, `scripts/validate.sh` Rust gate, 3-OS CI `rust`
-  job.
+- _Nothing currently in progress._
 
 ## Up next
 
-- **Core-first fan-out (after TASK-0301 merges):** TASK-0302 (enumeration) and
-  TASK-0303 (magic-byte sniff) run in parallel; both feed TASK-0304 (dedup engine:
-  size → hash → byte-verify → identity); then TASK-0305 (keeper) and TASK-0306
-  (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) + TASK-0308
-  (JSON); TASK-0309 (trash apply + re-validation) → TASK-0310 (permanent delete);
-  TASK-0311 (exit codes); TASK-0312 (tester-led E2E + scale benchmark).
+- **Core-first fan-out (TASK-0301 merged — now ready):** TASK-0302 (enumeration)
+  and TASK-0303 (magic-byte sniff) are the immediately-ready, parallelizable next
+  tasks; both feed TASK-0304 (dedup engine: size → hash → byte-verify → identity);
+  then TASK-0305 (keeper) and TASK-0306 (concurrency/determinism). Fan-out
+  surfaces: TASK-0307 (human report) + TASK-0308 (JSON); TASK-0309 (trash apply +
+  re-validation) → TASK-0310 (permanent delete); TASK-0311 (exit codes); TASK-0312
+  (tester-led E2E + scale benchmark).
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
   and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203/TASK-0211
   (release and prebuilt binaries) remain.
@@ -32,6 +28,21 @@ first file to read when resuming work.
 
 ## Done
 
+- **Process — unit-of-work cadence & planning gate (ADR-0011 / TASK-0212).** One
+  branch now carries a whole unit of work (design, TDD code, technical/user docs,
+  and the planning/status update) into a single squash PR, classified up front as
+  feature/fix/chore; a required `ci-gate` job fronts a path-filtered Rust matrix so
+  docs/chore-only units skip the 3-OS compile. Reaffirms ADR-0002; ADR-0003/0006
+  intact. See [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md) and
+  [`tasks/TASK-0212-process-unit-of-work-cadence.md`](tasks/TASK-0212-process-unit-of-work-cadence.md).
+  **Owner action pending** — see Blockers.
+- **TASK-0301 — Crate scaffold, CLI surface & toolchain.** Merged in PR #14
+  (commit `2e12148`); **fulfils TASK-0207** (Rust toolchain). Delivered: Rust
+  binary crate (`Cargo.toml`, `Cargo.lock`), `rust-toolchain.toml` pinning the
+  toolchain with rustfmt+clippy, full PRD §8 clap-derive surface, exit-code
+  constants module (`0`/`1`/`2`/`3`), unit + integration tests covering the CLI
+  surface and exit codes, `make validate` Rust targets, `scripts/validate.sh`
+  Rust gate, and a 3-OS CI `rust` job (now a required check).
 - **TASK-0101 — PRD-0001 (exact image deduplication) accepted.** Merged in PR #9;
   status now `accepted`. Scope: exact (content-hash) duplicates only; dry-run
   default with `--apply`→OS trash and opt-in `--delete`; deterministic keeper rule
@@ -67,7 +78,14 @@ first file to read when resuming work.
 
 ## Blockers / waiting on owner
 
-- _None currently._ (`gh` re-authenticated 2026-06-13; GitHub steps unblocked.)
+- **Branch-protection switch (ADR-0011 / TASK-0212) — do right after this PR's CI
+  runs.** In `main` branch protection, **remove** required checks
+  `rust (ubuntu-latest)`, `rust (macos-latest)`, `rust (windows-latest)` and
+  **add** `ci-gate`; keep `markdownlint`, `spellcheck`, `structure`, `pr-title`,
+  `secret-scan`. The `ci-gate` check becomes selectable once it has run once (it
+  runs on this PR). **Until the switch, any docs/chore-only PR will hang** — the
+  Rust matrix is skipped on such PRs, so the still-required `rust (…)` checks never
+  report. Switch as soon as this PR's CI is green (before/at merge).
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
@@ -81,7 +99,8 @@ Every item intentionally deferred during the bootstrap now has a task in
 - Pin GitHub Actions to commit SHAs — **TASK-0204**.
 - Re-evaluate cspell → `typos` — **TASK-0205**.
 - Promote link check to a required gate — **TASK-0206**.
-- Language toolchain (build/lint/fmt/test/coverage/hooks) — **TASK-0207**.
+- Language toolchain (build/lint/fmt/test/coverage/hooks) — **TASK-0207**
+  (fulfilled by TASK-0301, merged in PR #14).
 - CodeQL + dependency audit — **TASK-0208**.
 - Dependabot package ecosystem for the stack — **TASK-0209**.
 - Project `.claude/settings.json` permission allowlist — **TASK-0210**.

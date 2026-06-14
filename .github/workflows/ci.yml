@@ -115,8 +115,33 @@ jobs:
           args: "--config lychee.toml --no-progress './**/*.md'"
           fail: false
 
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'build.rs'
+              - 'src/**'
+              - 'tests/**'
+              - '.github/workflows/ci.yml'
+
   rust:
     name: rust (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -138,3 +163,24 @@ jobs:
 
       - name: cargo test
         run: cargo test
+
+  ci-gate:
+    name: ci-gate
+    needs: [changes, rust]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate required jobs
+        run: |
+          set -euo pipefail
+          changes_result="${{ needs.changes.result }}"
+          rust_result="${{ needs.rust.result }}"
+          echo "changes: $changes_result | rust: $rust_result"
+          if [[ "$changes_result" == "failure" || "$changes_result" == "cancelled" ]]; then
+            echo "::error::path-filter job did not succeed"; exit 1
+          fi
+          if [[ "$rust_result" == "failure" || "$rust_result" == "cancelled" ]]; then
+            echo "::error::Rust checks failed"; exit 1
+          fi
+          # success or skipped (docs/chore-only) both pass the gate
+          echo "ci-gate passed"

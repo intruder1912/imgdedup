@@ -55,8 +55,14 @@ The **human owner is the only one who merges PRs** (see §5).
    Versioning.** Releases are automated. See
    [`docs/process/commits.md`](docs/process/commits.md) and
    [`docs/process/release.md`](docs/process/release.md).
-6. **One task = one branch = one focused PR.** Choose commit granularity to match
-   the task chunk. Branch naming and flow: [`docs/process/branching.md`](docs/process/branching.md).
+6. **One unit of work = one branch = one focused PR.** Classify the unit up front
+   as **feature**, **fix**, or **chore** (this sets the cadence — prefix, CI
+   weight, review kind). A branch carries everything that unit needs — design,
+   TDD code, technical/user docs, **and** the planning/status update — into one
+   squash PR; planning/doc updates ride that PR (no separate doc-only PR). Choose
+   commit granularity to match the work. Branch naming and flow:
+   [`docs/process/branching.md`](docs/process/branching.md); cadence rationale:
+   [`docs/adr/0011-unit-of-work-cadence-and-planning-gate.md`](docs/adr/0011-unit-of-work-cadence-and-planning-gate.md).
 7. **Tooling: `git` and `gh` CLI only. No MCP** for git/GitHub operations.
 
 ## 5. The development cycle (summary)
@@ -64,19 +70,22 @@ The **human owner is the only one who merges PRs** (see §5).
 Full detail in [`docs/process/sdlc.md`](docs/process/sdlc.md). In short:
 
 ```
-pick task → branch (feature/…) → brainstorm/design if needed
-  → produce/iterate artifact (TDD for code) → local validation (make validate)
-  → architect review on the working-tree diff (iterate until converged)
-  → commit (Conventional) → push → open PR (record the review; conventional title)
-  → CI must pass → architect confirms → HUMAN OWNER merges (squash)
-  → branch auto-deletes → update planning docs
+classify unit (feature/fix/chore) → branch (one unit of work)
+  → brainstorm/design if needed → produce/iterate artifact (TDD for code),
+    incl. tech/user docs + planning update → local validation (make validate)
+  → architect review on the branch diff vs main (iterate until converged)
+  → hold the PR until converged → open PR ready (conventional title; record review)
+  → ci-gate + required checks pass → architect confirms → HUMAN OWNER merges (squash)
+  → branch auto-deletes
 ```
 
 Review comes in two kinds, scaled to the artifact: a **lightweight document
 review** for PRDs/ADRs/process docs and a **heavyweight code review** for
 implementation. To keep turnaround low the substantive review runs on the
-*uncommitted* diff; it is recorded on the PR, where a quick confirmation pass runs
-before merge.
+**branch diff vs `main` before the PR is opened** (push freely on the branch — it
+triggers no CI; hold the PR until converged); it is recorded on the PR, where a
+quick confirmation pass runs before merge. See
+[`docs/adr/0011-unit-of-work-cadence-and-planning-gate.md`](docs/adr/0011-unit-of-work-cadence-and-planning-gate.md).
 
 `main` is protected: PRs required, CI checks required, linear history, **0
 required approvals** (the human owner is the gate and merges; this avoids the
@@ -98,3 +107,8 @@ self-approval deadlock — see
 Ask the human owner. Prefer a clarifying question over an assumption. If a
 decision has lasting impact, capture it in an ADR (architecture/process) or PRD
 (product) so it survives beyond the session.
+
+**Kaizen.** The orchestrator, product-owner, and architect may each propose
+process improvements when they spot material potential — raised as a chore unit
+and, if lasting, captured in an ADR (see
+[`docs/adr/0011-unit-of-work-cadence-and-planning-gate.md`](docs/adr/0011-unit-of-work-cadence-and-planning-gate.md)).

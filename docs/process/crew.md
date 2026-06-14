@@ -12,7 +12,9 @@ works — and one person decides it ships.
 
 Owns *what and why*. Elicits requirements (brainstorming, never assuming), writes
 PRDs in [`../prd/`](../prd/), defines acceptance criteria, and prioritizes the
-backlog. Hands architecture questions to the architect.
+backlog. Hands architecture questions to the architect. Also authors and
+maintains **user-facing documentation** (CLI/usage guide, relevant README
+sections) for any user-visible behavior, riding the feature's PR.
 
 ### Architect / Reviewer — [`architect`](../../.claude/agents/architect.md)
 
@@ -22,8 +24,9 @@ reviews every PR**, in one of two modes scaled to the artifact: a *lightweight
 document review* of PRDs/ADRs/process docs (feasibility, risk, scope/YAGNI,
 testable acceptance criteria, consistency) or a *heavyweight code review* of
 implementation (correctness, security, tests/TDD, design, conventions). To keep
-turnaround low, the substantive review runs on the **uncommitted working-tree
-diff** and is then **recorded on the PR** — as a prose summary plus **resolvable
+turnaround low, the substantive review runs on the **branch diff vs `main`**
+(the author holds the PR until converged) and is then **recorded on the PR** — as
+a prose summary plus **resolvable
 review threads** for each substantive finding, comments only, never a blocking
 GitHub approval. In the post-PR stage-two loop the architect **re-reviews** each
 iteration until checks are green and all threads are resolved. See
@@ -32,7 +35,9 @@ iteration until checks are green and all threads are resolved. See
 ### Implementer — [`implementer`](../../.claude/agents/implementer.md)
 
 Writes production code for specified tasks under **mandatory TDD**, following the
-ADRs. Keeps changes small and focused.
+ADRs. Keeps changes small and focused. Maintains **technical documentation**
+(rustdoc on public items / `docs/` design notes) for the code written — part of
+Definition of Done, reviewed as code.
 
 ### Tester — [`tester`](../../.claude/agents/tester.md)
 
@@ -44,6 +49,14 @@ meaningful, passing test and that success claims are backed by real output.
 The only one who **merges** PRs (the merge gate). Approves PRDs and ADRs,
 arbitrates open questions, and holds final say. Agents act on the owner's behalf
 but never self-merge.
+
+## Process self-improvement (kaizen)
+
+The **orchestrator, product-owner, and architect** may each propose process
+improvements when they spot material potential. Such a proposal is raised as a
+**chore unit** and, if lasting, captured in an ADR. See
+[ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md), which is itself
+the first such instance.
 
 ## Model assignment
 
@@ -82,10 +95,10 @@ Backlog / tasks ◄────────────────────�
                                           Human Owner merges
 ```
 
-PRDs and ADRs go through the same **review-before-commit** loop as code: the
-author hands the architect the uncommitted working-tree diff, iterates until it
-converges, then makes a single commit and opens the PR with the review recorded
-on it (see [`sdlc.md`](sdlc.md)).
+PRDs and ADRs go through the same **review-before-PR** loop as code: the author
+hands the architect the branch diff vs `main`, iterates on the branch (pushes are
+CI-free) until it converges, then opens the PR ready with the review recorded on
+it (see [`sdlc.md`](sdlc.md)).
 
 **Who drives the post-PR loop.** The role subagents are **stateless** — they watch
 nothing between dispatches — so once a PR is open the **orchestrator** (the main
@@ -100,9 +113,9 @@ merges. See [`sdlc.md`](sdlc.md) and
 
 - Read [`../../CLAUDE.md`](../../CLAUDE.md) first; the repo is the source of truth.
 - Brainstorm and grill on gaps before producing PRDs, ADRs, or features.
-- Follow the [SDLC](sdlc.md): branch → draft/TDD → local validation → architect
-  review on the working-tree diff → Conventional Commit → PR (review recorded) →
-  owner merge.
+- Follow the [SDLC](sdlc.md): classify (feature/fix/chore) → branch (one unit) →
+  draft/TDD → local validation → architect review on the branch diff vs `main` →
+  open PR ready (review recorded) → owner merge.
 - Use `git` and `gh` CLI only (no MCP) for version control and GitHub.
 - Update planning docs in the same PR as the work.
 
