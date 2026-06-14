@@ -63,3 +63,13 @@ Test-first (ADR-0005): write failing CLI/argument tests, then implement.
   by later Phase 3 tasks.
 - cargo-audit / cargo-deny **policy** authoring beyond wiring them to run — that is
   TASK-0208's reframed scope; this task only ensures the toolchain hooks exist.
+
+## Deviation
+
+**Coverage floor deferred.** The acceptance criteria mention gating `cargo llvm-cov`
+in `validate`/CI. Coverage tooling is wired as `make coverage` (a non-blocking
+convenience target), but an *enforced floor* is deferred to TASK-0312 (or when real
+deduplication logic exists). Rationale: setting a coverage floor on stub code provides
+no signal and adds CI cost for zero benefit — ADR-0005 explicitly states the floor
+should be "set once meaningful code exists". The `make coverage` target remains
+available for local measurement at any time.

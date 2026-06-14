@@ -3,39 +3,30 @@
 Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
-**Current phase:** Phase 3 — Implementation (TDD), tasks seeded
+**Current phase:** Phase 3 — Implementation (TDD)
 **Last updated:** 2026-06-14
 
 ## In progress
 
-- **Phase 3 task-seeding** — this PR. Twelve fine-grained implementation specs
-  (TASK-0301..TASK-0312) decompose the ADR-0008 pipeline; backlog + status updated
-  in the same PR. No product code yet.
+- **TASK-0301 — Crate scaffold, CLI surface & toolchain.** Rust binary crate
+  (`Cargo.toml`, `Cargo.lock`), `rust-toolchain.toml` pinning 1.93.1 with
+  rustfmt+clippy, full PRD §8 clap-derive surface, exit-code constants module
+  (0/1/2/3), unit + integration tests covering the CLI surface and exit codes,
+  `make validate` Rust targets, `scripts/validate.sh` Rust gate, 3-OS CI `rust`
+  job.
 
 ## Up next
 
-- **TASK-0301 — Crate scaffold, CLI surface & toolchain.** The Phase 3 **root**:
-  Cargo crate + `rust-toolchain.toml`, the full PRD §8 clap surface (incl.
-  `--exit-code` and the `--delete`-requires-`--apply` guard), exit-code constants
-  0/1/2/3 (ADR-0008), and `make validate`/CI wiring (rustfmt, clippy `-D warnings`,
-  cargo test, cargo-llvm-cov). It **fulfils TASK-0207** and **blocks every other
-  Phase 3 task**. Start here.
-- **Core-first → fan-out plan.** After TASK-0301: enumeration (TASK-0302) and
-  magic-byte sniff (TASK-0303) run in parallel; both feed the dedup engine
-  (TASK-0304, the safety heart: size → hash → byte-verify → identity); then keeper
-  selection (TASK-0305) and concurrency/determinism (TASK-0306). Once the core +
-  keeper exist, the fan-out surfaces parallelize: human report (TASK-0307) and JSON
-  (TASK-0308) together; trash apply + re-validation (TASK-0309) → permanent delete
-  (TASK-0310, shared executor); exit codes (TASK-0311); and the tester-led E2E +
-  NFR-4 scale benchmark (TASK-0312) closes the phase.
-- **Toolchain & gate wiring depending on the stack:** **TASK-0207 is folded into
-  TASK-0301** (done by it). **TASK-0208 reframed** to clippy + cargo-audit +
-  cargo-deny (CodeQL has no first-class Rust support — see ADR-0007), TASK-0209
-  (cargo Dependabot ecosystem), TASK-0203/TASK-0211 (release + prebuilt
-  cross-platform binaries).
-- **Product follow-up (resolved):** the duplicates-found exit code is the opt-in
-  `--exit-code` → `3` (FR-18, ADR-0008); wired in TASK-0311.
-- Stack-independent Phase 2 tasks remain available in parallel: TASK-0202
+- **Core-first fan-out (after TASK-0301 merges):** TASK-0302 (enumeration) and
+  TASK-0303 (magic-byte sniff) run in parallel; both feed TASK-0304 (dedup engine:
+  size → hash → byte-verify → identity); then TASK-0305 (keeper) and TASK-0306
+  (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) + TASK-0308
+  (JSON); TASK-0309 (trash apply + re-validation) → TASK-0310 (permanent delete);
+  TASK-0311 (exit codes); TASK-0312 (tester-led E2E + scale benchmark).
+- **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
+  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203/TASK-0211
+  (release and prebuilt binaries) remain.
+- Stack-independent Phase 2 tasks still available in parallel: TASK-0202
   (licensing ADR), TASK-0204 (SHA-pin actions), TASK-0205 (cspell→typos),
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
