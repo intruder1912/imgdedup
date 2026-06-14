@@ -75,6 +75,15 @@ must land before the parallelizable output/action surfaces. TASK-0301 fulfils
 TASK-0207 (toolchain). `make validate` (rustfmt, clippy `-D warnings`, cargo test,
 cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 
+> **Delivery cadence — PRD-0001 ships in slices (ADR-0013).** From here on,
+> feature delivery within PRD-0001 is carved into **coherent shippable slices**
+> (one branch → granular commits → one squash PR/release each), not one PR per
+> task. The task rows below stay the unit of design/TDD; a **slice groups tasks**.
+> See the "PRD-0001 delivery slices" subsection beneath this table for the slice
+> map, per-slice user value, and PR-open acceptance. The core slice (TASK-0301..0304)
+> already merged task-by-task under the pre-ADR-0013 cadence; the remaining slices
+> below are the new unit of work.
+
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
 | TASK-0301 | [Crate scaffold, CLI surface & toolchain](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md) (fulfils TASK-0207; blocks all Phase 3) | implementer | done | no | — |
@@ -89,3 +98,60 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0310 | [Permanent delete](tasks/TASK-0310-permanent-delete.md) (FR-11) | implementer | todo | no | TASK-0309 |
 | TASK-0311 | [Exit-code semantics & `--exit-code`](tasks/TASK-0311-exit-code-semantics.md) (FR-15/18) | implementer | todo | no | TASK-0307 |
 | TASK-0312 | [E2E acceptance & NFR-4 scale/benchmark](tasks/TASK-0312-e2e-acceptance-and-scale-benchmark.md) (AC-1..19, NFR-4) | tester | todo | no | TASK-0307, TASK-0308, TASK-0309, TASK-0310, TASK-0311 |
+
+### PRD-0001 delivery slices
+
+The remaining PRD-0001 work (TASK-0305..0312) is carved into four **shippable
+slices** per [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md). Each slice is
+end-to-end-validatable, independently mergeable/releasable, larger than a task and
+smaller than the whole PRD, and respects the backlog dependency ordering. The
+product-owner carves them; the architect sanity-checks the boundaries. Each slice
+opens its PR only when the product-owner has (1) accepted all the slice's listed
+functional requirements and (2) delivered its user-facing docs (README +
+`docs/guide/`, [ADR-0012](../adr/0012-documentation-ownership-and-placement.md)).
+
+The core slice (TASK-0301..0304: scaffold/CLI, enumeration, sniff, dedup engine) is
+**already merged** — it landed task-by-task before ADR-0013 and produced
+analysis-only behavior with no user-facing report yet. The four slices below are
+the new unit of work and are ordered by dependency; they ship in sequence.
+
+| Slice | Slug | Tasks | User-visible value | PR-open acceptance (FRs + docs) |
+|---|---|---|---|---|
+| S1 — Detect & report (read-only) | `detect-report` | TASK-0305, TASK-0306, TASK-0307, TASK-0311 | First end-to-end usable tool: a user can scan paths and get a deterministic dry-run report of every exact-duplicate group, its keeper, the files that would be removed, counts, reclaimable space, and hard-link notes — with `--keep {shortest\|oldest\|newest}` and the opt-in `--exit-code`. Nothing is ever modified on disk. | FR-7, FR-8 (keeper rule + `--keep`), FR-9 (dry-run default), FR-13 (human report), FR-15, FR-18 (`--exit-code`), FR-17 (hard-link notes), NFR-3 (determinism), NFR-4 (streaming + parallel hashing baseline), NFR-6 (per-file skip warnings). **Docs:** README general-usage overview (scan + read the report) and the matching `docs/guide/` pages — `getting-started.md`, `scanning-and-scope.md`, `choosing-what-to-keep.md`, and the exit-code half of `output-and-exit-codes.md` — synced to shipped behavior. |
+| S2 — JSON output | `json-output` | TASK-0308 | Power users can drive `imgdedup` from scripts: `--json` emits valid, deterministic machine-readable output (groups, keeper, intended actions, totals) over the same canonical model as the human report. | FR-14 (`--json`), NFR-3 (deterministic JSON). **Docs:** README mention of `--json` and the JSON-output section of `docs/guide/output-and-exit-codes.md` (documented field schema). |
+| S3 — Destructive actions | `apply-delete` | TASK-0309, TASK-0310 | The tool becomes actionable: `--apply` moves non-keepers to the OS trash (recoverable) and `--apply --delete` permanently deletes them, both gated by apply-time re-validation, idempotent, and matching the dry-run for an unchanged tree. The keeper is never removed and no group is left empty. | FR-10 (`--apply` → trash), FR-11 (`--apply --delete`), FR-12 (idempotence), FR-16 (apply-time re-validation), NFR-1 (safety invariant), NFR-2 (no non-image removed), NFR-6. **Docs:** README actions overview (`--apply`/`--delete` + safety model) and `docs/guide/removing-duplicates-safely.md` synced to shipped behavior. |
+| S4 — E2E acceptance & scale | `e2e-scale` | TASK-0312 | Confidence + cross-platform proof: every PRD acceptance criterion (AC-1..AC-19) is verified through the real CLI on Linux/macOS/Windows, and the NFR-4 scale targets (100k+ files, bounded memory, parallel throughput) are validated, fixing the empirical concurrency default. | Full AC-1..AC-19 acceptance, NFR-3/NFR-4/NFR-5. **Docs:** reconcile README + `docs/guide/` (incl. `docs/guide/README.md` index) with the fully verified end-to-end behavior; no user-facing gaps remain. |
+
+**Slice ordering & boundaries (justification).**
+
+- **S1 first** because a read-only "detect + report" increment is the smallest
+  thing that is independently useful and independently validatable, and it carries
+  zero destructive risk — the safest first release. It bundles keeper selection
+  (TASK-0305) and concurrency/determinism (TASK-0306) because a report without a
+  chosen keeper or without canonical ordering is neither correct nor
+  deterministic — they are not separately shippable. `--exit-code` (TASK-0311)
+  rides S1 because it only maps the already-computed dry-run outcome to a status
+  code and completes the "scriptable read-only run"; it depends on the report
+  (TASK-0307) and nothing destructive.
+- **S2 (JSON)** is split out as its own slice: it is an independent formatter over
+  S1's model (TASK-0308 is `Parallel: yes` with the human report), adds a distinct
+  user capability (scripting), and is small enough to ship and release on its own
+  without waiting on the destructive surfaces.
+- **S3 (destructive actions)** groups trash apply (TASK-0309) and permanent delete
+  (TASK-0310) because TASK-0310 reuses TASK-0309's executor and its apply-time
+  re-validation — they share one safety-critical code path and one docs page, and
+  splitting them would ship an incomplete actions surface. This slice is gated last
+  among the feature slices so the highest-risk code lands after the read-only and
+  scripting paths are proven.
+- **S4 (E2E + scale)** is its own tester-led slice: it depends on every prior slice
+  (AC-1..AC-19 + NFR-4) and delivers the cross-platform acceptance proof and the
+  empirical concurrency default. It is the PRD-completion slice rather than a
+  feature increment, but it is independently mergeable and ships the final
+  doc reconciliation.
+
+**Cross-slice dependency note.** S1 → S2 → S3 → S4 is the safe default ship order
+and matches the task dependencies (TASK-0308/0309 depend on TASK-0305 in S1;
+TASK-0312 depends on all). S2 and S3 both depend only on S1, so they *could* be
+worked in either order or concurrently on separate branches; the table orders them
+JSON-before-destructive to ship the lower-risk capability first. Each slice rebases
+on `main` after the previous one merges (ADR-0013).
