@@ -63,6 +63,7 @@
     "cycjimmy",
     "clippy",
     "rustfmt",
+    "rustup",
     "rayon",
     "BLAKE",
     "xxHash",

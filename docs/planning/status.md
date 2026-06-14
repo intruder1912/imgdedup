@@ -32,6 +32,20 @@ first file to read when resuming work.
 
 ## Done
 
+- **TASK-0213 — Documentation ownership & guide structure (ADR-0012).** Formalized
+  that the **product-owner owns user-facing documentation** (justified by owning
+  functional acceptance), split by depth: **general usage in `README.md`**,
+  **detailed per-topic pages in `docs/guide/`** (a linked collection of
+  self-contained guide pages with an index). Authored
+  [ADR-0012](../adr/0012-documentation-ownership-and-placement.md) (extends
+  ADR-0011), established `docs/guide/` (index + getting-started, scanning & scope,
+  choosing what to keep, removing duplicates safely, output & exit codes — the
+  detailed reference migrated out of the README), slimmed the README to general
+  usage + a guide link, and propagated the rule consistently into
+  `product-owner.md`, `crew.md`, `sdlc.md` (DoD + unit-of-work table), `CLAUDE.md`
+  (roles + repo map), and the PRD template. Docs-only unit; markdownlint + cspell
+  green, links resolve.
+
 - **TASK-0304 — Core dedup engine (the safety heart).** New module `src/engine.rs`
   with `find_duplicates(files, keeper_order) -> DedupOutcome` implementing the
   ADR-0008 pipeline: size pre-grouping (singletons dropped without hashing, AC-9)

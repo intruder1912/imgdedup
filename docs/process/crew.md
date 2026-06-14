@@ -11,10 +11,15 @@ works — and one person decides it ships.
 ### Product Owner — [`product-owner`](../../.claude/agents/product-owner.md)
 
 Owns *what and why*. Elicits requirements (brainstorming, never assuming), writes
-PRDs in [`../prd/`](../prd/), defines acceptance criteria, and prioritizes the
-backlog. Hands architecture questions to the architect. Also authors and
-maintains **user-facing documentation** (CLI/usage guide, relevant README
-sections) for any user-visible behavior, riding the feature's PR.
+PRDs in [`../prd/`](../prd/), defines acceptance criteria, prioritizes the
+backlog, and owns **functional acceptance** — the product-level sign-off that
+shipped behavior matches the PRD (the tester supplies the verifying tests/evidence;
+see below). Hands architecture questions to the architect. Because the role accepts
+the behavior, it also owns **user-facing documentation** for any user-visible
+behavior, riding the feature's PR: **general usage in the top-level `README.md`**
+and **detailed, per-topic pages in [`../guide/`](../guide/)** (a linked collection
+of self-contained guide pages). See
+[ADR-0012](../adr/0012-documentation-ownership-and-placement.md).
 
 ### Architect / Reviewer — [`architect`](../../.claude/agents/architect.md)
 
