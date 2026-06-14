@@ -40,22 +40,9 @@ fn run(args: cli::Cli) -> i32 {
 
     // Enumerate candidate files — first pipeline stage (ADR-0008).
     // The result feeds TASK-0303 (magic-byte confirm) onward.
-    let candidate_set = enumerate::enumerate(&args.paths, &scope);
-
-    // Warnings from enumeration (unreadable entries, NFR-6) will be rendered
-    // by TASK-0307. Forward them into the pipeline stub so the fields are live.
-    // The path and reason fields are consumed by the report unit (TASK-0307).
-    for warning in &candidate_set.warnings {
-        // Placeholder: TASK-0307 will render these via the report module.
-        // Access fields to keep them live until the report unit is wired.
-        let _ = (&warning.path, &warning.reason);
-    }
-
-    // Candidates (path + size) proceed to TASK-0303 (magic-byte sniff) →
-    // TASK-0304 (size-group → hash → byte-verify) → ... pipeline continues.
-    for candidate in &candidate_set.candidates {
-        let _ = (&candidate.path, candidate.size);
-    }
+    // Fields are annotated #[allow(dead_code)] in enumerate.rs until each
+    // downstream stage is wired (TASK-0303/0304/0307/0311).
+    let _candidate_set = enumerate::enumerate(&args.paths, &scope);
 
     exit_code::SUCCESS
 }
