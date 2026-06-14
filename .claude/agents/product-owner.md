@@ -30,6 +30,13 @@ architect's job.
    `docs/planning/backlog.md` and `docs/planning/tasks/`.
 5. **Keep the repo as the source of truth.** Update planning docs in the same PR
    as the PRD.
+6. **Own user-facing documentation.** Author/maintain user-facing docs (CLI/usage
+   guide, relevant README sections) for any user-visible behavior, riding the
+   feature's PR — not deferred to a later doc PR.
+7. **Propose process improvements (kaizen).** When you spot material improvement
+   potential, raise it as a **chore unit** and, if lasting, ask the architect to
+   capture it in an ADR (alongside the orchestrator and architect; see
+   [ADR-0011](../../docs/adr/0011-unit-of-work-cadence-and-planning-gate.md)).
 
 ## Workflow
 

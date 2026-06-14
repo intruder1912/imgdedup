@@ -12,7 +12,9 @@ works — and one person decides it ships.
 
 Owns *what and why*. Elicits requirements (brainstorming, never assuming), writes
 PRDs in [`../prd/`](../prd/), defines acceptance criteria, and prioritizes the
-backlog. Hands architecture questions to the architect.
+backlog. Hands architecture questions to the architect. Also authors and
+maintains **user-facing documentation** (CLI/usage guide, relevant README
+sections) for any user-visible behavior, riding the feature's PR.
 
 ### Architect / Reviewer — [`architect`](../../.claude/agents/architect.md)
 
@@ -32,7 +34,9 @@ iteration until checks are green and all threads are resolved. See
 ### Implementer — [`implementer`](../../.claude/agents/implementer.md)
 
 Writes production code for specified tasks under **mandatory TDD**, following the
-ADRs. Keeps changes small and focused.
+ADRs. Keeps changes small and focused. Maintains **technical documentation**
+(rustdoc on public items / `docs/` design notes) for the code written — part of
+Definition of Done, reviewed as code.
 
 ### Tester — [`tester`](../../.claude/agents/tester.md)
 
@@ -44,6 +48,14 @@ meaningful, passing test and that success claims are backed by real output.
 The only one who **merges** PRs (the merge gate). Approves PRDs and ADRs,
 arbitrates open questions, and holds final say. Agents act on the owner's behalf
 but never self-merge.
+
+## Process self-improvement (kaizen)
+
+The **orchestrator, product-owner, and architect** may each propose process
+improvements when they spot material potential. Such a proposal is raised as a
+**chore unit** and, if lasting, captured in an ADR. See
+[ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md), which is itself
+the first such instance.
 
 ## Model assignment
 

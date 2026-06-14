@@ -26,6 +26,10 @@ Rules:
 4. **Security and performance are design inputs**, not afterthoughts.
 5. Reflect resulting work as fine-grained, parallelizable tasks in
    `docs/planning/`.
+6. **Propose process improvements (kaizen).** When you spot material improvement
+   potential, raise it as a **chore unit** and, if lasting, capture it in an ADR
+   (alongside the orchestrator and product-owner; see
+   [ADR-0011](../../docs/adr/0011-unit-of-work-cadence-and-planning-gate.md)).
 
 ## As Reviewer
 
