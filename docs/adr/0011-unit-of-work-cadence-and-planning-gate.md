@@ -1,6 +1,6 @@
 # ADR-0011: Unit-of-work cadence & planning gate
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-14
 - **Deciders:** architect, human owner
 - **Related:** [ADR-0002](0002-in-repo-markdown-as-canonical-planning.md)

@@ -70,19 +70,22 @@ The **human owner is the only one who merges PRs** (see §5).
 Full detail in [`docs/process/sdlc.md`](docs/process/sdlc.md). In short:
 
 ```
-pick task → branch (feature/…) → brainstorm/design if needed
-  → produce/iterate artifact (TDD for code) → local validation (make validate)
-  → architect review on the working-tree diff (iterate until converged)
-  → commit (Conventional) → push → open PR (record the review; conventional title)
-  → CI must pass → architect confirms → HUMAN OWNER merges (squash)
-  → branch auto-deletes → update planning docs
+classify unit (feature/fix/chore) → branch (one unit of work)
+  → brainstorm/design if needed → produce/iterate artifact (TDD for code),
+    incl. tech/user docs + planning update → local validation (make validate)
+  → architect review on the branch diff vs main (iterate until converged)
+  → hold the PR until converged → open PR ready (conventional title; record review)
+  → ci-gate + required checks pass → architect confirms → HUMAN OWNER merges (squash)
+  → branch auto-deletes
 ```
 
 Review comes in two kinds, scaled to the artifact: a **lightweight document
 review** for PRDs/ADRs/process docs and a **heavyweight code review** for
 implementation. To keep turnaround low the substantive review runs on the
-*uncommitted* diff; it is recorded on the PR, where a quick confirmation pass runs
-before merge.
+**branch diff vs `main` before the PR is opened** (push freely on the branch — it
+triggers no CI; hold the PR until converged); it is recorded on the PR, where a
+quick confirmation pass runs before merge. See
+[`docs/adr/0011-unit-of-work-cadence-and-planning-gate.md`](docs/adr/0011-unit-of-work-cadence-and-planning-gate.md).
 
 `main` is protected: PRs required, CI checks required, linear history, **0
 required approvals** (the human owner is the gate and merges; this avoids the

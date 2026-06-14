@@ -28,6 +28,14 @@ first file to read when resuming work.
 
 ## Done
 
+- **Process — unit-of-work cadence & planning gate (ADR-0011 / TASK-0212).** One
+  branch now carries a whole unit of work (design, TDD code, technical/user docs,
+  and the planning/status update) into a single squash PR, classified up front as
+  feature/fix/chore; a required `ci-gate` job fronts a path-filtered Rust matrix so
+  docs/chore-only units skip the 3-OS compile. Reaffirms ADR-0002; ADR-0003/0006
+  intact. See [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md) and
+  [`tasks/TASK-0212-process-unit-of-work-cadence.md`](tasks/TASK-0212-process-unit-of-work-cadence.md).
+  **Owner action pending** — see Blockers.
 - **TASK-0301 — Crate scaffold, CLI surface & toolchain.** Merged in PR #14
   (commit `2e12148`); **fulfils TASK-0207** (Rust toolchain). Delivered: Rust
   binary crate (`Cargo.toml`, `Cargo.lock`), `rust-toolchain.toml` pinning the
@@ -70,7 +78,14 @@ first file to read when resuming work.
 
 ## Blockers / waiting on owner
 
-- _None currently._ (`gh` re-authenticated 2026-06-13; GitHub steps unblocked.)
+- **Branch-protection switch (ADR-0011 / TASK-0212) — do right after this PR's CI
+  runs.** In `main` branch protection, **remove** required checks
+  `rust (ubuntu-latest)`, `rust (macos-latest)`, `rust (windows-latest)` and
+  **add** `ci-gate`; keep `markdownlint`, `spellcheck`, `structure`, `pr-title`,
+  `secret-scan`. The `ci-gate` check becomes selectable once it has run once (it
+  runs on this PR). **Until the switch, any docs/chore-only PR will hang** — the
+  Rust matrix is skipped on such PRs, so the still-required `rust (…)` checks never
+  report. Switch as soon as this PR's CI is green (before/at merge).
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
