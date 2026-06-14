@@ -8,7 +8,10 @@ first file to read when resuming work.
 
 ## In progress
 
-- _Nothing currently in progress._
+- **TASK-0302 — File enumeration & scope** (feature unit; first Phase 3 task under
+  the new unit-of-work cadence). Traversal module consuming the CLI scope flags:
+  recursion control, extension allow-list, hidden/symlink defaults + opt-ins,
+  per-file skip-and-report. Runs in parallel with TASK-0303.
 
 ## Up next
 
@@ -35,7 +38,9 @@ first file to read when resuming work.
   docs/chore-only units skip the 3-OS compile. Reaffirms ADR-0002; ADR-0003/0006
   intact. See [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md) and
   [`tasks/TASK-0212-process-unit-of-work-cadence.md`](tasks/TASK-0212-process-unit-of-work-cadence.md).
-  **Owner action pending** — see Blockers.
+  Merged in PR #16; owner completed the branch-protection swap — `main`'s required
+  CI check is now `ci-gate` (the three `rust (…-latest)` checks are gated behind it
+  and skipped on docs/chore-only PRs).
 - **TASK-0301 — Crate scaffold, CLI surface & toolchain.** Merged in PR #14
   (commit `2e12148`); **fulfils TASK-0207** (Rust toolchain). Delivered: Rust
   binary crate (`Cargo.toml`, `Cargo.lock`), `rust-toolchain.toml` pinning the
@@ -78,14 +83,8 @@ first file to read when resuming work.
 
 ## Blockers / waiting on owner
 
-- **Branch-protection switch (ADR-0011 / TASK-0212) — do right after this PR's CI
-  runs.** In `main` branch protection, **remove** required checks
-  `rust (ubuntu-latest)`, `rust (macos-latest)`, `rust (windows-latest)` and
-  **add** `ci-gate`; keep `markdownlint`, `spellcheck`, `structure`, `pr-title`,
-  `secret-scan`. The `ci-gate` check becomes selectable once it has run once (it
-  runs on this PR). **Until the switch, any docs/chore-only PR will hang** — the
-  Rust matrix is skipped on such PRs, so the still-required `rust (…)` checks never
-  report. Switch as soon as this PR's CI is green (before/at merge).
+- _None currently._ (ADR-0011 branch-protection swap completed 2026-06-14; `main`
+  now requires `ci-gate` plus the doc/security checks.)
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
