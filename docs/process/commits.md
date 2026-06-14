@@ -58,6 +58,15 @@ docs(adr): add ADR-0006 selecting the technology stack
 chore(ci): pin actions to commit SHAs
 ```
 
+## Squash vs per-commit hygiene
+
+Merges are squash-only and a branch carries a **whole unit of work** (many
+commits), so only the **PR title** is the release-driving Conventional Commit —
+it becomes the single commit on `main`. The per-commit messages on the branch are
+for **review and history hygiene**: still write them as Conventional Commits, but
+they collapse into the squash and do **not** individually drive the release. See
+[ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md).
+
 ## How commits are documented
 
 The Conventional Commit history **is** the change log: the release tooling
