@@ -14,8 +14,8 @@ first file to read when resuming work.
 
 - **TASK-0304 — Core dedup engine** (size → hash → byte-verify → identity)
   is the convergence point; TASK-0302 and TASK-0303 are now complete.
-- **Core-first fan-out:** TASK-0303 feeds TASK-0304 (dedup engine: size → hash →
-  byte-verify → identity); then TASK-0305 (keeper) and TASK-0306
+- **Core-first fan-out (downstream of TASK-0304):** TASK-0304 (dedup engine: size →
+  hash → byte-verify → identity) then feeds TASK-0305 (keeper) and TASK-0306
   (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) +
   TASK-0308 (JSON); TASK-0309 (trash apply + re-validation) → TASK-0310
   (permanent delete); TASK-0311 (exit codes); TASK-0312 (tester-led E2E + scale
