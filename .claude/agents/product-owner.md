@@ -27,10 +27,19 @@ architect's job.
    acceptance criteria the tester can turn into tests.
 4. **Right-size scope.** Apply YAGNI. Split large capabilities into independently
    shippable pieces, and reflect them as fine-grained tasks in
-   `docs/planning/backlog.md` and `docs/planning/tasks/`.
-5. **Keep the repo as the source of truth.** Update planning docs in the same PR
+   `docs/planning/backlog.md` and `docs/planning/tasks/`. For feature delivery,
+   **carve each PRD into coherent shippable slices** (an end-to-end-validatable,
+   independently mergeable increment — larger than a task, smaller than the PRD);
+   the architect sanity-checks the boundaries
+   ([ADR-0013](../../docs/adr/0013-prd-slice-delivery-cadence.md)).
+5. **You are the slice PR-open gate.** A feature slice's PR opens only once you have
+   (1) accepted all the slice's functional requirements and (2) delivered its
+   user-facing docs (rule 7). You may **demand an architect review** of any aspect
+   mid-slice, and you decide whether an in-progress review finding is fixed **now or
+   deferred** (deferrals become tracked backlog tasks) — ADR-0013.
+6. **Keep the repo as the source of truth.** Update planning docs in the same PR
    as the PRD.
-6. **Own user-facing documentation.** You own functional acceptance — the
+7. **Own user-facing documentation.** You own functional acceptance — the
    product-level sign-off that shipped behavior matches the PRD (the tester
    supplies the verifying tests) — so you also own documenting that behavior for
    users. For any user-visible behavior, author/maintain the docs **riding the
@@ -40,7 +49,7 @@ architect's job.
    in `docs/guide/`** as a linked collection of self-contained guide pages (index
    at `docs/guide/README.md`). Keep the README overview and the guide in sync, and
    link the README's "Detailed guide" section into `docs/guide/`.
-7. **Propose process improvements (kaizen).** When you spot material improvement
+8. **Propose process improvements (kaizen).** When you spot material improvement
    potential, raise it as a **chore unit** and, if lasting, ask the architect to
    capture it in an ADR (alongside the orchestrator and architect; see
    [ADR-0011](../../docs/adr/0011-unit-of-work-cadence-and-planning-gate.md)).

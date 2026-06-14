@@ -32,6 +32,25 @@ first file to read when resuming work.
 
 ## Done
 
+- **TASK-0214 — PRD-slice delivery cadence & in-progress review protocol
+  (ADR-0013).** For **feature delivery**, the unit of work is now a **coherent
+  shippable slice** of a PRD (product-owner carves, architect sanity-checks) rather
+  than a single task; `fix`/`chore` keep the ADR-0011 small-PR cadence. A slice is
+  one branch + granular commits, **PR-less and CI-free until complete**, squash-
+  merged (ADR-0003/0004 unchanged). **In-progress reviews:** the implementer
+  requests an architect review for significant/risky changes (not per-commit; the
+  product-owner and orchestrator may demand one), logged in
+  `docs/planning/reviews/<slice>.md`; feedback is worked immediately, with
+  uncertain now-vs-defer decided by the product-owner and **deferrals promoted to
+  tracked tasks**. **PR-open gate:** the product-owner has accepted all the slice's
+  functional requirements and delivered its docs (ADR-0012); then a **full whole-
+  slice architect review** builds on the log, under the ADR-0006 resolve-all gate
+  (the 3-OS matrix runs at slice end — an accepted, contained residual risk).
+  Authored [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md) + the
+  `docs/planning/reviews/` location, and propagated the cadence into `sdlc.md`,
+  `branching.md`, `crew.md`, the implementer/product-owner/architect role defs, and
+  `CLAUDE.md`. Docs-only; markdownlint + cspell green, links resolve.
+
 - **TASK-0213 — Documentation ownership & guide structure (ADR-0012).** Formalized
   that the **product-owner owns user-facing documentation** (justified by owning
   functional acceptance), split by depth: **general usage in `README.md`**,

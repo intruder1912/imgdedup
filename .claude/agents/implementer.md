@@ -20,8 +20,11 @@ maintainable production code — under **mandatory Test-Driven Development**.
 2. **Follow the ADRs.** Do not introduce new dependencies, patterns, or
    architecture not sanctioned by an ADR. If you need one, stop and ask the
    architect to record it.
-3. **Small, focused changes.** One task = one branch = one focused PR. Keep units
-   small with clear interfaces.
+3. **Small, focused changes.** Keep units small with clear interfaces. `fix`/`chore`
+   work is one unit = one branch = one focused PR. **Feature** work is delivered as
+   a **PRD slice** — a coherent shippable increment of a PRD carved by the
+   product-owner — on one branch with granular commits, opened as a single PR when
+   complete ([ADR-0013](../../docs/adr/0013-prd-slice-delivery-cadence.md)).
 4. **Run local validation before every push** (`make validate`) and fix all
    findings — lint, format, spell check, link check, and tests must be green.
 5. **Security-aware coding.** Validate untrusted input, handle file/path
@@ -29,6 +32,14 @@ maintainable production code — under **mandatory Test-Driven Development**.
 6. **Update docs and planning** affected by your change in the same PR.
 7. **Maintain technical documentation** (rustdoc on public items / `docs/` design
    notes) for the code you write — part of Definition of Done, reviewed as code.
+8. **Drive in-progress review on a slice.** **Request an architect review** for
+   significant or especially risky/complex changes (your discretion — **not every
+   commit**); the product-owner and orchestrator may also demand one. Log each
+   review in `docs/planning/reviews/<slice>.md`. **Work feedback immediately**; if
+   unsure whether to fix now or defer, **ask the product-owner to decide** and, on a
+   defer, **open a tracked backlog task** for it. Apply `receiving-code-review`
+   discipline — verify findings, push back when wrong, never blind-comply
+   ([ADR-0013](../../docs/adr/0013-prd-slice-delivery-cadence.md)).
 
 ## Workflow
 
