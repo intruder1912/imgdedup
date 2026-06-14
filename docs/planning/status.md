@@ -8,13 +8,12 @@ first file to read when resuming work.
 
 ## In progress
 
-- _(none — TASK-0302 complete on this branch; TASK-0303 is the next parallel unit)_
+- _(none)_
 
 ## Up next
 
-- **TASK-0303 — Magic-byte sniff** (parallel with TASK-0302, now complete):
-  content-confirm each enumerated candidate is a real image using the `infer`
-  crate before it enters the grouping pipeline (FR-3, NFR-2).
+- **TASK-0304 — Core dedup engine** (size → hash → byte-verify → identity)
+  is the convergence point; TASK-0302 and TASK-0303 are now complete.
 - **Core-first fan-out:** TASK-0303 feeds TASK-0304 (dedup engine: size → hash →
   byte-verify → identity); then TASK-0305 (keeper) and TASK-0306
   (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) +
@@ -29,6 +28,18 @@ first file to read when resuming work.
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **TASK-0303 — Magic-byte image confirmation.** New module `src/sniff.rs`
+  with `confirm_image(path) -> bool` (reads at most 64-byte header, uses
+  `infer` crate) and `filter_candidates(paths) -> (confirmed, warnings)`.
+  Confirms JPEG, PNG, GIF87a/GIF89a, WebP, BMP, TIFF-LE/TIFF-BE by magic
+  bytes. Mislabeled files (e.g. text named `photo.jpg`) are rejected and
+  collected as `SniffWarning` records — never grouped or acted on (FR-3,
+  NFR-2). Wired into `main.rs::run()` as stage 2 after enumeration; removed
+  the now-unnecessary `#[allow(dead_code)]` on `Candidate.path`. Adds
+  `infer 0.16` to `Cargo.toml`. 14 unit tests (one per format + AC-4 +
+  bounded-read invariant + `filter_candidates` behavior); all 86 tests
+  green; fmt/clippy clean.
 
 - **TASK-0302 — File enumeration & scope.** Traversal module (`src/enumerate.rs`)
   implementing the first pipeline stage (ADR-0008). Delivers:
