@@ -8,17 +8,19 @@ first file to read when resuming work.
 
 ## In progress
 
-- _Nothing currently in progress._
+- _(none — TASK-0302 complete on this branch; TASK-0303 is the next parallel unit)_
 
 ## Up next
 
-- **Core-first fan-out (TASK-0301 merged — now ready):** TASK-0302 (enumeration)
-  and TASK-0303 (magic-byte sniff) are the immediately-ready, parallelizable next
-  tasks; both feed TASK-0304 (dedup engine: size → hash → byte-verify → identity);
-  then TASK-0305 (keeper) and TASK-0306 (concurrency/determinism). Fan-out
-  surfaces: TASK-0307 (human report) + TASK-0308 (JSON); TASK-0309 (trash apply +
-  re-validation) → TASK-0310 (permanent delete); TASK-0311 (exit codes); TASK-0312
-  (tester-led E2E + scale benchmark).
+- **TASK-0303 — Magic-byte sniff** (parallel with TASK-0302, now complete):
+  content-confirm each enumerated candidate is a real image using the `infer`
+  crate before it enters the grouping pipeline (FR-3, NFR-2).
+- **Core-first fan-out:** TASK-0303 feeds TASK-0304 (dedup engine: size → hash →
+  byte-verify → identity); then TASK-0305 (keeper) and TASK-0306
+  (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) +
+  TASK-0308 (JSON); TASK-0309 (trash apply + re-validation) → TASK-0310
+  (permanent delete); TASK-0311 (exit codes); TASK-0312 (tester-led E2E + scale
+  benchmark).
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
   and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203/TASK-0211
   (release and prebuilt binaries) remain.
@@ -28,6 +30,17 @@ first file to read when resuming work.
 
 ## Done
 
+- **TASK-0302 — File enumeration & scope.** Traversal module (`src/enumerate.rs`)
+  implementing the first pipeline stage (ADR-0008). Delivers:
+  `ScopeOptions` (no_recurse, include_hidden, follow_symlinks, extensions),
+  `Candidate` (path + size), `EnumerateWarning` (path + reason),
+  `CandidateSet`, and `enumerate()` entry point. walkdir added as a dependency;
+  tempfile added as a dev-dependency. 23 unit tests covering AC-15, FR-2, AC-14,
+  AC-10; all 66 tests green; `make validate` passes. Key implementation note:
+  hidden-file check is relative to the scan root (not the full absolute path) so
+  that temp-directory paths starting with `.tmp` are not spuriously treated as
+  hidden. Symlink-specific tests are `#[cfg(unix)]`.
+
 - **Process — unit-of-work cadence & planning gate (ADR-0011 / TASK-0212).** One
   branch now carries a whole unit of work (design, TDD code, technical/user docs,
   and the planning/status update) into a single squash PR, classified up front as
@@ -35,7 +48,9 @@ first file to read when resuming work.
   docs/chore-only units skip the 3-OS compile. Reaffirms ADR-0002; ADR-0003/0006
   intact. See [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md) and
   [`tasks/TASK-0212-process-unit-of-work-cadence.md`](tasks/TASK-0212-process-unit-of-work-cadence.md).
-  **Owner action pending** — see Blockers.
+  Merged in PR #16; owner completed the branch-protection swap — `main`'s required
+  CI check is now `ci-gate` (the three `rust (…-latest)` checks are gated behind it
+  and skipped on docs/chore-only PRs).
 - **TASK-0301 — Crate scaffold, CLI surface & toolchain.** Merged in PR #14
   (commit `2e12148`); **fulfils TASK-0207** (Rust toolchain). Delivered: Rust
   binary crate (`Cargo.toml`, `Cargo.lock`), `rust-toolchain.toml` pinning the
@@ -78,14 +93,8 @@ first file to read when resuming work.
 
 ## Blockers / waiting on owner
 
-- **Branch-protection switch (ADR-0011 / TASK-0212) — do right after this PR's CI
-  runs.** In `main` branch protection, **remove** required checks
-  `rust (ubuntu-latest)`, `rust (macos-latest)`, `rust (windows-latest)` and
-  **add** `ci-gate`; keep `markdownlint`, `spellcheck`, `structure`, `pr-title`,
-  `secret-scan`. The `ci-gate` check becomes selectable once it has run once (it
-  runs on this PR). **Until the switch, any docs/chore-only PR will hang** — the
-  Rust matrix is skipped on such PRs, so the still-required `rust (…)` checks never
-  report. Switch as soon as this PR's CI is green (before/at merge).
+- _None currently._ (ADR-0011 branch-protection swap completed 2026-06-14; `main`
+  now requires `ci-gate` plus the doc/security checks.)
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 

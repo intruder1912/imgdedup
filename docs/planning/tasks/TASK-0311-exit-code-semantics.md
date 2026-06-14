@@ -45,6 +45,8 @@ Test-first (ADR-0005), asserting on process exit status.
   run-level error still takes precedence as `1`.
 - Keep exit-status derivation a small, pure function of (run outcome, flags,
   duplicates-found) for direct testing.
+- A non-empty `CandidateSet.root_errors` (from TASK-0302) signals a run-level
+  error; map it to exit code `1` per ADR-0008.
 
 ## Out of scope
 
