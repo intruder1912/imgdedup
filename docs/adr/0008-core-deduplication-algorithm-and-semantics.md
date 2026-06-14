@@ -209,28 +209,32 @@ result is deterministic even on case-insensitive filesystems and across platform
   the lexicographic rule, which is total, so the overall order is **always
   total** — there is never a "two equally-valid keepers" case (AC-2, AC-16).
 
-### Exit-code semantics (FR-15, AC-12) — with a product follow-up
+### Exit-code semantics (FR-15, FR-18, AC-12, AC-19)
 
 A concrete, documented scheme:
 
 - **`0`** — success: a clean run, whether or not duplicates were found, including
-  a successful `--apply`/`--delete` and a successful dry run.
+  a successful `--apply`/`--delete` and a successful dry run. This is the default
+  for any successful run regardless of findings.
 - **`1`** — **run-level error**: an invalid invocation (e.g. `--delete` without
   `--apply`, AC-12), an unreadable scan root, or any failure that prevents the run
   from completing meaningfully. Per-file errors are *skipped and reported*, not
   run-level (NFR-6), and do not by themselves change the exit code from `0`.
 - **`2`** — reserved for clap's argument-parsing errors (its convention), kept
   distinct from our `1`.
+- **`3`** — **duplicates found**, emitted **only** when the opt-in `--exit-code`
+  flag is set and the run completed successfully with **at least one duplicate
+  group** (`0` if none were found). Without `--exit-code`, a successful run is
+  always `0`.
 
-**Open product decision — a distinct "duplicates found" code.** PRD §10 flags
-whether a **dry run that found duplicates** should return a distinct non-zero code
-(e.g. **`3`**), the way some linters signal "findings present" so scripts can act
-without parsing output. This is a **product/UX decision, not an architecture one**.
-The architecture **reserves code `3`** for this meaning so it can be adopted
-without churn, but **does not unilaterally enable it**: this is flagged **back to
-the product-owner** to decide whether `imgdedup` adopts a duplicates-found code (and
-whether it applies only to dry runs). Until they decide, the default behavior is
-`0` on a successful dry run regardless of findings.
+**Decided with the owner (resolves PRD §10).** The duplicates-found signal is
+**opt-in via `--exit-code`**, modelled on `git diff --exit-code` / `black
+--check`: it lets a script or CI job gate on "duplicates present" without parsing
+`--json`, while the **default stays `0`** so the common case never surprises a
+`set -e` shell. The flag affects **only the exit code** — never what is scanned,
+grouped, or removed — so it cannot interact with the safety invariant (NFR-1) or
+determinism (NFR-3). It is meaningful in any mode; its primary use is the dry-run
+CI check (AC-19).
 
 ### Consequences
 

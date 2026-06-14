@@ -134,6 +134,11 @@ User stories:
   storage, so removing one frees nothing. Such files are not proposed for removal,
   are never trashed or deleted on that basis, and are excluded from the
   reclaimable-space figure (FR-13). They may be reported as an informational note.
+- **FR-18:** Provide an opt-in `--exit-code` flag: when set, the tool exits `3` if
+  at least one duplicate group was found and `0` if none were, so scripts and CI
+  can detect duplicates without parsing output. Without the flag, a successful run
+  exits `0` regardless of findings (see FR-15). The flag changes only the exit
+  status — never what is scanned, grouped, or removed.
 
 ## 7. Non-functional requirements
 
@@ -177,6 +182,7 @@ Actions (default is dry-run / report only):
 
 Output:
   --json              Machine-readable output
+  --exit-code         Exit 3 if any duplicate groups were found (else 0)
 ```
 
 Behavior:
@@ -189,6 +195,9 @@ Behavior:
 - **`--apply --delete`:** permanently delete non-keepers; report likewise.
 - **`--delete` without `--apply`:** rejected with a clear error (guards against
   accidental permanent deletion).
+- **`--exit-code`:** opt-in; the tool exits `3` when duplicate groups were found
+  and `0` when none were, so scripts/CI can detect duplicates without parsing
+  output. Without it, a successful run exits `0` regardless of findings.
 - **Errors:** per-file problems are listed and skipped; the overall run still
   completes and summarizes. Exit non-zero only on a run-level failure.
 
@@ -242,6 +251,9 @@ Behavior:
   warning and not removed, and the remaining groups are still applied normally.
 - **AC-18 (FR-17):** Given two hard links to the same content, when scanned, then
   neither is proposed for removal and they do not contribute to reclaimable space.
+- **AC-19 (FR-18):** Given `--exit-code`, when a scan finds duplicate groups the
+  tool exits `3`; when it finds none it exits `0`; and without `--exit-code` a
+  successful run exits `0` even when duplicates are present.
 
 ## 10. Open questions
 
@@ -264,8 +276,10 @@ Handed to the architect (Phase 2) unless noted:
   the default allow-list (FR-2/FR-3); confirm detection for each format. (design)
 - **Case-insensitive filesystems:** the lexicographic tie-break (FR-7) must be
   defined unambiguously where paths differ only by case. (design)
-- **Exit-code semantics:** should "duplicates found" be signaled via a distinct
-  exit code (useful in scripts), separate from error codes? (product follow-up)
+- **Exit-code semantics (resolved):** a "duplicates found" signal is provided as
+  the **opt-in `--exit-code`** flag (exit `3` when duplicates are found, `0`
+  otherwise); the default exit behavior is unchanged. Decided with the owner — see
+  FR-18, AC-19, and [ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md).
 - **Technology stack:** language and CLI framework — this PRD is stack-agnostic
   and feeds TASK-0201.
 
