@@ -437,14 +437,18 @@ mod tests {
         let rel_paths = candidate_rel_paths(&result, dir.path());
         assert_eq!(
             rel_paths,
-            // On all platforms the path separator in the relative string is
-            // the native one; use std::path to normalise.
+            // The relative string uses the native separator (`/` on Unix,
+            // `\` on Windows). Build the expected paths with `Path::join`,
+            // which inserts the native separator, so the assertion is portable.
             {
                 let mut expected = vec![
-                    std::path::Path::new("sub/nested.jpg")
+                    std::path::Path::new("sub")
+                        .join("nested.jpg")
                         .to_string_lossy()
                         .into_owned(),
-                    std::path::Path::new("sub/deep/verydeep.jpg")
+                    std::path::Path::new("sub")
+                        .join("deep")
+                        .join("verydeep.jpg")
                         .to_string_lossy()
                         .into_owned(),
                     "top.jpg".to_owned(),
