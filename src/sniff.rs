@@ -68,6 +68,7 @@
 //!
 //! TASK-0307 will surface these warnings in the human-readable report.
 
+use crate::enumerate::Candidate;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -111,6 +112,28 @@ impl SniffWarning {
     }
 }
 
+/// A candidate that passed magic-byte confirmation, carried forward to the
+/// dedup engine (TASK-0304).
+///
+/// Holds the `size` that [`enumerate`] already stat'd so the engine's first
+/// stage (size pre-grouping) does not have to re-stat the file — avoiding a
+/// silent double-stat and a small TOCTOU widening. Decoupled from
+/// [`enumerate::Candidate`] so the confirmed-set carrier is an explicit stage
+/// boundary rather than a reused traversal type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmedFile {
+    /// Path to the confirmed image file.
+    pub path: PathBuf,
+    /// Byte size of the file, threaded through from enumeration.
+    pub size: u64,
+}
+
+impl ConfirmedFile {
+    fn new(path: PathBuf, size: u64) -> Self {
+        Self { path, size }
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Confirm that the file at `path` is a genuine image by its magic-byte
@@ -133,7 +156,10 @@ impl SniffWarning {
 /// example a camera raw format added via `--ext`), this function returns
 /// `false`. The caller should collect the file as a [`SniffWarning`]; see the
 /// module-level note on custom extensions.
-// TODO(TASK-0304): used directly once the pipeline is fully wired.
+///
+/// The pipeline integrates through [`filter_candidates`] (which carries `size`
+/// through); this single-path predicate is retained as public API and exercised
+/// by the unit tests, hence the `dead_code` allowance for the non-test build.
 #[allow(dead_code)]
 pub fn confirm_image(path: &Path) -> bool {
     match read_header(path) {
@@ -152,16 +178,19 @@ pub fn confirm_image(path: &Path) -> bool {
 /// Files are tested in the order given; confirmed files are returned in the same
 /// relative order. Warnings preserve the order of the rejected files.
 ///
-/// This function is the recommended integration point for TASK-0304: hand it the
+/// This function is the integration point for TASK-0304: hand it the
 /// `Vec<Candidate>` from enumeration and consume the `confirmed` set downstream.
+/// The `size` that enumeration already stat'd is threaded through into each
+/// [`ConfirmedFile`] so the engine's size-grouping stage need not re-stat.
 ///
 /// The header is read **once per file**; both the confirm decision and the
 /// rejection reason are derived from that single read.
-pub fn filter_candidates(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<SniffWarning>) {
+pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
     let mut confirmed = Vec::new();
     let mut warnings = Vec::new();
 
-    for path in paths {
+    for candidate in candidates {
+        let Candidate { path, size } = candidate;
         match read_header(&path) {
             Err(e) => {
                 warnings.push(SniffWarning::new(
@@ -171,7 +200,7 @@ pub fn filter_candidates(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<SniffWarning
             }
             Ok(buf) => {
                 if is_image_header(&buf) {
-                    confirmed.push(path);
+                    confirmed.push(ConfirmedFile::new(path, size));
                 } else {
                     let reason = if buf.is_empty() {
                         "file is empty".to_owned()
@@ -227,6 +256,13 @@ mod tests {
         let path = dir.path().join(name);
         fs::write(&path, bytes).unwrap();
         path
+    }
+
+    /// Wrap a path in a [`Candidate`] carrying its real on-disk size (0 if the
+    /// file does not exist), mirroring what `enumerate` produces.
+    fn candidate(path: PathBuf) -> Candidate {
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        Candidate { path, size }
     }
 
     // ── Format-detection tests (one per format) ───────────────────────────────
@@ -478,11 +514,14 @@ mod tests {
         );
         let text_path = write_fixture(&dir, "fake.jpg", b"not an image at all");
 
-        let (confirmed, warnings) = filter_candidates(vec![jpeg_path.clone(), text_path.clone()]);
+        let (confirmed, warnings) = filter_candidates(vec![
+            candidate(jpeg_path.clone()),
+            candidate(text_path.clone()),
+        ]);
 
         assert_eq!(confirmed.len(), 1, "exactly one file should confirm");
         assert_eq!(
-            confirmed[0], jpeg_path,
+            confirmed[0].path, jpeg_path,
             "the confirmed file should be the JPEG"
         );
 
@@ -504,7 +543,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write_fixture(&dir, "lies.png", b"I am not a PNG");
 
-        let (_confirmed, warnings) = filter_candidates(vec![path]);
+        let (_confirmed, warnings) = filter_candidates(vec![candidate(path)]);
         assert_eq!(warnings.len(), 1);
         assert!(
             warnings[0]
@@ -528,10 +567,47 @@ mod tests {
         let p2 = write_fixture(&dir, "second.jpg", jpeg_header);
         let p3 = write_fixture(&dir, "third.jpg", jpeg_header);
 
-        let (confirmed, warnings) = filter_candidates(vec![p1.clone(), p2.clone(), p3.clone()]);
+        let (confirmed, warnings) = filter_candidates(vec![
+            candidate(p1.clone()),
+            candidate(p2.clone()),
+            candidate(p3.clone()),
+        ]);
 
         assert!(warnings.is_empty(), "all three should confirm");
-        assert_eq!(confirmed, vec![p1, p2, p3], "order must be preserved");
+        let confirmed_paths: Vec<PathBuf> = confirmed.into_iter().map(|c| c.path).collect();
+        assert_eq!(confirmed_paths, vec![p1, p2, p3], "order must be preserved");
+    }
+
+    #[test]
+    fn filter_candidates_preserves_size_from_enumeration() {
+        // The carrier thread (TASK-0304): the size enumerate already stat'd must
+        // be threaded through into ConfirmedFile so the engine's size-grouping
+        // stage does not re-stat. A confirmed file's size must equal its input
+        // Candidate's size, not 0 or the header length.
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_header: &[u8] = &[
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ];
+        // Make the file larger than the bounded header read so a regression that
+        // returned the header length instead of the file size would be caught.
+        let mut bytes = jpeg_header.to_vec();
+        bytes.extend(std::iter::repeat_n(0xAB_u8, 5_000));
+        let path = write_fixture(&dir, "sized.jpg", &bytes);
+        let expected_size = bytes.len() as u64;
+
+        let (confirmed, warnings) = filter_candidates(vec![Candidate {
+            path: path.clone(),
+            size: expected_size,
+        }]);
+
+        assert!(warnings.is_empty(), "the JPEG should confirm cleanly");
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(confirmed[0].path, path);
+        assert_eq!(
+            confirmed[0].size, expected_size,
+            "ConfirmedFile.size must carry the enumerated size through unchanged"
+        );
     }
 
     #[test]
@@ -539,7 +615,7 @@ mod tests {
         // A file that doesn't exist at all should fail gracefully with an I/O
         // error reason, not panic.
         let path = PathBuf::from("/does/not/exist/ghost.jpg");
-        let (_confirmed, warnings) = filter_candidates(vec![path.clone()]);
+        let (_confirmed, warnings) = filter_candidates(vec![candidate(path.clone())]);
 
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].path, path);
