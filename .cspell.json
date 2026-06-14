@@ -74,7 +74,17 @@
     "SIGBUS",
     "inode",
     "Cocoa",
-    "osascript"
+    "osascript",
+    "walkdir",
+    "serde",
+    "Cargo",
+    "subdirectories",
+    "idempotence",
+    "idempotent",
+    "recurse",
+    "symlink",
+    "symlinks",
+    "reclaimable"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",

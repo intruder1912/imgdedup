@@ -3,29 +3,38 @@
 Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
-**Current phase:** Phase 2 — Architecture & toolchain (largely complete; Phase 3 next)
+**Current phase:** Phase 3 — Implementation (TDD), tasks seeded
 **Last updated:** 2026-06-14
 
 ## In progress
 
-- **Phase 2 architecture ADRs for PRD-0001** — this PR. ADR-0007..0010 author the
-  technology stack and the core design that unblocks implementation
-  (see Done below). Doc bookkeeping (PRD/ADR index/planning) updated in the same PR.
+- **Phase 3 task-seeding** — this PR. Twelve fine-grained implementation specs
+  (TASK-0301..TASK-0312) decompose the ADR-0008 pipeline; backlog + status updated
+  in the same PR. No product code yet.
 
 ## Up next
 
-- **Phase 3 — Implementation (TDD).** With ADR-0007..0010 accepted, the next step
-  is to **seed fine-grained, parallelizable Phase 3 implementation tasks** (from
-  the ADR-0008 pipeline: enumerate → sniff → size-group → hash → byte-verify →
-  identity → keeper → report/apply; plus the ADR-0010 executor and an NFR-4
-  benchmark task) and begin TDD. That task-seeding happens right after this PR.
-- **Toolchain & gate wiring depending on the stack:** TASK-0207 (Rust toolchain:
-  cargo/rustfmt/clippy `-D warnings`/cargo-llvm-cov, wired into `make validate`),
-  **TASK-0208 reframed** to clippy + cargo-audit + cargo-deny (CodeQL has no
-  first-class Rust support — see ADR-0007), TASK-0209 (cargo Dependabot
-  ecosystem), TASK-0203/TASK-0211 (release + prebuilt cross-platform binaries).
-- **Product follow-up:** the duplicates-found exit code (ADR-0008 reserves code
-  `3`) is flagged back to the product-owner to decide.
+- **TASK-0301 — Crate scaffold, CLI surface & toolchain.** The Phase 3 **root**:
+  Cargo crate + `rust-toolchain.toml`, the full PRD §8 clap surface (incl.
+  `--exit-code` and the `--delete`-requires-`--apply` guard), exit-code constants
+  0/1/2/3 (ADR-0008), and `make validate`/CI wiring (rustfmt, clippy `-D warnings`,
+  cargo test, cargo-llvm-cov). It **fulfils TASK-0207** and **blocks every other
+  Phase 3 task**. Start here.
+- **Core-first → fan-out plan.** After TASK-0301: enumeration (TASK-0302) and
+  magic-byte sniff (TASK-0303) run in parallel; both feed the dedup engine
+  (TASK-0304, the safety heart: size → hash → byte-verify → identity); then keeper
+  selection (TASK-0305) and concurrency/determinism (TASK-0306). Once the core +
+  keeper exist, the fan-out surfaces parallelize: human report (TASK-0307) and JSON
+  (TASK-0308) together; trash apply + re-validation (TASK-0309) → permanent delete
+  (TASK-0310, shared executor); exit codes (TASK-0311); and the tester-led E2E +
+  NFR-4 scale benchmark (TASK-0312) closes the phase.
+- **Toolchain & gate wiring depending on the stack:** **TASK-0207 is folded into
+  TASK-0301** (done by it). **TASK-0208 reframed** to clippy + cargo-audit +
+  cargo-deny (CodeQL has no first-class Rust support — see ADR-0007), TASK-0209
+  (cargo Dependabot ecosystem), TASK-0203/TASK-0211 (release + prebuilt
+  cross-platform binaries).
+- **Product follow-up (resolved):** the duplicates-found exit code is the opt-in
+  `--exit-code` → `3` (FR-18, ADR-0008); wired in TASK-0311.
 - Stack-independent Phase 2 tasks remain available in parallel: TASK-0202
   (licensing ADR), TASK-0204 (SHA-pin actions), TASK-0205 (cspell→typos),
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).

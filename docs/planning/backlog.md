@@ -47,7 +47,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening) | architect | todo | yes | TASK-0007 |
 | TASK-0205 | Evaluate replacing cspell with `typos` for spell checking | architect | todo | yes | TASK-0007 |
 | TASK-0206 | Promote link check (lychee) from informational to a required CI gate | architect | todo | yes | TASK-0007 |
-| TASK-0207 | Add language toolchain: build, format, lint, test, coverage threshold, local git hooks; wire into `make validate` and CI | architect | todo | no | TASK-0201 |
+| TASK-0207 | Add language toolchain: build, format, lint, test, coverage threshold, local git hooks; wire into `make validate` and CI — **folded into [TASK-0301](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md)** | implementer | done (by TASK-0301) | no | TASK-0201 |
 | TASK-0208 | Add CodeQL + dependency audit for the chosen language | architect | todo | no | TASK-0201 |
 | TASK-0209 | Add Dependabot package ecosystem for the chosen stack | architect | todo | yes | TASK-0201 |
 | TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | todo | yes | TASK-0007 |
@@ -61,10 +61,28 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 > (concurrency & memory). Note: **TASK-0208 is reframed** to clippy + cargo-audit +
 > cargo-deny (CodeQL has no first-class Rust support — ADR-0007).
 >
-> **Forward pointer:** Phase 3 implementation tasks (TDD) — enumerate → sniff →
-> size-group → hash → byte-verify → identity → keeper → report/apply, the ADR-0010
-> executor, and an NFR-4 benchmark — are seeded in the PR that follows this one;
-> not enumerated here yet.
->
 > Further Phase 1+ tasks are added as PRDs and ADRs are written. Keep this table
 > and the `tasks/` specs in sync with reality in every PR.
+
+## Phase 3 — Implementation (TDD)
+
+The ADR-0008 pipeline, built test-first (ADR-0005). **Core first, then fan-out:**
+the sequential core (TASK-0301 → enumeration/sniff → engine → keeper → concurrency)
+must land before the parallelizable output/action surfaces. TASK-0301 fulfils
+TASK-0207 (toolchain). `make validate` (rustfmt, clippy `-D warnings`, cargo test,
+cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
+
+| ID | Task | Role | Status | Parallel | Depends on |
+|---|---|---|---|---|---|
+| TASK-0301 | [Crate scaffold, CLI surface & toolchain](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md) (fulfils TASK-0207; blocks all Phase 3) | implementer | todo | no | — |
+| TASK-0302 | [File enumeration & scope](tasks/TASK-0302-file-enumeration-and-scope.md) (FR-1/2/6, NFR-6) | implementer | todo | yes | TASK-0301 |
+| TASK-0303 | [Magic-byte image confirmation](tasks/TASK-0303-magic-byte-image-confirmation.md) (FR-3, NFR-2) | implementer | todo | yes | TASK-0301 |
+| TASK-0304 | [Core dedup engine](tasks/TASK-0304-core-dedup-engine.md) — size→hash→verify→identity (FR-4/5/17, NFR-1) | implementer | todo | no | TASK-0302, TASK-0303 |
+| TASK-0305 | [Keeper selection](tasks/TASK-0305-keeper-selection.md) (FR-7/8, NFR-3) | implementer | todo | no | TASK-0304 |
+| TASK-0306 | [Concurrency & determinism](tasks/TASK-0306-concurrency-and-determinism.md) — rayon + canonical sort (NFR-3/4) | implementer | todo | no | TASK-0304 |
+| TASK-0307 | [Human-readable report](tasks/TASK-0307-human-readable-report.md) (FR-9/13, FR-17) | implementer | todo | yes | TASK-0305 |
+| TASK-0308 | [JSON output](tasks/TASK-0308-json-output.md) (FR-14) | implementer | todo | yes | TASK-0305 |
+| TASK-0309 | [Trash apply + re-validation](tasks/TASK-0309-trash-apply-and-revalidation.md) (FR-10/12/16, NFR-1/6) | implementer | todo | no | TASK-0305 |
+| TASK-0310 | [Permanent delete](tasks/TASK-0310-permanent-delete.md) (FR-11) | implementer | todo | no | TASK-0309 |
+| TASK-0311 | [Exit-code semantics & `--exit-code`](tasks/TASK-0311-exit-code-semantics.md) (FR-15/18) | implementer | todo | no | TASK-0307 |
+| TASK-0312 | [E2E acceptance & NFR-4 scale/benchmark](tasks/TASK-0312-e2e-acceptance-and-scale-benchmark.md) (AC-1..19, NFR-4) | tester | todo | no | TASK-0307, TASK-0308, TASK-0309, TASK-0310, TASK-0311 |
