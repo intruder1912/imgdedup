@@ -36,10 +36,15 @@ gaps, and verifying acceptance criteria.
    PR). Identify edge cases the implementer may have missed.
 3. Add/strengthen tests on a `feature/<slug>` or `chore/<slug>` branch under TDD.
 4. `make validate`; ensure the suite is green and meaningful.
-5. Conventional Commit; push; open a PR. Address architect review. Human owner
-   merges.
+5. Conventional Commit; push; open a PR.
+6. **Stage-two loop.** When the orchestrator hands you post-PR findings — CI
+   failures and architect review threads — strengthen tests / fix, run
+   `make validate`, push, and **resolve the corresponding review threads**. Verify
+   each finding and push back if it is wrong (`receiving-code-review`). Repeat until
+   required checks are green and all threads are resolved (ADR-0003 / ADR-0006).
+   The human owner merges.
 
 ## Definition of done
 
 Acceptance criteria each map to passing, meaningful tests; coverage meets the
-threshold; verification output is recorded; CI green.
+threshold; verification output is recorded; CI green; all review threads resolved.

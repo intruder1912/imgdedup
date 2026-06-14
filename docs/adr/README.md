@@ -25,6 +25,7 @@ the options considered, the decision, and its consequences. They use a
 | [0003](0003-main-branch-protection-and-merge-model.md) | `main` branch protection & merge model | accepted |
 | [0004](0004-conventional-commits-semver-and-releases.md) | Conventional Commits, SemVer & automated releases | accepted |
 | [0005](0005-mandatory-tdd-and-security-gate.md) | Mandatory TDD & security gate | accepted |
+| [0006](0006-post-pr-review-iteration-loop.md) | Post-PR review & CI iteration loop | accepted |
 
 > Planned: technology-stack selection and key design ADRs (Phase 2); licensing
 > ADR (before any public release).

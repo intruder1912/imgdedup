@@ -44,14 +44,20 @@ from the repo content alone.
                                                               │ yes
                                                               ▼
                                   Conventional Commit ──► push ──► open PR
-                                                              │   (record the review)
+                                                              │   (review recorded as threads)
                                                               ▼
-                              CI required checks pass ──► architect confirms (comments)
-                                                              │
-                                                              ▼
+           ┌──────── stage-two loop (orchestrator-driven) ───────┐◄────────┐
+           │  collect findings via gh: CI checks + review threads │         │
+           │  re-dispatch implementer/tester → fix → make validate│         │
+           │  → push → resolve threads → architect re-review      │         │ no
+           └──────────────────────────┬──────────────────────────┘         │
+                                       ▼                                    │
+                        checks green & all threads resolved?  ─────────────-┘
+                                       │ yes
+                                       ▼
                                   HUMAN OWNER merges (squash) ──► branch auto-deletes
-                                                              │
-                                                              ▼
+                                                      │
+                                                      ▼
                                   release automation (semantic-release) on main
 ```
 
@@ -80,12 +86,24 @@ from the repo content alone.
    the task chunk.
 8. **Push and open a PR.** The PR **title must be a valid Conventional Commit**
    (merges are squash-only, so the title becomes the `main` commit and drives the
-   release). Fill in the PR template, and **record the architect's review on the
-   PR** so the audit trail holds.
-9. **CI.** Required checks must pass. Pushing work that fails local validation is
-   a process violation.
-10. **Confirm.** The architect runs a quick confirmation pass on the PR (the
-    substantive review already happened in step 6). Address any remaining comments.
+   release). Fill in the PR template. **Record the architect's review on the PR**:
+   a short prose summary as the overview, plus any substantive finding as its own
+   **resolvable review thread** (not a single prose blob) so each can be tracked to
+   resolution.
+9. **Collect findings.** The **orchestrator** (the main session driving the work)
+   gathers the PR's open findings: CI failures via `gh pr checks <n>` and
+   `gh run view <id> --log-failed`, and architect review threads via
+   `gh pr view <n> --comments` / `gh api repos/{owner}/{repo}/pulls/<n>/comments`.
+10. **Iterate until converged (stage-two loop).** The orchestrator re-dispatches
+    the **implementer** / **tester** with the concrete findings → fix under TDD →
+    `make validate` → push → **resolve the corresponding threads** → the
+    **architect re-reviews** the new diff. **Repeat until required checks are green
+    and all review conversations are resolved** — the ADR-0003 merge gate. Apply
+    `receiving-code-review` discipline: verify each finding and push back when it is
+    wrong, rather than blind-complying. Keep this loop *lightweight* — stage one
+    (step 6) front-loads the substantive review; stage two is the remainder
+    (CI-only failures and confirmation-pass nits), not a second heavyweight review.
+    See [ADR-0006](../adr/0006-post-pr-review-iteration-loop.md).
 11. **Merge.** The **human owner** is the sole merge gate (squash-merge). See
     [`../adr/0003-main-branch-protection-and-merge-model.md`](../adr/0003-main-branch-protection-and-merge-model.md).
 12. **Release.** Qualifying merges to `main` trigger automated SemVer releases
@@ -119,9 +137,21 @@ iterate on the PR. Either way:
 - The **human owner remains the sole merge gate** (ADR-0003); 0 approvals are
   required and the architect never blocks via a GitHub approval.
 
+**Stage-two loop (post-PR, lightweight).** Once the PR is open, any remaining
+findings — CI-only failures plus confirmation-pass nits — flow through a small,
+**orchestrator-driven** loop (steps 9–10): the orchestrator collects findings via
+`gh`, re-dispatches the implementer/tester to fix and push, the architect
+re-reviews, and this repeats until **required checks are green and all review
+conversations are resolved**. That conversation-resolution gate (ADR-0003) — not a
+GitHub approval — is the convergence criterion; the architect still never blocks
+via an approval. Substantive findings are therefore posted as **resolvable review
+threads**, not a single prose comment. See
+[ADR-0006](../adr/0006-post-pr-review-iteration-loop.md).
+
 ## Definition of Done (every change)
 
 - Acceptance criteria met; behavior covered by meaningful tests (TDD).
 - `make validate` and CI green; security gate satisfied.
 - Conventional Commit / PR title; docs and planning updated.
-- Architect review addressed; human owner merged.
+- All review threads resolved and required checks green (the ADR-0003 gate);
+  human owner merged.
