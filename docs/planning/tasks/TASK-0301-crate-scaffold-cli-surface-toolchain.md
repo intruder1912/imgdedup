@@ -2,7 +2,7 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** implementer
-- **Status:** todo
+- **Status:** done (merged in PR #14, commit `2e12148`)
 - **Depends on:** — (Phase 3 root)
 - **Blocks:** all other Phase 3 tasks (TASK-0302..TASK-0312)
 
