@@ -134,7 +134,7 @@ git commit -m "ci: front Rust matrix with a path-filtered ci-gate required check
   > **0. Classify the unit of work.** Before branching, decide the class —
   > **feature**, **fix**, or **chore** — which sets the cadence (branch prefix,
   > expected lifetime, what rides along, CI weight, review kind). See the
-  > classification table below and [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md).
+  > classification table below and [ADR-0011](../../adr/0011-unit-of-work-cadence-and-planning-gate.md).
 
   Insert the feature/fix/chore table (copy from ADR-0011 §2).
 
