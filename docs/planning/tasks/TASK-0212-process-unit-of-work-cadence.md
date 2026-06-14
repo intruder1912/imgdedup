@@ -2,7 +2,7 @@
 
 - **Phase:** 2 — Architecture & process
 - **Role:** architect (CI + process docs), orchestrator (planning), owner (branch protection)
-- **Status:** in-progress
+- **Status:** done
 - **Depends on:** ADR-0011 (accepted-on-merge)
 - **Blocks:** —
 

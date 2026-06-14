@@ -24,8 +24,9 @@ reviews every PR**, in one of two modes scaled to the artifact: a *lightweight
 document review* of PRDs/ADRs/process docs (feasibility, risk, scope/YAGNI,
 testable acceptance criteria, consistency) or a *heavyweight code review* of
 implementation (correctness, security, tests/TDD, design, conventions). To keep
-turnaround low, the substantive review runs on the **uncommitted working-tree
-diff** and is then **recorded on the PR** — as a prose summary plus **resolvable
+turnaround low, the substantive review runs on the **branch diff vs `main`**
+(the author holds the PR until converged) and is then **recorded on the PR** — as
+a prose summary plus **resolvable
 review threads** for each substantive finding, comments only, never a blocking
 GitHub approval. In the post-PR stage-two loop the architect **re-reviews** each
 iteration until checks are green and all threads are resolved. See
@@ -94,10 +95,10 @@ Backlog / tasks ◄────────────────────�
                                           Human Owner merges
 ```
 
-PRDs and ADRs go through the same **review-before-commit** loop as code: the
-author hands the architect the uncommitted working-tree diff, iterates until it
-converges, then makes a single commit and opens the PR with the review recorded
-on it (see [`sdlc.md`](sdlc.md)).
+PRDs and ADRs go through the same **review-before-PR** loop as code: the author
+hands the architect the branch diff vs `main`, iterates on the branch (pushes are
+CI-free) until it converges, then opens the PR ready with the review recorded on
+it (see [`sdlc.md`](sdlc.md)).
 
 **Who drives the post-PR loop.** The role subagents are **stateless** — they watch
 nothing between dispatches — so once a PR is open the **orchestrator** (the main
@@ -112,9 +113,9 @@ merges. See [`sdlc.md`](sdlc.md) and
 
 - Read [`../../CLAUDE.md`](../../CLAUDE.md) first; the repo is the source of truth.
 - Brainstorm and grill on gaps before producing PRDs, ADRs, or features.
-- Follow the [SDLC](sdlc.md): branch → draft/TDD → local validation → architect
-  review on the working-tree diff → Conventional Commit → PR (review recorded) →
-  owner merge.
+- Follow the [SDLC](sdlc.md): classify (feature/fix/chore) → branch (one unit) →
+  draft/TDD → local validation → architect review on the branch diff vs `main` →
+  open PR ready (review recorded) → owner merge.
 - Use `git` and `gh` CLI only (no MCP) for version control and GitHub.
 - Update planning docs in the same PR as the work.
 
