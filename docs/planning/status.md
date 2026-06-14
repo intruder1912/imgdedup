@@ -12,17 +12,40 @@ first file to read when resuming work.
 
 ## Up next
 
-- **TASK-0305 — Keeper selection** (FR-7/8, NFR-3) and **TASK-0306 — Concurrency &
-  determinism** (NFR-3/4) are now unblocked: both depend only on TASK-0304, which
-  is complete. TASK-0305 replaces the engine's `placeholder_keeper_order` with the
-  real keeper rule (shallowest path → oldest mtime → lexicographic); TASK-0306
-  wires rayon parallel hashing + canonical-sort determinism into the engine.
-- **Core-first fan-out (downstream of TASK-0304, now landed):** TASK-0304 (dedup
-  engine: size → hash → byte-verify → identity) feeds TASK-0305 (keeper) and
-  TASK-0306 (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) +
-  TASK-0308 (JSON); TASK-0309 (trash apply + re-validation) → TASK-0310
-  (permanent delete); TASK-0311 (exit codes); TASK-0312 (tester-led E2E + scale
-  benchmark).
+**Slice cadence is now in force (ADR-0013).** The remaining PRD-0001 work is no
+longer shipped one PR per task: feature delivery is carved into **four coherent
+shippable slices**, each a single branch → granular commits → one squash PR/release.
+The existing TASK-0305..0312 specs stay as the unit of design/TDD; a slice _groups_
+tasks. The full slice map (contained tasks, per-slice user value, and PR-open
+acceptance — FRs + the README/`docs/guide/` docs each slice must deliver) lives in
+the "PRD-0001 delivery slices" subsection of
+[`backlog.md`](backlog.md). The core slice (TASK-0301..0304) already merged
+task-by-task under the pre-ADR-0013 cadence.
+
+- **Next slice: S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
+  TASK-0306 + TASK-0307 + TASK-0311). This is the first end-to-end usable
+  increment: scan paths → deterministic dry-run report of every duplicate group,
+  its keeper, would-be removals, counts, reclaimable space, and hard-link notes,
+  with `--keep {shortest|oldest|newest}` and the opt-in `--exit-code`. Nothing on
+  disk changes. Within the slice: TASK-0305 replaces the engine's
+  `placeholder_keeper_order` with the real keeper rule (shallowest path → oldest
+  mtime → lexicographic); TASK-0306 wires rayon parallel hashing + canonical-sort
+  determinism; TASK-0307 renders the human report; TASK-0311 maps the outcome to
+  exit codes (incl. `--exit-code` → `3`). S1 opens its PR only once the
+  product-owner has accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and synced the
+  README + the `getting-started`, `scanning-and-scope`, `choosing-what-to-keep`,
+  and exit-code guide pages to shipped behavior (ADR-0012).
+- **Then, in order:** **S2 — JSON output** (`json-output`; TASK-0308) →
+  **S3 — Destructive actions** (`apply-delete`; TASK-0309 → TASK-0310) →
+  **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19
+  and NFR-4 cross-platform proof). S2 and S3 both depend only on S1 and could be
+  worked concurrently on separate branches, but the safe default ships JSON before
+  the destructive surfaces. Each slice rebases on `main` after the previous merges.
+- **In-progress reviews (ADR-0013):** within a slice the implementer requests an
+  architect review for significant/risky changes (not per-commit; the
+  product-owner or orchestrator may demand one), logged in
+  `docs/planning/reviews/<slice>.md`. Uncertain now-vs-defer calls go to the
+  product-owner, and deferrals are promoted to tracked backlog tasks.
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
   and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203/TASK-0211
   (release and prebuilt binaries) remain.
