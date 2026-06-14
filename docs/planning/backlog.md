@@ -74,7 +74,7 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
-| TASK-0301 | [Crate scaffold, CLI surface & toolchain](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md) (fulfils TASK-0207; blocks all Phase 3) | implementer | todo | no | — |
+| TASK-0301 | [Crate scaffold, CLI surface & toolchain](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md) (fulfils TASK-0207; blocks all Phase 3) | implementer | done | no | — |
 | TASK-0302 | [File enumeration & scope](tasks/TASK-0302-file-enumeration-and-scope.md) (FR-1/2/6, NFR-6) | implementer | todo | yes | TASK-0301 |
 | TASK-0303 | [Magic-byte image confirmation](tasks/TASK-0303-magic-byte-image-confirmation.md) (FR-3, NFR-2) | implementer | todo | yes | TASK-0301 |
 | TASK-0304 | [Core dedup engine](tasks/TASK-0304-core-dedup-engine.md) — size→hash→verify→identity (FR-4/5/17, NFR-1) | implementer | todo | no | TASK-0302, TASK-0303 |
