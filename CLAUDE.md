@@ -31,7 +31,7 @@ Work is divided across four roles. Each has a subagent definition in
 
 | Role | Subagent | Primary responsibility |
 |---|---|---|
-| Product Owner | `product-owner` | Requirements, PRDs, scope, acceptance criteria |
+| Product Owner | `product-owner` | Requirements, PRDs, scope, acceptance criteria, functional acceptance, and user-facing docs (README + `docs/guide/`, ADR-0012) |
 | Architect / Reviewer | `architect` | ADRs, design, and **code review** on every PR |
 | Implementer | `implementer` | Production code, under TDD |
 | Tester | `tester` | Test strategy, test code, coverage, verification |
@@ -100,6 +100,8 @@ self-approval deadlock — see
 - `docs/planning/` — roadmap, backlog, status, per-task specs.
 - `docs/prd/` — product requirements documents (+ template).
 - `docs/adr/` — architecture decision records (+ template).
+- `docs/guide/` — user-facing guide (detailed, per-topic pages; product-owner-owned,
+  ADR-0012). General usage lives in the top-level `README.md`.
 - `.github/` — CI/release/security workflows, Dependabot, PR template, CODEOWNERS.
 
 ## 7. When in doubt

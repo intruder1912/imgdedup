@@ -45,6 +45,11 @@ Performance, reliability, security, portability, accessibility of output, etc.
 Commands, flags, inputs/outputs, exit codes, error messages, dry-run/safety
 behavior. (Keep aligned with eventual CLI design ADRs.)
 
+> Any user-visible behavior defined here carries a **documentation** obligation as
+> part of Definition of Done, owned by the product-owner and riding the feature's
+> PR: general usage in the top-level `README.md`, detailed per-topic pages in
+> `docs/guide/` ([ADR-0012](../adr/0012-documentation-ownership-and-placement.md)).
+
 ## 9. Acceptance criteria
 
 Verifiable conditions the tester turns into tests. Map each to the requirement(s)

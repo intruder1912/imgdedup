@@ -3,11 +3,12 @@
 A fast, cross-platform command-line tool for finding and safely removing
 duplicate images.
 
-> **Status: under active development (Phase 3 — implementation).** The CLI,
-> directory scanning, scope filtering, and magic-byte image confirmation are
-> implemented; the content-hash deduplication engine, the results report, and the
-> trash/delete actions are being built next. **Today the tool parses arguments
-> and scans, but does not yet print duplicate groups or modify any files.** See
+> **Status: under active development (Phase 3 — implementation).** Scanning, scope
+> filtering, magic-byte image confirmation, and the core content-hash
+> deduplication engine (duplicate detection) are implemented; the results
+> **report**, **JSON output**, and the **trash/delete actions** are not yet wired.
+> **So today the tool scans and detects duplicates internally, but does not yet
+> print duplicate groups or modify any files.** See
 > [`docs/planning/status.md`](docs/planning/status.md) for the live state and
 > [`docs/planning/roadmap.md`](docs/planning/roadmap.md) for the path to v1.0.
 
@@ -62,30 +63,8 @@ cargo build --release
 imgdedup [OPTIONS] <PATH>...
 ```
 
-`<PATH>...` is one or more files or directories to scan.
-
-### Options
-
-| Flag | Description |
-|---|---|
-| `--no-recurse` | Scan only the top level of each path; do not descend into subdirectories. |
-| `--hidden` | Include hidden files and directories (names starting with `.`). |
-| `--follow-symlinks` | Follow symbolic links during traversal. |
-| `--ext <LIST>` | Override the image-extension allow-list (comma- or space-separated, e.g. `jpg,png,gif`). Default: `jpg jpeg png gif webp bmp tif tiff`. |
-| `--keep <RULE>` | Which file to keep in each duplicate group: `shortest` (default), `oldest`, or `newest`. |
-| `--apply` | Move non-keepers to the OS trash. Without this flag the run is a dry run. |
-| `--delete` | Permanently delete non-keepers instead of trashing them. Only valid with `--apply`. |
-| `--json` | Emit machine-readable JSON instead of the human-readable report. |
-| `--exit-code` | Exit `3` if duplicates were found, `0` if none (useful in scripts). |
-| `-h`, `--help` | Print help. |
-| `-V`, `--version` | Print version. |
-
-### Examples
-
-> Note: these illustrate the intended interface. The reporting and action stages
-> are still being implemented (see the status banner above); the examples below
-> document the target behavior and will be filled out with real sample output as
-> those stages land.
+`<PATH>...` is one or more files or directories to scan. A plain run is a **dry
+run** — it reports duplicate groups and changes nothing.
 
 ```sh
 # Dry run: report duplicate groups under ./photos (default; nothing changes).
@@ -94,30 +73,26 @@ imgdedup ./photos
 # Scan multiple locations at once.
 imgdedup ~/Pictures /mnt/backup/photos
 
-# Only the top level, including hidden files, keeping the newest in each group.
-imgdedup --no-recurse --hidden --keep newest ./inbox
-
-# Restrict to a custom set of extensions.
-imgdedup --ext "png,webp" ./screenshots
-
-# Actually reclaim space by moving duplicates to the OS trash (recoverable).
+# Reclaim space by moving duplicates to the OS trash (recoverable).
 imgdedup --apply ./photos
-
-# Permanently delete duplicates (opt-in; requires --apply).
-imgdedup --apply --delete ./photos
-
-# Machine-readable output for scripting.
-imgdedup --json ./photos
 ```
 
-### Exit codes
+Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
+`--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
+`--apply` / `--delete` (act on duplicates); `--json`, `--exit-code` (output).
+Run `imgdedup --help` for the full list.
 
-| Code | Meaning |
-|---|---|
-| `0` | Success (no error; with `--exit-code`, also means no duplicates found). |
-| `1` | Run-level error (e.g. an input path could not be scanned). |
-| `2` | Usage error (invalid arguments). |
-| `3` | Duplicates were found — only emitted when `--exit-code` is passed. |
+## Detailed guide
+
+For in-depth, per-topic documentation — the full flag reference, the keeper rule,
+the safety model, output formats, and exit codes — see the **[user
+guide](docs/guide/README.md)**:
+
+- [Getting started](docs/guide/getting-started.md)
+- [Scanning and scope](docs/guide/scanning-and-scope.md)
+- [Choosing what to keep](docs/guide/choosing-what-to-keep.md)
+- [Removing duplicates safely](docs/guide/removing-duplicates-safely.md)
+- [Output and exit codes](docs/guide/output-and-exit-codes.md)
 
 ## How this repository works
 

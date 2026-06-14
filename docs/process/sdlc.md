@@ -74,7 +74,7 @@ from the repo content alone.
 
    | Class | Branch prefix | Lifetime / commits | Rides along | CI weight | Review kind |
    |---|---|---|---|---|---|
-   | **feature** | `feature/…` | longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner) + planning update | full CI | heavyweight code review |
+   | **feature** | `feature/…` | longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner: README + `docs/guide/`) + planning update | full CI | heavyweight code review |
    | **fix** | `fix/…` | short, few commits | failing test + fix + doc touch-ups + planning update | full CI | scoped code review |
    | **chore** | `chore/`, `docs/`, `refactor/`, `test/` | process changes, standalone tech/user doc edits, isolated planning/grooming, standalone ADRs/PRDs | the doc/planning/process edit itself | docs-only units skip the Rust matrix | lightweight document review |
 
@@ -182,8 +182,10 @@ threads**, not a single prose comment. See
 - `make validate` and CI green; security gate satisfied.
 - Conventional Commit / PR title; docs and planning updated.
 - **Technical docs** (implementer — rustdoc on public items / `docs/` design
-  notes) and **user-facing docs** (product-owner — CLI/usage guide, README)
-  updated with the behavior they describe; not deferred to a later doc PR.
+  notes) and **user-facing docs** (product-owner — **general usage in `README.md`**,
+  **detailed per-topic pages in `docs/guide/`**) updated with the behavior they
+  describe; not deferred to a later doc PR. See
+  [ADR-0012](../adr/0012-documentation-ownership-and-placement.md).
 - **Planning/status updated in this same PR** (a free ride on the unit's branch).
 - All review threads resolved and required checks green (the ADR-0003 gate);
   human owner merged.

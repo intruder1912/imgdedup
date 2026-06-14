@@ -30,9 +30,16 @@ architect's job.
    `docs/planning/backlog.md` and `docs/planning/tasks/`.
 5. **Keep the repo as the source of truth.** Update planning docs in the same PR
    as the PRD.
-6. **Own user-facing documentation.** Author/maintain user-facing docs (CLI/usage
-   guide, relevant README sections) for any user-visible behavior, riding the
-   feature's PR — not deferred to a later doc PR.
+6. **Own user-facing documentation.** You own functional acceptance — the
+   product-level sign-off that shipped behavior matches the PRD (the tester
+   supplies the verifying tests) — so you also own documenting that behavior for
+   users. For any user-visible behavior, author/maintain the docs **riding the
+   feature's PR** (never a deferred doc PR), split by depth
+   ([ADR-0012](../../docs/adr/0012-documentation-ownership-and-placement.md)):
+   **general usage in the top-level `README.md`**, and **detailed, per-topic pages
+   in `docs/guide/`** as a linked collection of self-contained guide pages (index
+   at `docs/guide/README.md`). Keep the README overview and the guide in sync, and
+   link the README's "Detailed guide" section into `docs/guide/`.
 7. **Propose process improvements (kaizen).** When you spot material improvement
    potential, raise it as a **chore unit** and, if lasting, ask the architect to
    capture it in an ADR (alongside the orchestrator and architect; see
