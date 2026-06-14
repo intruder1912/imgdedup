@@ -60,9 +60,14 @@ The **human owner is the only one who merges PRs** (see §5).
    weight, review kind). A branch carries everything that unit needs — design,
    TDD code, technical/user docs, **and** the planning/status update — into one
    squash PR; planning/doc updates ride that PR (no separate doc-only PR). Choose
-   commit granularity to match the work. Branch naming and flow:
+   commit granularity to match the work. **For feature work the unit is a PRD
+   slice** — a coherent shippable increment of a PRD (product-owner-carved),
+   reviewed in-progress on the branch and opened as one PR when the product-owner
+   has accepted its requirements and delivered its docs; `fix`/`chore` keep the
+   small one-unit-one-PR cadence. Branch naming and flow:
    [`docs/process/branching.md`](docs/process/branching.md); cadence rationale:
-   [`docs/adr/0011-unit-of-work-cadence-and-planning-gate.md`](docs/adr/0011-unit-of-work-cadence-and-planning-gate.md).
+   [`docs/adr/0011-unit-of-work-cadence-and-planning-gate.md`](docs/adr/0011-unit-of-work-cadence-and-planning-gate.md)
+   and [`docs/adr/0013-prd-slice-delivery-cadence.md`](docs/adr/0013-prd-slice-delivery-cadence.md).
 7. **Tooling: `git` and `gh` CLI only. No MCP** for git/GitHub operations.
 
 ## 5. The development cycle (summary)

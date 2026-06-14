@@ -19,7 +19,11 @@ the behavior, it also owns **user-facing documentation** for any user-visible
 behavior, riding the feature's PR: **general usage in the top-level `README.md`**
 and **detailed, per-topic pages in [`../guide/`](../guide/)** (a linked collection
 of self-contained guide pages). See
-[ADR-0012](../adr/0012-documentation-ownership-and-placement.md).
+[ADR-0012](../adr/0012-documentation-ownership-and-placement.md). For feature work,
+**carves each PRD into coherent shippable slices** in the backlog, and is the
+**PR-open gate** for a slice: the PR opens only once the role has accepted all the
+slice's functional requirements and delivered its docs. May **demand an architect
+review** of any aspect mid-slice ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 
 ### Architect / Reviewer — [`architect`](../../.claude/agents/architect.md)
 
@@ -35,14 +39,23 @@ a prose summary plus **resolvable
 review threads** for each substantive finding, comments only, never a blocking
 GitHub approval. In the post-PR stage-two loop the architect **re-reviews** each
 iteration until checks are green and all threads are resolved. See
-[`sdlc.md`](sdlc.md).
+[`sdlc.md`](sdlc.md). For a **PRD slice**, also performs **in-progress
+(mid-stream) reviews** on the branch — on the implementer's request or a
+product-owner/orchestrator demand — recorded in the slice's review log
+(`docs/planning/reviews/<slice>.md`); these are advisory and feed the **final
+whole-slice review** of record on the opened PR
+([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 
 ### Implementer — [`implementer`](../../.claude/agents/implementer.md)
 
 Writes production code for specified tasks under **mandatory TDD**, following the
 ADRs. Keeps changes small and focused. Maintains **technical documentation**
 (rustdoc on public items / `docs/` design notes) for the code written — part of
-Definition of Done, reviewed as code.
+Definition of Done, reviewed as code. On a **PRD slice**, **requests an architect
+review** for significant or especially risky/complex changes (its discretion, not
+per-commit), **works review feedback immediately**, and when unsure whether to fix
+now or defer **asks the product-owner to decide** — deferrals become tracked
+backlog tasks ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 
 ### Tester — [`tester`](../../.claude/agents/tester.md)
 
@@ -113,6 +126,9 @@ concrete findings, and re-dispatches the architect to re-review, looping until
 required checks are green and all conversations are resolved. The human owner then
 merges. See [`sdlc.md`](sdlc.md) and
 [`../adr/0006-post-pr-review-iteration-loop.md`](../adr/0006-post-pr-review-iteration-loop.md).
+During a **PRD slice**, the orchestrator may also **demand an in-progress architect
+review** of any aspect, independently of whether the implementer requested one
+([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 
 ## Shared rules (all roles)
 

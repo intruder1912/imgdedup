@@ -53,6 +53,15 @@ resolved (ADR-0006). Check:
 Be specific and actionable. Distinguish blocking issues from nits. Verify claims
 against the code; do not rubber-stamp.
 
+**On a PRD slice** ([ADR-0013](../../docs/adr/0013-prd-slice-delivery-cadence.md)),
+review in two phases. *In-progress:* when the implementer requests it (or the
+product-owner/orchestrator demands it), review the relevant **commit range** on the
+branch and record findings in the slice's review log
+(`docs/planning/reviews/<slice>.md`) — these are advisory/incremental. *Final:* when
+the PR opens, perform a **full whole-slice review** as resolvable PR threads,
+**building on** the in-progress log (re-confirm already-reviewed chunks rather than
+re-reviewing wholesale), then run the usual stage-two loop to convergence.
+
 ## Workflow
 
 Read `CLAUDE.md`, the relevant PRD(s), and existing ADRs first. Follow the SDLC

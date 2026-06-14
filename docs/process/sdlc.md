@@ -74,12 +74,16 @@ from the repo content alone.
 
    | Class | Branch prefix | Lifetime / commits | Rides along | CI weight | Review kind |
    |---|---|---|---|---|---|
-   | **feature** | `feature/…` | longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner: README + `docs/guide/`) + planning update | full CI | heavyweight code review |
+   | **feature** | `feature/…` | a **PRD slice** (see below): longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner: README + `docs/guide/`) + planning update | full CI | in-progress reviews + a heavyweight whole-slice review |
    | **fix** | `fix/…` | short, few commits | failing test + fix + doc touch-ups + planning update | full CI | scoped code review |
    | **chore** | `chore/`, `docs/`, `refactor/`, `test/` | process changes, standalone tech/user doc edits, isolated planning/grooming, standalone ADRs/PRDs | the doc/planning/process edit itself | docs-only units skip the Rust matrix | lightweight document review |
 
    Rule of thumb: docs that **accompany** a feature ride the feature branch;
-   **standalone** doc/planning work is a chore unit.
+   **standalone** doc/planning work is a chore unit. For **feature** work the unit
+   is a **PRD slice**, not a single task — see
+   [PRD-slice delivery](#prd-slice-delivery-feature-work) below and
+   [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md); `fix`/`chore` keep the
+   one-unit-one-PR cadence.
 
 1. **Select work.** Take the next task from
    [`../planning/backlog.md`](../planning/backlog.md) (each non-trivial task has a
@@ -137,6 +141,47 @@ from the repo content alone.
     (see [`release.md`](release.md)).
 13. **Close the loop.** Ensure planning docs reflect the new reality (done/next).
 
+## PRD-slice delivery (feature work)
+
+For **feature delivery within a PRD**, the unit of work is a **coherent shippable
+slice** of the PRD — an increment that is **end-to-end-validatable** and
+**independently mergeable/releasable**, larger than a single task but smaller than
+the whole PRD ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)). `fix`,
+`chore`, and standalone doc/ADR units keep the one-unit-one-PR cadence above; the
+two models coexist.
+
+- **Carving slices.** The **product-owner** groups a PRD's tasks into slices in the
+  backlog (owning scope + acceptance); the **architect** sanity-checks the
+  boundaries for design coherence.
+- **One slice = one branch = one squash PR**, built with granular, well-chosen
+  commits. The branch is **CI-free and PR-less until the slice is complete**;
+  rebase on `main` to stay current. Squash-merge is unchanged (ADR-0003/0004): the
+  commits are the branch/review narrative, `main` gets one squash per slice, and
+  that drives one SemVer release per slice.
+- **In-progress review protocol.** The **implementer requests an architect review**
+  for **significant or especially risky/complex** changes — its discretion, **not
+  per-commit**. The **product-owner and orchestrator may demand** a review of any
+  aspect regardless. With no PR open yet, the architect reviews the relevant
+  **commit range** and findings go in a per-slice **review log**
+  (`docs/planning/reviews/<slice>.md`, see
+  [`../planning/reviews/`](../planning/reviews/)). These reviews are
+  **advisory/incremental**. Feedback is **worked immediately**; if the implementer
+  is unsure whether to fix **now or defer**, it **asks the product-owner to
+  decide**, and any **deferral is promoted to a tracked backlog task** (noted in the
+  log) so nothing is lost.
+- **PR-open gate.** The PR opens **ready** only when the **product-owner has (1)
+  confirmed all functional requirements in the slice are accepted and (2) delivered
+  all user-facing docs** (README + `docs/guide/`, ADR-0012), plus the standing DoD
+  (`make validate` green, implementer technical docs, planning/status updated).
+- **Final review + merge.** The architect runs a **full whole-slice review** on the
+  opened PR (resolvable threads), **building on the in-progress log** (already-
+  reviewed chunks re-confirmed, not re-reviewed wholesale). Then the usual gate
+  holds (ADR-0003/0006): all threads resolved **and** required checks green — the
+  **3-OS matrix runs here for the first time** — tester verifies fixes under TDD,
+  the **human owner squash-merges**. Residual risk: cross-platform CI signal arrives
+  at slice end; contained by bounded slice size, portable-code discipline, and the
+  stage-two loop.
+
 ## Review kinds and timing
 
 The architect performs **two distinct kinds of review**, scaled to the artifact:
@@ -187,5 +232,9 @@ threads**, not a single prose comment. See
   describe; not deferred to a later doc PR. See
   [ADR-0012](../adr/0012-documentation-ownership-and-placement.md).
 - **Planning/status updated in this same PR** (a free ride on the unit's branch).
+- For a **feature (PRD slice)**: the product-owner has **accepted all the slice's
+  functional requirements** and delivered its user docs before the PR opened, and
+  any in-progress-review deferrals were promoted to tracked tasks
+  ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 - All review threads resolved and required checks green (the ADR-0003 gate);
   human owner merged.
