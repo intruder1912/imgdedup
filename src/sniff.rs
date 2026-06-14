@@ -133,6 +133,8 @@ impl SniffWarning {
 /// example a camera raw format added via `--ext`), this function returns
 /// `false`. The caller should collect the file as a [`SniffWarning`]; see the
 /// module-level note on custom extensions.
+// TODO(TASK-0304): used directly once the pipeline is fully wired.
+#[allow(dead_code)]
 pub fn confirm_image(path: &Path) -> bool {
     match read_header(path) {
         Ok(buf) => is_image_header(&buf),
@@ -152,17 +154,33 @@ pub fn confirm_image(path: &Path) -> bool {
 ///
 /// This function is the recommended integration point for TASK-0304: hand it the
 /// `Vec<Candidate>` from enumeration and consume the `confirmed` set downstream.
+///
+/// The header is read **once per file**; both the confirm decision and the
+/// rejection reason are derived from that single read.
 pub fn filter_candidates(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Vec<SniffWarning>) {
     let mut confirmed = Vec::new();
     let mut warnings = Vec::new();
 
     for path in paths {
-        if confirm_image(&path) {
-            confirmed.push(path);
-        } else {
-            // Try to produce a useful reason string.
-            let reason = reason_for_rejection(&path);
-            warnings.push(SniffWarning::new(path, reason));
+        match read_header(&path) {
+            Err(e) => {
+                warnings.push(SniffWarning::new(
+                    path,
+                    format!("could not read file header: {e}"),
+                ));
+            }
+            Ok(buf) => {
+                if is_image_header(&buf) {
+                    confirmed.push(path);
+                } else {
+                    let reason = if buf.is_empty() {
+                        "file is empty".to_owned()
+                    } else {
+                        "content not recognized as a supported image format".to_owned()
+                    };
+                    warnings.push(SniffWarning::new(path, reason));
+                }
+            }
         }
     }
 
@@ -192,16 +210,6 @@ fn read_header(path: &Path) -> std::io::Result<Vec<u8>> {
 /// here; see the module-level doc on confirmation semantics for the rationale.
 fn is_image_header(buf: &[u8]) -> bool {
     infer::is_image(buf)
-}
-
-/// Produce a human-readable rejection reason for a candidate path.
-fn reason_for_rejection(path: &Path) -> String {
-    // Attempt a header read to distinguish I/O errors from format mismatches.
-    match read_header(path) {
-        Err(e) => format!("could not read file header: {e}"),
-        Ok(buf) if buf.is_empty() => "file is empty".to_owned(),
-        Ok(_) => "content not recognized as a supported image format".to_owned(),
-    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
