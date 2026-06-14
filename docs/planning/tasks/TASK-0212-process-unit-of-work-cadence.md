@@ -38,6 +38,7 @@ next one.
 ## Task 1 — CI: add `changes` path-filter + `ci-gate`, gate the Rust matrix
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yml`
 
 - [ ] **Step 1: Add the `changes` job** (place it just before the `rust` job, after `linkcheck`). It computes whether code paths changed:
@@ -111,7 +112,7 @@ npx -y @action-validator/cli .github/workflows/ci.yml 2>/dev/null \
   || python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml')); print('yaml OK')"
 ```
 
-Expected: YAML parses (`yaml OK`) / validator passes. (Full end-to-end behaviour — matrix runs on this code-touching PR, and *skips* on a future docs-only PR — is verified at PR time; see the Migration note.)
+Expected: YAML parses (`yaml OK`) / validator passes. (Full end-to-end behavior — matrix runs on this code-touching PR, and *skips* on a future docs-only PR — is verified at PR time; see the Migration note.)
 
 - [ ] **Step 5: Commit.**
 
@@ -125,6 +126,7 @@ git commit -m "ci: front Rust matrix with a path-filtered ci-gate required check
 ## Task 2 — Process docs: `sdlc.md`
 
 **Files:**
+
 - Modify: `docs/process/sdlc.md`
 
 - [ ] **Step 1:** Add a new **Step 0 — Classify the unit** at the head of "Steps in detail", before "Select work":
@@ -142,7 +144,7 @@ git commit -m "ci: front Rust matrix with a path-filtered ci-gate required check
 
 - [ ] **Step 4:** Add a **"Hold the PR"** note: pushing to a topic branch triggers no CI; open the PR only once converged and reviewed.
 
-- [ ] **Step 5:** Update the **Definition of Done** list: add "Technical docs (implementer) and user-facing docs (product-owner) updated with the behaviour they describe" and "Planning/status updated in this same PR."
+- [ ] **Step 5:** Update the **Definition of Done** list: add "Technical docs (implementer) and user-facing docs (product-owner) updated with the behavior they describe" and "Planning/status updated in this same PR."
 
 - [ ] **Step 6: Commit.**
 
@@ -156,6 +158,7 @@ git commit -m "docs(process): adopt unit-of-work cadence, Step 0 classification 
 ## Task 3 — Process docs: `branching.md` + `commits.md`
 
 **Files:**
+
 - Modify: `docs/process/branching.md`, `docs/process/commits.md`
 
 - [ ] **Step 1 (`branching.md`):** Under "Topic branches", add a paragraph stating a branch = **one unit of work** that carries design + code + tech/user docs + planning into one squash PR; reference the feature/fix/chore classification (link ADR-0011). Add the **hold-the-PR** rule to the Lifecycle list (push freely; open PR only when converged + reviewed).
@@ -174,11 +177,12 @@ git commit -m "docs(process): branch = one unit of work; clarify squash vs per-c
 ## Task 4 — Crew + agent definitions: doc ownership & kaizen
 
 **Files:**
+
 - Modify: `docs/process/crew.md`, `.claude/agents/implementer.md`, `.claude/agents/product-owner.md`, `.claude/agents/architect.md`
 
 - [ ] **Step 1 (`implementer.md` + `crew.md`):** Add to the implementer's responsibilities: "Maintain **technical documentation** (rustdoc on public items / `docs/` design notes) for the code you write — part of Definition of Done, reviewed as code."
 
-- [ ] **Step 2 (`product-owner.md` + `crew.md`):** Add to the product-owner's responsibilities: "Author/maintain **user-facing documentation** (CLI/usage guide, relevant README sections) for any user-visible behaviour, riding the feature's PR."
+- [ ] **Step 2 (`product-owner.md` + `crew.md`):** Add to the product-owner's responsibilities: "Author/maintain **user-facing documentation** (CLI/usage guide, relevant README sections) for any user-visible behavior, riding the feature's PR."
 
 - [ ] **Step 3 (kaizen — `crew.md`, and a line in each of `architect.md`, `product-owner.md`):** State that the **orchestrator, product-owner, and architect** may propose process improvements when they spot material potential, raised as a **chore unit** and, if lasting, captured in an ADR.
 
@@ -194,6 +198,7 @@ git commit -m "docs(process): fold tech/user docs into roles; add kaizen provisi
 ## Task 5 — `CLAUDE.md` + ADR index
 
 **Files:**
+
 - Modify: `CLAUDE.md`, `docs/adr/README.md`
 
 - [ ] **Step 1 (`CLAUDE.md`):** In §4 (working rules), adjust rule 6 ("One task = one branch = one focused PR") to reference the unit-of-work model and the up-front classification; add a brief pointer that planning/doc updates ride the unit's PR (no separate doc PR) and link ADR-0011. Add a one-line kaizen note in §7.
@@ -212,6 +217,7 @@ git commit -m "docs: reference unit-of-work cadence in CLAUDE.md; index ADR-0011
 ## Task 6 — Planning update + owner hand-off (rides this PR)
 
 **Files:**
+
 - Modify: `docs/planning/backlog.md`, `docs/planning/status.md`
 
 - [ ] **Step 1 (`backlog.md`):** Add the TASK-0212 row to the Phase 2 table (Role: architect; Status: done — flipped at end of this PR; Parallel: no; Depends on: ADR-0011).

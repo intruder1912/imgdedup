@@ -84,7 +84,13 @@
     "recurse",
     "symlink",
     "symlinks",
-    "reclaimable"
+    "reclaimable",
+    "mdlint",
+    "rustdoc",
+    "kaizen",
+    "dogfood",
+    "dogfoods",
+    "dogfooding"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",
