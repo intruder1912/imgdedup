@@ -60,7 +60,21 @@
     "untrusted",
     "underspecified",
     "amannn",
-    "cycjimmy"
+    "cycjimmy",
+    "clippy",
+    "rustfmt",
+    "rayon",
+    "BLAKE",
+    "xxHash",
+    "endianness",
+    "endiannesses",
+    "codepoints",
+    "backpressure",
+    "mmap",
+    "SIGBUS",
+    "inode",
+    "Cocoa",
+    "osascript"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",

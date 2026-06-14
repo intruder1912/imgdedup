@@ -31,7 +31,7 @@ Status mirrors [`status.md`](status.md).
 
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
-| TASK-0101 | Brainstorm + author [PRD-0001](../prd/PRD-0001-exact-image-deduplication.md) (exact-dedup scope, UX, safety) | product-owner | in-progress | no | TASK-0007 |
+| TASK-0101 | Brainstorm + author [PRD-0001](../prd/PRD-0001-exact-image-deduplication.md) (exact-dedup scope, UX, safety) | product-owner | done | no | TASK-0007 |
 
 ## Phase 2 — Architecture & toolchain
 
@@ -41,7 +41,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
-| TASK-0201 | Author technology-stack selection ADR (fully open comparison) | architect | todo | no | TASK-0101 |
+| TASK-0201 | Author technology-stack selection ADR (fully open comparison) | architect | done | no | TASK-0101 |
 | TASK-0202 | Author licensing ADR (decide license before any public release) | architect | todo | yes | TASK-0007 |
 | TASK-0203 | Wire full semantic-release publishing; resolve push to protected `main` (release bot / GitHub App or release-as-asset) — flips dry-run off | architect | todo | no | TASK-0201 |
 | TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening) | architect | todo | yes | TASK-0007 |
@@ -53,5 +53,18 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | todo | yes | TASK-0007 |
 | TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases | architect | todo | no | TASK-0203, TASK-0207 |
 
+> **Phase 2 design ADRs landed:** TASK-0201 produced
+> [ADR-0007](../adr/0007-technology-stack-rust-clap.md) (stack = Rust + clap) plus
+> the core design ADRs [ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md)
+> (dedup algorithm & safety semantics), [ADR-0009](../adr/0009-cross-platform-trash-and-recycle.md)
+> (trash/recycle), and [ADR-0010](../adr/0010-concurrency-and-memory-model.md)
+> (concurrency & memory). Note: **TASK-0208 is reframed** to clippy + cargo-audit +
+> cargo-deny (CodeQL has no first-class Rust support — ADR-0007).
+>
+> **Forward pointer:** Phase 3 implementation tasks (TDD) — enumerate → sniff →
+> size-group → hash → byte-verify → identity → keeper → report/apply, the ADR-0010
+> executor, and an NFR-4 benchmark — are seeded in the PR that follows this one;
+> not enumerated here yet.
+>
 > Further Phase 1+ tasks are added as PRDs and ADRs are written. Keep this table
 > and the `tasks/` specs in sync with reality in every PR.
