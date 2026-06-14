@@ -2,6 +2,7 @@ use clap::Parser;
 use std::process;
 
 mod cli;
+mod engine;
 mod enumerate;
 mod exit_code;
 mod sniff;
@@ -43,19 +44,22 @@ fn run(args: cli::Cli) -> i32 {
     let candidate_set = enumerate::enumerate(&args.paths, &scope);
 
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
-    // Extract the paths from the enumerated candidates and run them through
-    // the sniff predicate. Candidates that fail confirmation are dropped and
-    // recorded as SniffWarnings; they never enter the grouping pipeline.
-    let candidate_paths: Vec<std::path::PathBuf> = candidate_set
-        .candidates
-        .into_iter()
-        .map(|c| c.path)
-        .collect();
-    let (_confirmed, _sniff_warnings) = sniff::filter_candidates(candidate_paths);
+    // Hand the enumerated candidates (path + size) to the sniff predicate.
+    // Candidates that fail confirmation are dropped and recorded as
+    // SniffWarnings; they never enter the grouping pipeline. The size that
+    // enumeration stat'd is threaded through into each ConfirmedFile.
+    let (confirmed, _sniff_warnings) = sniff::filter_candidates(candidate_set.candidates);
 
-    // TODO(TASK-0304): feed `_confirmed` into the size-grouping stage.
-    // TODO(TASK-0307): surface `_sniff_warnings` and `candidate_set.warnings`
-    //                  and `candidate_set.root_errors` in the report.
+    // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304).
+    // Size pre-group → BLAKE3 pre-filter → hash group → identity collapse →
+    // byte-for-byte verify against the keeper. Pure analysis: no filesystem
+    // mutation. TASK-0305 will replace the placeholder keeper ordering.
+    let _dedup = engine::find_duplicates(confirmed, engine::placeholder_keeper_order);
+
+    // TODO(TASK-0307): surface `_dedup.groups` + `_dedup.warnings`,
+    //                  `_sniff_warnings`, `candidate_set.warnings`, and
+    //                  `candidate_set.root_errors` in the report.
+    // TODO(TASK-0309/0310): act on `_dedup.groups` under --apply / --delete.
 
     exit_code::SUCCESS
 }

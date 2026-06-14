@@ -12,11 +12,14 @@ first file to read when resuming work.
 
 ## Up next
 
-- **TASK-0304 — Core dedup engine** (size → hash → byte-verify → identity)
-  is the convergence point; TASK-0302 and TASK-0303 are now complete.
-- **Core-first fan-out (downstream of TASK-0304):** TASK-0304 (dedup engine: size →
-  hash → byte-verify → identity) then feeds TASK-0305 (keeper) and TASK-0306
-  (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) +
+- **TASK-0305 — Keeper selection** (FR-7/8, NFR-3) and **TASK-0306 — Concurrency &
+  determinism** (NFR-3/4) are now unblocked: both depend only on TASK-0304, which
+  is complete. TASK-0305 replaces the engine's `placeholder_keeper_order` with the
+  real keeper rule (shallowest path → oldest mtime → lexicographic); TASK-0306
+  wires rayon parallel hashing + canonical-sort determinism into the engine.
+- **Core-first fan-out (downstream of TASK-0304, now landed):** TASK-0304 (dedup
+  engine: size → hash → byte-verify → identity) feeds TASK-0305 (keeper) and
+  TASK-0306 (concurrency/determinism). Fan-out surfaces: TASK-0307 (human report) +
   TASK-0308 (JSON); TASK-0309 (trash apply + re-validation) → TASK-0310
   (permanent delete); TASK-0311 (exit codes); TASK-0312 (tester-led E2E + scale
   benchmark).
@@ -28,6 +31,27 @@ first file to read when resuming work.
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **TASK-0304 — Core dedup engine (the safety heart).** New module `src/engine.rs`
+  with `find_duplicates(files, keeper_order) -> DedupOutcome` implementing the
+  ADR-0008 pipeline: size pre-grouping (singletons dropped without hashing, AC-9)
+  → BLAKE3 hash pre-filter (streamed 64 KiB buffer, never whole-file) → hash
+  grouping → hard-link/identity collapse via `same-file::Handle` (POSIX
+  `(st_dev,st_ino)` / Windows volume-serial+file-id; computed only within a
+  hash-group and dropped promptly, bounding FD pressure) → **star byte-for-byte
+  verify each non-keeper against the keeper** as the sole removal authority
+  (FR-4/NFR-1). A forced-collision test (constant hasher) proves correctness does
+  not depend on BLAKE3 being collision-proof; hard-link siblings are collapsed and
+  never proposed for removal (AC-18/FR-17). Keeper is the minimum under an
+  **injected ordering** (`placeholder_keeper_order` lexicographic for now; TASK-0305
+  plugs in the real rule). Pure analysis — no filesystem mutation. **Carrier
+  thread:** `sniff::filter_candidates` now consumes `Vec<enumerate::Candidate>` and
+  emits `Vec<sniff::ConfirmedFile{path,size}>`, threading the enumerated `size`
+  through (no re-stat). Adds `blake3` + `same-file` deps; wired into `main.rs` as
+  stage 3 behind a `TODO(TASK-0307)` for the report. 15 new engine tests + size-
+  carrier test; all 102 tests green; `make validate` (fmt/clippy `-D warnings`/
+  test/coverage) passes. Resolved design recorded in
+  [`tasks/TASK-0304-core-dedup-engine.md`](tasks/TASK-0304-core-dedup-engine.md).
 
 - **TASK-0303 — Magic-byte image confirmation.** New module `src/sniff.rs`
   with `confirm_image(path) -> bool` (reads at most 64-byte header, uses

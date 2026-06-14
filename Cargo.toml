@@ -11,8 +11,10 @@ name = "imgdedup"
 path = "src/main.rs"
 
 [dependencies]
+blake3 = "1.8.5"
 clap = { version = "4", features = ["derive"] }
 infer = "0.16"
+same-file = "1.0.6"
 walkdir = "2"
 
 [dev-dependencies]

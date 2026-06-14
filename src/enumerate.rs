@@ -61,9 +61,9 @@ const DEFAULT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"
 pub struct Candidate {
     /// Absolute (or as-given) path to the file.
     pub path: PathBuf,
-    /// Byte size of the file, from directory-walk metadata.
-    // TODO(TASK-0304): consumed by the size-grouping stage.
-    #[allow(dead_code)]
+    /// Byte size of the file, from directory-walk metadata. Threaded through
+    /// `sniff::filter_candidates` into `ConfirmedFile` and consumed by the
+    /// engine's size-grouping stage (TASK-0304).
     pub size: u64,
 }
 

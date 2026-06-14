@@ -2,7 +2,7 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** implementer
-- **Status:** todo
+- **Status:** done
 - **Depends on:** TASK-0302, TASK-0303
 
 ## Goal
@@ -65,6 +65,39 @@ byte-verify → identity), each increment landing with its own failing-first tes
   `ConfirmedFile { path, size }`, or have `filter_candidates` operate over
   `enumerate::Candidate`), or accept a single re-stat here and document the small
   TOCTOU widening. Avoid a silent double-stat.
+
+## Resolved design decisions (brainstorm 2026-06-14)
+
+These resolve the open questions above before implementation; recorded here so the
+repo remains the single source of truth.
+
+- **Confirmed-set carrier (the sniff carrier thread):** the sniff stage emits a
+  dedicated `sniff::ConfirmedFile { path, size }`. `filter_candidates` changes from
+  `(Vec<PathBuf>) -> (Vec<PathBuf>, …)` to `(Vec<enumerate::Candidate>) ->
+  (Vec<ConfirmedFile>, Vec<SniffWarning>)`, preserving the `size` that `enumerate`
+  already stat'd. No re-stat, no TOCTOU widening. `enumerate::Candidate` is unchanged.
+- **Keeper interface:** the engine accepts an **injected keeper-ordering** closure
+  (`Fn(&FileRec, &FileRec) -> Ordering`) and designates the minimum as keeper.
+  TASK-0304 passes a deterministic lexicographic-path placeholder; TASK-0305 plugs in
+  the real keeper rule without touching the engine's grouping/verify logic.
+- **Identity key:** the `same-file` crate (already in-tree transitively via `walkdir`;
+  promoted to an explicit dependency). `same-file::Handle` is `Eq + Hash` over POSIX
+  `(st_dev, st_ino)` / Windows volume-serial + file-id — exactly the ADR-0008 key, with
+  no `#[cfg]`/`unsafe` of our own. **Invariant:** `Handle`s hold an open FD for their
+  lifetime, so identity is computed **only within a hash-group** (a tiny set of
+  same-size/same-hash candidates) and the handles are dropped immediately — the full
+  candidate set is never handle-mapped, bounding FD pressure (NFR-4).
+- **Proving BLAKE3 is a pre-filter only:** the engine core takes the hasher as an
+  internal injection point. A unit test supplies a **constant hasher** that forces
+  same-size, different-content files into one hash group and asserts the byte-verify
+  still splits them and reports the loser — directly proving removal never rests on a
+  hash match. The public `find_duplicates` always uses BLAKE3.
+- **New module `src/engine.rs`:** public `find_duplicates(files: Vec<ConfirmedFile>,
+  keeper_order) -> DedupOutcome { groups: Vec<DuplicateGroup>, warnings:
+  Vec<EngineWarning> }`, where `DuplicateGroup { keeper: FileRec, removable:
+  Vec<FileRec> }` and `FileRec` carries metadata only (path, size, identity, 32-byte
+  hash) — never file contents (ADR-0010). Pure analysis: no filesystem mutation. Wired
+  into `main.rs` as stage 3, result held behind a `TODO(TASK-0307)` for the report.
 
 ## Out of scope
 
