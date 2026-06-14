@@ -1,6 +1,6 @@
 # PRD-0001: Exact image deduplication
 
-- **Status:** in review
+- **Status:** accepted
 - **Owner:** product-owner
 - **Created:** 2026-06-13
 - **Related:** [roadmap Phase 1](../planning/roadmap.md), [backlog TASK-0101](../planning/backlog.md), [TEMPLATE](TEMPLATE.md); hands open questions to the architect (TASK-0201 technology-stack ADR and design ADRs)
