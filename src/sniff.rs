@@ -16,10 +16,29 @@
 //!   → …
 //! ```
 //!
+//! ## Confirmation semantics
+//!
+//! Confirmation accepts **any image format that `infer` recognizes from the
+//! header bytes** — this is deliberately broader than the default extension
+//! allow-list. For example, a HEIC file misnamed `.jpg` would pass confirmation
+//! because `infer` identifies it as an image by its magic bytes, while a text
+//! file named `.jpg` is rejected. This broader acceptance is safe because:
+//!
+//! - Dedup identity is determined by content hash and byte-for-byte verification
+//!   (ADR-0008), not by the format label — so the specific image format is
+//!   irrelevant to grouping.
+//! - The byte-verify stage (TASK-0304) is the sole authority for authorizing
+//!   removal; only byte-identical files are ever removed.
+//! - NFR-2 (no collateral damage to non-images) still holds because only genuine
+//!   image files pass the magic-byte check, and only byte-identical copies are
+//!   ever proposed for removal.
+//!
 //! ## Confirmed formats
 //!
-//! The default allow-list (matching the extension allow-list in `enumerate.rs`)
-//! covers:
+//! The formats below cover the default extension allow-list (from `enumerate.rs`).
+//! `infer` may additionally recognize other image formats (e.g. HEIC, AVIF) that
+//! are not in the default extension allow-list; such files pass confirmation if
+//! they arrive via `--ext`.
 //!
 //! | Format | Magic bytes |
 //! |--------|-------------|
@@ -31,6 +50,12 @@
 //! | BMP    | `42 4D` |
 //! | TIFF (little-endian) | `49 49 2A 00` |
 //! | TIFF (big-endian)    | `4D 4D 00 2A` |
+//!
+//! **TIFF caveat:** `infer`'s TIFF matcher inspects bytes 8–9 to exclude Canon
+//! CR2 files (which share the TIFF magic bytes but have `CR` at offset 8). As a
+//! result, unusual-but-valid TIFFs that happen to carry `CR` at bytes 8–9 will
+//! not be confirmed. This is fail-closed and NFR-2-safe: a skipped file is simply
+//! never acted on.
 //!
 //! ## Custom extensions and unrecognizable formats
 //!
@@ -159,12 +184,12 @@ fn read_header(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Return `true` if `buf` is recognized by `infer` as a supported image type.
+/// Return `true` if `buf` is recognized by `infer` as any image type.
 ///
-/// "Supported" is defined as `infer::get` returning a type whose MIME type
-/// starts with `"image/"` **and** whose matcher is one of the six confirmed
-/// formats. In practice `infer::is_image` covers the same set; we also check
-/// the MIME prefix as a defense-in-depth guard.
+/// Delegates directly to [`infer::is_image`], which returns `true` for any
+/// format whose magic-byte signature `infer` has a built-in matcher for and
+/// whose MIME type is `"image/*"`. No additional allow-list filtering is applied
+/// here; see the module-level doc on confirmation semantics for the rationale.
 fn is_image_header(buf: &[u8]) -> bool {
     infer::is_image(buf)
 }
