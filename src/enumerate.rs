@@ -60,8 +60,12 @@ const DEFAULT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"
 #[derive(Debug, Clone)]
 pub struct Candidate {
     /// Absolute (or as-given) path to the file.
+    // TODO(TASK-0303/TASK-0304): consumed by magic-byte sniff and size-grouping stages.
+    #[allow(dead_code)]
     pub path: PathBuf,
     /// Byte size of the file, from directory-walk metadata.
+    // TODO(TASK-0304): consumed by the size-grouping stage.
+    #[allow(dead_code)]
     pub size: u64,
 }
 
@@ -79,8 +83,12 @@ impl Candidate {
 #[derive(Debug, Clone)]
 pub struct EnumerateWarning {
     /// The path of the entry that could not be processed.
+    // TODO(TASK-0307/TASK-0311): consumed by the report and exit-code stages.
+    #[allow(dead_code)]
     pub path: PathBuf,
     /// Human-readable reason the entry was skipped.
+    // TODO(TASK-0307): surfaced by the report unit.
+    #[allow(dead_code)]
     pub reason: String,
 }
 
@@ -95,14 +103,33 @@ impl EnumerateWarning {
 
 /// The output of [`enumerate`]: a set of candidate files and any warnings
 /// generated during traversal.
+///
+/// Errors are split into two collections so that downstream stages (TASK-0311)
+/// can distinguish a **run-level error** (an unreadable or nonexistent scan
+/// root, ADR-0008 §exit-code → exit `1`) from a **per-entry skip** (a
+/// descendant that was inaccessible but did not abort enumeration, NFR-6 → no
+/// exit-code change).
 #[derive(Debug, Default)]
 pub struct CandidateSet {
     /// Files that passed all scope filters and are ready for the next pipeline
     /// stage (magic-byte confirmation in TASK-0303).
+    // TODO(TASK-0303): consumed by the magic-byte sniff stage.
     pub candidates: Vec<Candidate>,
-    /// Non-fatal per-entry errors collected during traversal (NFR-6).
-    /// These do not abort enumeration; they are reported by TASK-0307.
+    /// Non-fatal **per-entry / descendant** errors collected during traversal
+    /// (NFR-6). These do not abort enumeration and do not by themselves change
+    /// the exit code from `0`; they are reported by TASK-0307.
+    // TODO(TASK-0307): surfaced by the report unit.
     pub warnings: Vec<EnumerateWarning>,
+    /// **Run-level** errors: failures on a scan *root* itself (depth 0) —
+    /// e.g. the path does not exist or is a directory that cannot be opened.
+    ///
+    /// A non-empty `root_errors` signals to TASK-0311 that the run should exit
+    /// with the run-level error code (`1`, ADR-0008). The distinction from
+    /// `warnings` is intentional: a root that cannot be scanned at all is a
+    /// fundamentally different situation from a descendant entry that was
+    /// skipped.
+    // TODO(TASK-0311): mapped to exit code 1 (run-level error) by the exit-code stage.
+    pub root_errors: Vec<EnumerateWarning>,
 }
 
 // ── Scope options ─────────────────────────────────────────────────────────────
@@ -144,6 +171,11 @@ impl ScopeOptions {
     ///
     /// Accepts comma- or whitespace-separated tokens; strips leading dots;
     /// lower-cases every token. Returns an empty `Vec` if the input is blank.
+    ///
+    /// The input is a `&str` (already valid UTF-8 from the CLI argument parser),
+    /// so no non-UTF-8 extension tokens can appear here. Non-UTF-8 extensions
+    /// encountered during traversal are handled by [`extension_matches`], where
+    /// lossy conversion ensures they are treated as non-matching (excluded).
     ///
     /// # Example (non-doc, see unit tests)
     ///
@@ -219,8 +251,17 @@ fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
                     .path()
                     .map(Path::to_path_buf)
                     .unwrap_or_else(|| root.to_path_buf());
-                out.warnings
-                    .push(EnumerateWarning::new(path, e.to_string()));
+                // Depth-0 errors mean the root itself is inaccessible — that
+                // is a run-level error (ADR-0008 exit-code semantics), not a
+                // per-entry skip. Route accordingly so TASK-0311 can map
+                // non-empty `root_errors` to exit code 1.
+                if e.depth() == 0 {
+                    out.root_errors
+                        .push(EnumerateWarning::new(path, e.to_string()));
+                } else {
+                    out.warnings
+                        .push(EnumerateWarning::new(path, e.to_string()));
+                }
             }
             Ok(entry) => {
                 let path = entry.path().to_path_buf();
@@ -275,6 +316,11 @@ fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
 /// subdirectory and file names encountered during the walk are subject to the
 /// hidden-entry filter.
 ///
+/// Classification is over the **in-scan traversal path** (the path walkdir
+/// produces during the walk), not over any resolved symlink target — so a
+/// symlink whose *name* starts with `.` is hidden, regardless of where its
+/// target lives.
+///
 /// Examples (given root `/home/user/photos`):
 /// - `/home/user/photos/img.jpg` → `false` (nothing below root starts with `.`)
 /// - `/home/user/photos/.hidden.jpg` → `true` (`.hidden.jpg` is below root)
@@ -299,6 +345,10 @@ fn is_hidden_relative_to(root: &Path, path: &Path) -> bool {
 
 /// Return `true` if `path`'s extension (case-insensitive) is in the effective
 /// allow-list.
+///
+/// A non-UTF-8 extension is treated as non-matching (lossy conversion →
+/// excluded). This is the safe direction: we never accidentally include a
+/// file with an undecodable extension.
 fn extension_matches(path: &Path, opts: &ScopeOptions) -> bool {
     match path.extension() {
         None => false,
@@ -342,11 +392,30 @@ mod tests {
         names
     }
 
+    /// Collect relative paths (from `root`) of all candidates, sorted.
+    /// Used to assert full traversal shape, not just filenames.
+    fn candidate_rel_paths(set: &CandidateSet, root: &std::path::Path) -> Vec<String> {
+        let mut paths: Vec<String> = set
+            .candidates
+            .iter()
+            .map(|c| {
+                c.path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        paths.sort();
+        paths
+    }
+
     // ── AC-15 (FR-1): recursion / no-recurse ─────────────────────────────────
 
     #[test]
     fn recurse_by_default_finds_nested_files() {
         // AC-15: with default options, files in subdirectories are enumerated.
+        // Finding 7: assert the full relative path to lock traversal shape.
         let dir = tempfile::tempdir().unwrap();
         touch(&dir, "top.jpg");
         touch(&dir, "sub/nested.jpg");
@@ -364,11 +433,26 @@ mod tests {
                 .map(|w| &w.reason)
                 .collect::<Vec<_>>()
         );
-        let names = candidate_names(&result);
+        // Assert full relative paths to lock the traversal shape (Finding 7).
+        let rel_paths = candidate_rel_paths(&result, dir.path());
         assert_eq!(
-            names,
-            vec!["nested.jpg", "top.jpg", "verydeep.jpg"],
-            "expected all three nested files; got: {names:?}"
+            rel_paths,
+            // On all platforms the path separator in the relative string is
+            // the native one; use std::path to normalise.
+            {
+                let mut expected = vec![
+                    std::path::Path::new("sub/nested.jpg")
+                        .to_string_lossy()
+                        .into_owned(),
+                    std::path::Path::new("sub/deep/verydeep.jpg")
+                        .to_string_lossy()
+                        .into_owned(),
+                    "top.jpg".to_owned(),
+                ];
+                expected.sort();
+                expected
+            },
+            "expected all three nested files with full relative paths; got: {rel_paths:?}"
         );
     }
 
@@ -683,9 +767,10 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unreadable_entry_produces_warning_and_rest_completes() {
-        // AC-10 (NFR-6): a permission-denied entry is skipped with a warning;
-        // enumeration of the rest of the directory completes.
+    fn unreadable_descendant_produces_warning_not_root_error() {
+        // AC-10 (NFR-6): a permission-denied *descendant* is skipped with a
+        // warning in `warnings`, NOT in `root_errors`. The root itself is fine.
+        // This test locks that the two collections are kept distinct (Finding 1).
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
@@ -716,11 +801,191 @@ mod tests {
             "good2.jpg should be in candidates; got: {names:?}"
         );
 
-        // The permission error must have produced at least one warning.
+        // The permission error must have produced at least one warning …
         assert!(
             !result.warnings.is_empty(),
-            "expected at least one warning for the unreadable entry"
+            "expected at least one warning for the unreadable descendant"
         );
+        // … but it must NOT appear as a root error (the scan root is readable).
+        assert!(
+            result.root_errors.is_empty(),
+            "descendant error must not populate root_errors; got: {:?}",
+            result.root_errors
+        );
+    }
+
+    // Keep the original AC-10 test name as an alias so any CI reference to it
+    // continues to compile (the new name above is the canonical form).
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_entry_produces_warning_and_rest_completes() {
+        // AC-10 (NFR-6): a permission-denied entry is skipped with a warning;
+        // enumeration of the rest of the directory completes.
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "good1.jpg");
+        let bad_dir = dir.path().join("bad_subdir");
+        fs::create_dir(&bad_dir).unwrap();
+        let bad_file = bad_dir.join("bad.jpg");
+        fs::write(&bad_file, b"").unwrap();
+        fs::set_permissions(&bad_dir, fs::Permissions::from_mode(0o000)).unwrap();
+        touch(&dir, "good2.jpg");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        fs::set_permissions(&bad_dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let names = candidate_names(&result);
+        assert!(names.contains(&"good1.jpg".to_string()));
+        assert!(names.contains(&"good2.jpg".to_string()));
+        assert!(!result.warnings.is_empty());
+    }
+
+    // ── ADR-0008 root-error distinction (Finding 1 / Finding 6) ──────────────
+
+    /// Nonexistent root: portable test (no cfg(unix) gate) that drives the
+    /// `root_errors` collection path (Finding 6 — Windows CI coverage).
+    #[test]
+    fn nonexistent_root_produces_root_error_not_warning() {
+        // A path that does not exist is a run-level error (ADR-0008 exit §1),
+        // not a per-entry skip. The error must land in `root_errors`, the
+        // candidate set must be empty, and `warnings` must be empty.
+        let nonexistent = std::path::PathBuf::from("/does/not/exist/imgdedup_test_root.jpg");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(std::slice::from_ref(&nonexistent), &opts);
+
+        assert!(
+            result.candidates.is_empty(),
+            "nonexistent root should yield no candidates; got: {:?}",
+            result.candidates
+        );
+        assert!(
+            result.warnings.is_empty(),
+            "nonexistent root error must not appear in per-entry warnings; got: {:?}",
+            result.warnings
+        );
+        assert_eq!(
+            result.root_errors.len(),
+            1,
+            "expected exactly one root_error; got: {:?}",
+            result.root_errors
+        );
+        assert_eq!(
+            result.root_errors[0].path, nonexistent,
+            "root_error path must be the bad root itself"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_root_directory_produces_root_error() {
+        // An unreadable root directory (mode 0o000) is a run-level error.
+        // The error must land in `root_errors`, not `warnings`.
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bad_root = dir.path().join("bad_root");
+        fs::create_dir(&bad_root).unwrap();
+        // Place a file inside so the test would find it if permissions allowed.
+        fs::write(bad_root.join("photo.jpg"), b"").unwrap();
+        fs::set_permissions(&bad_root, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(std::slice::from_ref(&bad_root), &opts);
+
+        // Restore so tempdir cleanup can succeed.
+        fs::set_permissions(&bad_root, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(
+            result.candidates.is_empty(),
+            "unreadable root should yield no candidates; got: {:?}",
+            result.candidates
+        );
+        assert!(
+            result.warnings.is_empty(),
+            "root error must not appear in per-entry warnings; got: {:?}",
+            result.warnings
+        );
+        assert_eq!(
+            result.root_errors.len(),
+            1,
+            "expected exactly one root_error; got: {:?}",
+            result.root_errors
+        );
+        assert_eq!(
+            result.root_errors[0].path, bad_root,
+            "root_error path must be the bad root itself"
+        );
+    }
+
+    // ── File-as-root (Finding 2) ──────────────────────────────────────────────
+
+    #[test]
+    fn single_image_file_as_root_is_enumerated() {
+        // Cli::paths accepts files, not just dirs. A single image file passed
+        // directly as a root must appear in the candidate set (Finding 2).
+        let dir = tempfile::tempdir().unwrap();
+        let file = touch(&dir, "photo.jpg");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(std::slice::from_ref(&file), &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "a single file root should yield exactly one candidate; got: {:?}",
+            result.candidates
+        );
+        assert_eq!(result.candidates[0].path, file);
+        assert!(result.warnings.is_empty());
+        assert!(result.root_errors.is_empty());
+    }
+
+    #[test]
+    fn single_image_file_as_root_with_no_recurse_is_enumerated() {
+        // Even with --no-recurse, a file root must still be enumerated
+        // (Finding 2 — file-as-root variant with --no-recurse).
+        let dir = tempfile::tempdir().unwrap();
+        let file = touch(&dir, "photo.jpg");
+
+        let opts = ScopeOptions {
+            no_recurse: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(std::slice::from_ref(&file), &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "--no-recurse must not exclude a file passed directly as a root; got: {:?}",
+            result.candidates
+        );
+        assert_eq!(result.candidates[0].path, file);
+    }
+
+    #[test]
+    fn hidden_file_passed_explicitly_as_root_is_included() {
+        // A hidden file (name starts with '.') passed explicitly as a root is
+        // included regardless of the --hidden flag (opt-in-by-explicit-root
+        // semantics, Finding 2). The hidden filter applies only to *discovered*
+        // descendants, not to user-supplied roots.
+        let dir = tempfile::tempdir().unwrap();
+        let hidden_file = touch(&dir, ".photo.jpg");
+
+        // Default scope: hidden filter is active.
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(std::slice::from_ref(&hidden_file), &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "a hidden file passed explicitly as root must be included; got: {:?}",
+            result.candidates
+        );
+        assert_eq!(result.candidates[0].path, hidden_file);
     }
 
     // ── Multiple roots ────────────────────────────────────────────────────────
