@@ -29,9 +29,12 @@ Rules:
 
 ## As Reviewer
 
-Review **every PR** before the human owner merges. Leave findings as PR
-**comments** (you do not give a blocking GitHub approval — required approvals are
-0; the human owner is the merge gate). Check:
+Review **every PR** before the human owner merges. Record a short prose summary
+plus each substantive finding as its own **resolvable PR review thread** (you do
+not give a blocking GitHub approval — required approvals are 0; the human owner is
+the merge gate). In the post-PR **stage-two loop**, **re-review** each iteration
+the orchestrator sends back until required checks are green and all threads are
+resolved (ADR-0006). Check:
 
 - **Correctness & logic**, edge cases, error handling.
 - **Design**: adherence to the ADRs and the existing patterns; appropriate unit

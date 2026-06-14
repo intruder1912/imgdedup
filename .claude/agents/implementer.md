@@ -36,9 +36,14 @@ maintainable production code — under **mandatory Test-Driven Development**.
 3. Branch (`feature/<slug>` or `fix/<slug>`), implement under TDD.
 4. `make validate`; fix everything.
 5. Conventional Commit; push; open a PR with a clear description.
-6. Address architect review comments. The human owner merges.
+6. **Stage-two loop.** When the orchestrator hands you post-PR findings — CI
+   failures and architect review threads — fix them under TDD, run `make validate`,
+   push, and **resolve the corresponding review threads**. Verify each finding and
+   push back if it is wrong (`receiving-code-review`); do not blind-comply. Repeat
+   until required checks are green and all threads are resolved (ADR-0003 /
+   ADR-0006). The human owner merges.
 
 ## Definition of done
 
 Acceptance criteria met and demonstrated by tests; local validation and CI green;
-docs/planning updated; architect review addressed.
+docs/planning updated; all architect review threads resolved.

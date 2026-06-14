@@ -22,9 +22,12 @@ reviews every PR**, in one of two modes scaled to the artifact: a *lightweight
 document review* of PRDs/ADRs/process docs (feasibility, risk, scope/YAGNI,
 testable acceptance criteria, consistency) or a *heavyweight code review* of
 implementation (correctness, security, tests/TDD, design, conventions). To keep
-turnaround low, the review runs on the **uncommitted working-tree diff** and is
-then **recorded on the PR** — comments only, never a blocking GitHub approval.
-See [`sdlc.md`](sdlc.md).
+turnaround low, the substantive review runs on the **uncommitted working-tree
+diff** and is then **recorded on the PR** — as a prose summary plus **resolvable
+review threads** for each substantive finding, comments only, never a blocking
+GitHub approval. In the post-PR stage-two loop the architect **re-reviews** each
+iteration until checks are green and all threads are resolved. See
+[`sdlc.md`](sdlc.md).
 
 ### Implementer — [`implementer`](../../.claude/agents/implementer.md)
 
@@ -70,8 +73,11 @@ Product Owner ──(PRD + acceptance criteria)──► Architect
 Backlog / tasks ◄──────────────────────► Implementer + Tester (TDD)
                                                   │
                                                   ▼
-                                          PR ──► Architect review (comments)
-                                                  │
+                                          PR ──► Architect review (threads) ◄─┐
+                                                  │                           │
+                                                  ▼          re-dispatch +     │
+                                  CI + threads resolved? ─ no ─► re-review ────┘
+                                                  │ yes
                                                   ▼
                                           Human Owner merges
 ```
@@ -80,6 +86,15 @@ PRDs and ADRs go through the same **review-before-commit** loop as code: the
 author hands the architect the uncommitted working-tree diff, iterates until it
 converges, then makes a single commit and opens the PR with the review recorded
 on it (see [`sdlc.md`](sdlc.md)).
+
+**Who drives the post-PR loop.** The role subagents are **stateless** — they watch
+nothing between dispatches — so once a PR is open the **orchestrator** (the main
+session driving the work) owns stage-two iteration: it collects CI failures and
+architect review threads via `gh`, re-dispatches the implementer/tester with the
+concrete findings, and re-dispatches the architect to re-review, looping until
+required checks are green and all conversations are resolved. The human owner then
+merges. See [`sdlc.md`](sdlc.md) and
+[`../adr/0006-post-pr-review-iteration-loop.md`](../adr/0006-post-pr-review-iteration-loop.md).
 
 ## Shared rules (all roles)
 
