@@ -4,6 +4,7 @@ use std::process;
 mod cli;
 mod enumerate;
 mod exit_code;
+mod sniff;
 
 fn main() {
     let args = cli::Cli::parse();
@@ -13,9 +14,9 @@ fn main() {
 
 /// Top-level dispatch.
 ///
-/// Runs post-parse validation, then the enumeration stage (TASK-0302).
-/// Later Phase 3 tasks (TASK-0303..TASK-0312) will extend the pipeline from
-/// the candidate set returned here.
+/// Runs post-parse validation, then the enumeration stage (TASK-0302), then
+/// the magic-byte confirmation stage (TASK-0303). Later Phase 3 tasks
+/// (TASK-0304..TASK-0312) will extend the pipeline from the confirmed set.
 fn run(args: cli::Cli) -> i32 {
     // Post-parse semantic validation: --delete without --apply is a run-level
     // error (exit 1, ADR-0008), not a clap parse error (exit 2).
@@ -38,11 +39,23 @@ fn run(args: cli::Cli) -> i32 {
         s
     };
 
-    // Enumerate candidate files — first pipeline stage (ADR-0008).
-    // The result feeds TASK-0303 (magic-byte confirm) onward.
-    // Fields are annotated #[allow(dead_code)] in enumerate.rs until each
-    // downstream stage is wired (TASK-0303/0304/0307/0311).
-    let _candidate_set = enumerate::enumerate(&args.paths, &scope);
+    // Stage 1 — Enumerate candidate files (ADR-0008, TASK-0302).
+    let candidate_set = enumerate::enumerate(&args.paths, &scope);
+
+    // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
+    // Extract the paths from the enumerated candidates and run them through
+    // the sniff predicate. Candidates that fail confirmation are dropped and
+    // recorded as SniffWarnings; they never enter the grouping pipeline.
+    let candidate_paths: Vec<std::path::PathBuf> = candidate_set
+        .candidates
+        .into_iter()
+        .map(|c| c.path)
+        .collect();
+    let (_confirmed, _sniff_warnings) = sniff::filter_candidates(candidate_paths);
+
+    // TODO(TASK-0304): feed `_confirmed` into the size-grouping stage.
+    // TODO(TASK-0307): surface `_sniff_warnings` and `candidate_set.warnings`
+    //                  and `candidate_set.root_errors` in the report.
 
     exit_code::SUCCESS
 }

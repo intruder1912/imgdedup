@@ -60,8 +60,6 @@ const DEFAULT_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp"
 #[derive(Debug, Clone)]
 pub struct Candidate {
     /// Absolute (or as-given) path to the file.
-    // TODO(TASK-0303/TASK-0304): consumed by magic-byte sniff and size-grouping stages.
-    #[allow(dead_code)]
     pub path: PathBuf,
     /// Byte size of the file, from directory-walk metadata.
     // TODO(TASK-0304): consumed by the size-grouping stage.

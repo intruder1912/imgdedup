@@ -57,6 +57,14 @@ byte-verify → identity), each increment landing with its own failing-first tes
   plugs in cleanly.
 - In-memory state is per-file metadata only (path, size, identity key, 32-byte hash)
   — never file contents (ADR-0010).
+- **Carrier type from the sniff stage (TASK-0303 review thread):** TASK-0303's
+  `sniff::filter_candidates` currently returns `Vec<PathBuf>`, **dropping the `size`**
+  that `enumerate` already stat'd. Since size pre-grouping is this engine's first
+  stage, decide the confirmed-set carrier deliberately rather than re-stat'ing every
+  file: either make the sniff stage emit `size` alongside `path` (e.g. a shared
+  `ConfirmedFile { path, size }`, or have `filter_candidates` operate over
+  `enumerate::Candidate`), or accept a single re-stat here and document the small
+  TOCTOU widening. Avoid a silent double-stat.
 
 ## Out of scope
 
