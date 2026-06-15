@@ -382,9 +382,9 @@ where
     K: Fn(&FileRec, &FileRec) -> Ordering,
 {
     let (mut reps, hl_notes) = collapse_identity(group, &mut outcome.warnings);
-    outcome.hard_link_notes.extend(hl_notes);
     if reps.len() < 2 {
         // Fewer than two distinct physical files → nothing to remove.
+        // Hard-link notes are also discarded: there is no group to attach them to.
         return;
     }
 
@@ -412,6 +412,22 @@ where
     }
 
     if !removable.is_empty() {
+        // S1: only retain hard-link notes whose representative is present in
+        // the final group (keeper or a retained removable). If the
+        // representative of a note was excluded by byte-verify failure the
+        // note would otherwise be orphaned — `report::render` matches notes
+        // to groups by representative path, so an orphaned note silently
+        // vanishes from the report.
+        let group_paths: std::collections::HashSet<&Path> = std::iter::once(keeper.path.as_path())
+            .chain(removable.iter().map(|r| r.path.as_path()))
+            .collect();
+        for note in hl_notes {
+            if group_paths.contains(note.representative.as_path()) {
+                outcome.hard_link_notes.push(note);
+            }
+            // Notes whose representative was excluded are silently dropped:
+            // they have no group to attach to and would appear as orphans.
+        }
         outcome.groups.push(DuplicateGroup { keeper, removable });
     }
 }
