@@ -401,3 +401,52 @@ introduces and the docs below describe the reframed output. The implementer
 should add report tests for: header pluralization (`1 file`), the
 already-deduplicated block for a removable-less group (case b), the all-anchor
 block (case d), and the combined summary clause.
+
+## OPEN — Review 3 pending (architect re-review deferred to next session)
+
+The architect re-review of the anchor fix + presentation changes is **deferred by
+the owner** to the next session; it runs on the open PR **before merge**. The PR
+is opened with the items below recorded so the reviewer has them up front.
+
+### OPEN CONCERN (orchestrator-found, escalate at re-review) — anchor-keeper rule under-reclaims and can mislead
+
+Found during end-to-end verification of the presentation changes. In a group made
+of **one** standalone copy **plus** a hard-link set (all byte-identical), the
+approved anchor rule ("anchor is never the keeper; the keeper is chosen among the
+non-anchor candidates only") makes the lone standalone the keeper, leaves
+`removable` empty, and the report renders the group in the **"Already deduplicated
+(hard-linked) — nothing to reclaim"** block.
+
+Concrete repro (`--keep shortest`): `beach.jpg` ↔ `beach-hardlink.jpg` (hard
+links) + `beach-copy.jpg` (separate identical copy). Actual output:
+
+```text
+Already deduplicated (hard-linked) — nothing to reclaim:
+  /…/beach-hardlink.jpg
+    hard-linked: /…/beach-hardlink.jpg, /…/beach.jpg
+
+Summary: no duplicate groups to remove; 1 already-deduplicated hard-link set.
+```
+
+Three problems with this outcome:
+
+1. **It misleads.** `beach-copy.jpg` is a genuine standalone duplicate whose
+   removal **would** free real space, yet the report says "nothing to reclaim" and
+   does not list it at all.
+2. **It under-reclaims.** The tool reclaims 0 bytes when 1 copy's worth is safely
+   reclaimable (remove the standalone, keep the hard-link set).
+3. **It violates `--keep`.** The user asked to keep the *shortest* path
+   (`beach.jpg`); `beach.jpg` is in the protected set, so the tool kept
+   `beach-copy.jpg` instead.
+
+Root cause: the edge-2 ruling ("anchor never keeper") is the wrong tradeoff. The
+likely correct model: a hard-link set (already deduplicated, with multiple wanted
+references) is the **natural keeper** — when `--keep` selects a file that belongs
+to a hard-link set, keep that whole set (protected) and make the standalone copies
+**removable**. Then the repro keeps the hard-link set (honoring `--keep shortest` →
+`beach.jpg`) and removes `beach-copy.jpg` (reclaim = its size). This needs an
+architect ruling (likely an ADR-0008 follow-up amendment) and a follow-on engine
+fix; the case-(b) "already-deduplicated" reframing then only applies to genuinely
+all-hard-link sets (case d). The current behavior is **read-only and safe** (it
+removes nothing), so it is not a data-loss risk — but it should be resolved before
+the destructive slice (S3) and before this slice merges if the reviewer agrees.

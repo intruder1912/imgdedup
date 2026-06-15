@@ -98,8 +98,8 @@ as a duplicate group. It is surfaced under an informational block instead:
 
 ```text
 Already deduplicated (hard-linked) — nothing to reclaim:
-  /photos/beach.jpg
-    hard-linked: /photos/beach.jpg, /photos/beach-hardlink.jpg
+  /photos/beach-hardlink.jpg
+    hard-linked: /photos/beach-hardlink.jpg, /photos/beach.jpg
 ```
 
 These entries are excluded from the duplicate-group, file, and reclaimable totals.

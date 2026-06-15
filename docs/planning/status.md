@@ -8,7 +8,40 @@ first file to read when resuming work.
 
 ## In progress
 
-- _(none)_
+- **Slice S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
+  TASK-0306 + TASK-0307 + TASK-0311) — **PR open, awaiting architect re-review
+  before merge** (deferred to the next session by the owner). The first end-to-end
+  usable increment: `imgdedup <paths>` scans, detects exact-duplicate groups, and
+  prints a deterministic **dry-run report** (keeper, would-be removals, group/file
+  counts, reclaimable space, hard-link notes), with a real
+  `--keep {shortest|oldest|newest}` rule and the opt-in `--exit-code`. **Nothing on
+  disk changes.** Delivered:
+  - TASK-0305 — real keeper rule in `src/keeper.rs` (ADR-0008 total orders;
+    byte-wise/case-sensitive path tie-break, whole-second mtime), replacing the
+    engine's `placeholder_keeper_order`; mtime threaded `Candidate` →
+    `ConfirmedFile` → `FileRec` from the existing enumeration stat.
+  - TASK-0306 — rayon parallel hashing within size cohorts + a canonical sort as
+    the sole determinism mechanism (ADR-0010); identical output across thread
+    widths. Adds `rayon`.
+  - TASK-0307 — `src/report.rs` human-readable report (FR-9/13/17, NFR-6);
+    reclaimable space excludes hard-link members; warnings surfaced.
+  - TASK-0311 — `exit_code::compute` pure mapping (0/1/2/3; `--exit-code` → 3 on
+    a successful run with duplicates; run-level error 1 takes precedence).
+  - **Anchor rule fix (ADR-0008 Amendment 2026-06-15):** a collapsed representative
+    whose identity set had ≥2 in-scope members is an **anchor** — never removable,
+    never in reclaimable. `DuplicateGroup` gains `pub protected: Vec<FileRec>`; the
+    report renders a `PROTECT` row, and all-hard-link sets show under an
+    "Already deduplicated (hard-linked)" block excluded from totals.
+  - **Review status:** earlier in-progress + whole-slice reviews APPROVED the
+    pre-anchor slice and resolved a determinism blocker (B1) + an orphaned-note
+    edge case (S1). Product-owner accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and
+    synced the README + `docs/guide/` pages. The **anchor fix + presentation
+    changes still need the architect re-review** (Review 3, deferred). An
+    **OPEN CONCERN** — the anchor-keeper rule under-reclaims and can mislabel a
+    standalone-copy-plus-hard-link-set group as "already deduplicated" — is logged
+    for that re-review. `make validate` passes (177 tests). `--exit-code`
+    binary-level E2E (AC-19) deferred to S4. See
+    [`reviews/detect-report.md`](reviews/detect-report.md).
 
 ## Up next
 
@@ -48,38 +81,6 @@ task-by-task under the pre-ADR-0013 cadence.
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
-
-- **Slice S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
-  TASK-0306 + TASK-0307 + TASK-0311). The first end-to-end usable increment:
-  `imgdedup <paths>` now scans, detects exact-duplicate groups, and prints a
-  deterministic **dry-run report** (keeper, would-be removals, group/file counts,
-  reclaimable space, hard-link notes), with a real `--keep {shortest|oldest|newest}`
-  rule and the opt-in `--exit-code`. **Nothing on disk changes.** Delivered:
-  - TASK-0305 — real keeper rule in `src/keeper.rs` (ADR-0008 total orders;
-    byte-wise/case-sensitive path tie-break, whole-second mtime), replacing the
-    engine's `placeholder_keeper_order`; mtime threaded `Candidate` →
-    `ConfirmedFile` → `FileRec` from the existing enumeration stat.
-  - TASK-0306 — rayon parallel hashing within size cohorts + a canonical sort as
-    the sole determinism mechanism (ADR-0010); identical output across thread
-    widths. Adds `rayon`.
-  - TASK-0307 — `src/report.rs` human-readable report (FR-9/13/17, NFR-6);
-    reclaimable space excludes collapsed hard-link members; warnings surfaced.
-  - TASK-0311 — `exit_code::compute` pure mapping (0/1/2/3; `--exit-code` → 3 on
-    a successful run with duplicates; run-level error 1 takes precedence).
-  - **Anchor rule fix (ADR-0008 Amendment 2026-06-15):** a collapsed representative
-    whose identity set had ≥2 in-scope members is now an **anchor** — never
-    removable, never in reclaimable. `DuplicateGroup` gains `pub protected:
-    Vec<FileRec>`; `--keep` selects the keeper from genuinely-removable non-anchor
-    candidates only; the report renders a `PROTECT` row per anchor. All-anchor
-    groups emit no `DuplicateGroup` (0 reclaimable). Engine and report fully
-    TDD'd; 10 new tests (engine + report), 151 unit + 14 integration tests green.
-  Two architect reviews (in-progress + final APPROVE) under the ADR-0006
-  resolve-all gate; the in-progress review found and resolved a hard-link-note
-  determinism blocker (B1) and an orphaned-note edge case (S1). Product-owner
-  accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and synced the README +
-  `docs/guide/` pages. `make validate` passes. Review log:
-  [`reviews/detect-report.md`](reviews/detect-report.md). **`--exit-code`
-  binary-level E2E (AC-19) deferred to S4.**
 
 - **TASK-0214 — PRD-slice delivery cadence & in-progress review protocol
   (ADR-0013).** For **feature delivery**, the unit of work is now a **coherent

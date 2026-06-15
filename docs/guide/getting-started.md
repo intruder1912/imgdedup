@@ -99,8 +99,8 @@ block:
 
 ```text
 Already deduplicated (hard-linked) — nothing to reclaim:
-  /photos/beach.jpg
-    hard-linked: /photos/beach.jpg, /photos/beach-hardlink.jpg
+  /photos/beach-hardlink.jpg
+    hard-linked: /photos/beach-hardlink.jpg, /photos/beach.jpg
 
 Summary: no duplicate groups to remove; 1 already-deduplicated hard-link set.
 ```
