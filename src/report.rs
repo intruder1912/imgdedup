@@ -109,10 +109,11 @@ pub fn render(
 
         writeln!(
             out,
-            "Group {}/{} ({} files, {} bytes reclaimable):",
+            "Group {}/{} ({} file{}, {} bytes reclaimable):",
             i + 1,
             total_groups,
             group_files,
+            if group_files == 1 { "" } else { "s" },
             group_reclaimable,
         )
         .unwrap();
@@ -736,6 +737,55 @@ mod tests {
         assert!(
             report.contains("PROTECT"),
             "PROTECT row must be present for h; got:\n{report}"
+        );
+    }
+
+    // ── (c) Pluralization: group-header file count ────────────────────────────
+
+    #[test]
+    fn group_header_uses_plural_files_for_multiple_files() {
+        // (c) spec: group header must say "N files" (plural) when N > 1.
+        // A 2-file group (keeper + 1 removable) must render "2 files".
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // Must say "2 files", never "2 file," (which would be missing the 's').
+        assert!(
+            report.contains("2 files"),
+            "group header must say '2 files' (plural); got:\n{report}"
+        );
+        assert!(
+            !report.contains("2 file,"),
+            "group header must NOT omit the plural 's'; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn group_header_three_file_group_is_plural() {
+        // (c) spec: 3-file group (keeper + 2 removable) must say "3 files".
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+        let c = write_file(&dir, "c.jpg", b"SAME");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b), confirmed(&c)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
+            report.contains("3 files"),
+            "group header must say '3 files' for a 3-file group; got:\n{report}"
         );
     }
 }
