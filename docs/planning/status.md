@@ -8,13 +8,7 @@ first file to read when resuming work.
 
 ## In progress
 
-- **S1 — Detect & report (read-only)** (`feature/detect-report`). Implementation
-  complete; awaiting product-owner acceptance of FR-7/8/9/13/15/17/18 + NFR-3/4/6
-  and user-doc sync before PR is opened (ADR-0012/ADR-0013).
-  - TASK-0305 ✓ — real keeper rule (shortest/oldest/newest, ADR-0008 total order)
-  - TASK-0306 ✓ — rayon parallel hashing + canonical sort (ADR-0010)
-  - TASK-0307 ✓ — human-readable dry-run report (FR-9/13/17, NFR-6)
-  - TASK-0311 ✓ — exit-code semantics (exit_code::compute, ADR-0008)
+- _(none)_
 
 ## Up next
 
@@ -28,16 +22,19 @@ the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md). The core slice (TASK-0301..0304) already merged
 task-by-task under the pre-ADR-0013 cadence.
 
-- **S1 PR gate:** product-owner accepts FR-7/8/9/13/15/17/18 + NFR-3/4/6 and
-  syncs the README + `getting-started`, `scanning-and-scope`,
-  `choosing-what-to-keep`, and exit-code guide pages to shipped behavior
-  (ADR-0012). Then architect review (ADR-0013) and PR is opened.
-- **Then, in order:** **S2 — JSON output** (`json-output`; TASK-0308) →
-  **S3 — Destructive actions** (`apply-delete`; TASK-0309 → TASK-0310) →
-  **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19
-  and NFR-4 cross-platform proof). S2 and S3 both depend only on S1 and could be
-  worked concurrently on separate branches, but the safe default ships JSON before
-  the destructive surfaces. Each slice rebases on `main` after the previous merges.
+- **Next slice: S2 — JSON output** (`json-output`; TASK-0308). An independent
+  deterministic machine-readable formatter (`--json`) over the same canonical
+  model S1 built (groups, keeper, intended actions, totals), enabling scripting.
+  Opens its PR once the product-owner has accepted FR-14 + NFR-3 and documented
+  the `--json` field schema in `docs/guide/output-and-exit-codes.md` (ADR-0012/0013).
+- **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 →
+  TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312,
+  tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). S2 and S3 both depend
+  only on S1 and could be worked concurrently on separate branches, but the safe
+  default ships JSON before the destructive surfaces. Each slice rebases on `main`
+  after the previous merges. **The `--exit-code` binary-level E2E test (AC-19) is
+  deferred to S4** per the S1 architect review (see
+  [`reviews/detect-report.md`](reviews/detect-report.md)).
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an
   architect review for significant/risky changes (not per-commit; the
   product-owner or orchestrator may demand one), logged in
@@ -51,6 +48,31 @@ task-by-task under the pre-ADR-0013 cadence.
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Slice S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
+  TASK-0306 + TASK-0307 + TASK-0311). The first end-to-end usable increment:
+  `imgdedup <paths>` now scans, detects exact-duplicate groups, and prints a
+  deterministic **dry-run report** (keeper, would-be removals, group/file counts,
+  reclaimable space, hard-link notes), with a real `--keep {shortest|oldest|newest}`
+  rule and the opt-in `--exit-code`. **Nothing on disk changes.** Delivered:
+  - TASK-0305 — real keeper rule in `src/keeper.rs` (ADR-0008 total orders;
+    byte-wise/case-sensitive path tie-break, whole-second mtime), replacing the
+    engine's `placeholder_keeper_order`; mtime threaded `Candidate` →
+    `ConfirmedFile` → `FileRec` from the existing enumeration stat.
+  - TASK-0306 — rayon parallel hashing within size cohorts + a canonical sort as
+    the sole determinism mechanism (ADR-0010); identical output across thread
+    widths. Adds `rayon`.
+  - TASK-0307 — `src/report.rs` human-readable report (FR-9/13/17, NFR-6);
+    reclaimable space excludes collapsed hard-link members; warnings surfaced.
+  - TASK-0311 — `exit_code::compute` pure mapping (0/1/2/3; `--exit-code` → 3 on
+    a successful run with duplicates; run-level error 1 takes precedence).
+  Two architect reviews (in-progress + final APPROVE) under the ADR-0006
+  resolve-all gate; the in-progress review found and resolved a hard-link-note
+  determinism blocker (B1) and an orphaned-note edge case (S1). Product-owner
+  accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and synced the README +
+  `docs/guide/` pages. 155 tests green; `make validate` passes. Review log:
+  [`reviews/detect-report.md`](reviews/detect-report.md). **`--exit-code`
+  binary-level E2E (AC-19) deferred to S4.**
 
 - **TASK-0214 — PRD-slice delivery cadence & in-progress review protocol
   (ADR-0013).** For **feature delivery**, the unit of work is now a **coherent

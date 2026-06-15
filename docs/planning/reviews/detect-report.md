@@ -61,3 +61,28 @@ members; report is a pure formatter (AC-1/NFR-1 intact); exit-code precedence
 - **N2 (Nit) — `Sync` bound on the keeper comparator is broader than strictly
   needed** (comparator runs only in the sequential phase). Harmless; doc-precision
   only. Left as-is.
+
+### Review 2 — final whole-slice review (architect): **APPROVE**
+
+After the B1/S1 fixes and the product-owner acceptance + docs sync, the architect
+re-reviewed the whole slice. `cargo test` (141 unit + 14 integration), `cargo
+clippy --all-targets`, and `make validate` all green at review time.
+
+- **B1 — genuinely resolved.** `collapse_identity` makes the note representative
+  the byte-wise min path of the identity set with sorted siblings; the retained
+  `FileRec.path` is relabeled to that min path. The relabel fires only for a
+  representative that absorbed ≥1 same-inode sibling, draws the path solely from
+  that identity set (all the same physical file), so it cannot mislabel or drop a
+  distinct-inode file, preserves byte-verify safety, and *strengthens* keeper
+  determinism (a stable path for the tie-breaks). Verified by the multi-sibling
+  tests across input orders and thread widths.
+- **S1 — genuinely resolved.** Notes attach only after `removable` is finalized
+  and only when the representative is in `{keeper} ∪ removable`; the relabel keeps
+  `note.representative` in sync with the forwarded `FileRec.path`, so the report's
+  matching predicate can neither orphan nor over-drop a note.
+- **No regression** to the TASK-0304 byte-verify safety authority, canonical-sort
+  determinism, exit codes, or the read-only guarantee. **Docs** describe only
+  shipped S1 behavior; `--apply`/`--delete`/`--json` are marked not-functional;
+  the keeper-rule and report samples match `keeper.rs`/`report.rs`.
+- **Verdict: APPROVE** — no blockers, no should-fix. Cleared to open the PR
+  (final confirmation pass runs on the PR before the human owner squash-merges).
