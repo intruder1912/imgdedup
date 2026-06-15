@@ -30,6 +30,7 @@
 //! - **Pure analysis.** This stage performs **no filesystem mutation**.
 
 use crate::sniff::ConfirmedFile;
+use rayon::prelude::*;
 use same_file::Handle;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -89,6 +90,24 @@ pub struct DuplicateGroup {
     pub removable: Vec<FileRec>,
 }
 
+/// An informational note about hard-linked files within a duplicate group
+/// (FR-17, ADR-0008 §hard-link detection).
+///
+/// Hard-linked files share storage (same inode on POSIX, same file ID on
+/// Windows). Within a hash group they are collapsed to a single representative
+/// before keeper selection; the collapsed paths are surfaced here so the report
+/// can show them as informational notes and **exclude them from the
+/// reclaimable-space figure** (FR-13/FR-17 — they free no space when removed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HardLinkNote {
+    /// The representative path kept for the hard-link set (the first member
+    /// seen in the group, in group-input order).
+    pub representative: PathBuf,
+    /// The other paths collapsed into `representative` (hard-link siblings).
+    /// Non-empty — there is at least one sibling, otherwise there is no note.
+    pub siblings: Vec<PathBuf>,
+}
+
 /// A non-fatal problem encountered while analysing a file (I/O error during
 /// hashing/verification, identity could not be determined, or a hash-collision
 /// that byte-verification rejected). Surfaced by the report stage (TASK-0307).
@@ -100,13 +119,26 @@ pub struct EngineWarning {
     pub reason: String,
 }
 
-/// The result of [`find_duplicates`]: verified groups plus any warnings.
+/// The result of [`find_duplicates`]: verified groups (canonically sorted) plus
+/// any warnings.
+///
+/// The `groups` and `warnings` are in **canonical order** (ADR-0010): groups
+/// by keeper path, files within each group by the TASK-0305 total order,
+/// warnings by path. This canonical sort is the single determinism mechanism —
+/// two runs over identical state produce byte-identical `DedupOutcome` values
+/// regardless of thread scheduling or hash-map iteration order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DedupOutcome {
-    /// Verified duplicate groups.
+    /// Verified duplicate groups, in canonical order (keeper path ascending).
     pub groups: Vec<DuplicateGroup>,
-    /// Non-fatal per-file warnings.
+    /// Non-fatal per-file warnings, ordered by path.
     pub warnings: Vec<EngineWarning>,
+    /// Informational hard-link notes: paths that were collapsed within a hash
+    /// group because they share the same filesystem identity. These are never
+    /// in `removable` (FR-17) — they share storage with their representative
+    /// and are excluded from the reclaimable-space figure. Ordered by
+    /// representative path.
+    pub hard_link_notes: Vec<HardLinkNote>,
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -129,7 +161,7 @@ pub struct DedupOutcome {
 /// for placing a file in `removable` (FR-4, NFR-1).
 pub fn find_duplicates<K>(files: Vec<ConfirmedFile>, keeper_order: K) -> DedupOutcome
 where
-    K: Fn(&FileRec, &FileRec) -> Ordering,
+    K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
     dedup_core(files, keeper_order, hash_file, true)
 }
@@ -140,6 +172,15 @@ where
 /// applied so tests can (a) force hash collisions to prove byte-verify is the
 /// authority and (b) assert size pre-grouping is equivalent to hashing every file
 /// (AC-9). Production callers go through [`find_duplicates`].
+///
+/// Hashing within each size cohort is executed with rayon parallel iterators
+/// (ADR-0010, TASK-0306). The `hasher` function must be `Send + Sync` so it can
+/// be called from rayon worker threads.
+///
+/// Before returning, the outcome is **canonically sorted** (ADR-0010): groups
+/// by keeper path, files within each group by the keeper order, warnings by
+/// path, hard-link notes by representative path. This canonical sort is the
+/// single determinism mechanism — completion order never leaks into results.
 fn dedup_core<H, K>(
     files: Vec<ConfirmedFile>,
     keeper_order: K,
@@ -147,8 +188,8 @@ fn dedup_core<H, K>(
     size_prefilter: bool,
 ) -> DedupOutcome
 where
-    H: Fn(&Path) -> io::Result<[u8; 32]>,
-    K: Fn(&FileRec, &FileRec) -> Ordering,
+    H: Fn(&Path) -> io::Result<[u8; 32]> + Sync,
+    K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
     let mut outcome = DedupOutcome::default();
 
@@ -164,11 +205,21 @@ where
     };
 
     for cohort in cohorts {
-        // Stage 2 — hash each file in the cohort (pre-filter). Hash I/O errors
-        // drop the file with a warning; analysis of the rest continues.
-        let mut recs: Vec<FileRec> = Vec::with_capacity(cohort.len());
-        for cf in cohort {
-            match hasher(&cf.path) {
+        // Stage 2 — hash each file in the cohort in parallel (ADR-0010, rayon).
+        // par_iter produces (ConfirmedFile, Result<hash>) pairs preserving no
+        // particular order; we collect all results and then split into recs and
+        // warnings so each per-file outcome is atomic.
+        let hash_results: Vec<(ConfirmedFile, io::Result<[u8; 32]>)> = cohort
+            .into_par_iter()
+            .map(|cf| {
+                let result = hasher(&cf.path);
+                (cf, result)
+            })
+            .collect();
+
+        let mut recs: Vec<FileRec> = Vec::with_capacity(hash_results.len());
+        for (cf, result) in hash_results {
+            match result {
                 Ok(hash) => recs.push(FileRec {
                     path: cf.path,
                     size: cf.size,
@@ -188,7 +239,36 @@ where
         }
     }
 
+    // Canonical sort (ADR-0010, TASK-0306): sort before returning so two runs
+    // over identical state produce byte-identical DedupOutcome values regardless
+    // of thread scheduling or hash-map iteration order.
+    sort_canonical(&mut outcome, &keeper_order);
+
     outcome
+}
+
+/// Sort `outcome` into canonical order (ADR-0010).
+///
+/// - `groups`: by keeper path (ascending).
+/// - Within each group's `removable`: by the `keeper_order` comparator.
+/// - `warnings`: by path.
+/// - `hard_link_notes`: by representative path.
+fn sort_canonical<K>(outcome: &mut DedupOutcome, keeper_order: &K)
+where
+    K: Fn(&FileRec, &FileRec) -> Ordering,
+{
+    // Sort each group's removable list by the total order.
+    for g in &mut outcome.groups {
+        g.removable.sort_by(keeper_order);
+    }
+    // Sort groups by keeper path.
+    outcome.groups.sort_by(|a, b| a.keeper.path.cmp(&b.keeper.path));
+    // Sort warnings by path.
+    outcome.warnings.sort_by(|a, b| a.path.cmp(&b.path));
+    // Sort hard-link notes by representative path.
+    outcome
+        .hard_link_notes
+        .sort_by(|a, b| a.representative.cmp(&b.representative));
 }
 
 /// Group hashed records by their digest, dropping any digest with only one file.
@@ -205,22 +285,32 @@ fn group_by_hash(recs: Vec<FileRec>) -> Vec<Vec<FileRec>> {
 /// identity cannot be determined are dropped with a warning — the safe direction
 /// (we never propose removing a file we could not identify).
 ///
+/// Returns the deduplicated list of representative `FileRec`s and any
+/// [`HardLinkNote`]s for collapsed sets (one note per set that had at least
+/// one sibling collapsed). Notes are used by the report stage (TASK-0307, FR-17).
+///
 /// **Invariant (NFR-4):** `same-file::Handle` holds an open file descriptor for
 /// its lifetime. Identity is therefore resolved here, **only within a single
 /// hash-group** (a small set of same-size/same-hash candidates), and the handles
 /// are dropped when this function returns. The full candidate set is never
 /// handle-mapped.
-fn collapse_identity(recs: Vec<FileRec>, warnings: &mut Vec<EngineWarning>) -> Vec<FileRec> {
-    let mut reps: Vec<(Handle, FileRec)> = Vec::new();
+fn collapse_identity(
+    recs: Vec<FileRec>,
+    warnings: &mut Vec<EngineWarning>,
+) -> (Vec<FileRec>, Vec<HardLinkNote>) {
+    // Each entry: the Handle (for equality), the representative FileRec, and
+    // any siblings collapsed into it.
+    let mut reps: Vec<(Handle, FileRec, Vec<PathBuf>)> = Vec::new();
     for rec in recs {
         match Handle::from_path(&rec.path) {
             Ok(handle) => {
-                if reps.iter().any(|(existing, _)| *existing == handle) {
+                if let Some(slot) = reps.iter_mut().find(|(existing, _, _)| *existing == handle) {
                     // Same physical file as an existing representative (a hard
                     // link) — collapse it; never a removal candidate (AC-18).
-                    continue;
+                    slot.2.push(rec.path);
+                } else {
+                    reps.push((handle, rec, Vec::new()));
                 }
-                reps.push((handle, rec));
             }
             Err(e) => warnings.push(EngineWarning {
                 path: rec.path,
@@ -228,11 +318,25 @@ fn collapse_identity(recs: Vec<FileRec>, warnings: &mut Vec<EngineWarning>) -> V
             }),
         }
     }
-    reps.into_iter().map(|(_, rec)| rec).collect()
+    let mut notes: Vec<HardLinkNote> = Vec::new();
+    let file_recs: Vec<FileRec> = reps
+        .into_iter()
+        .map(|(_, rec, siblings)| {
+            if !siblings.is_empty() {
+                notes.push(HardLinkNote {
+                    representative: rec.path.clone(),
+                    siblings,
+                });
+            }
+            rec
+        })
+        .collect();
+    (file_recs, notes)
 }
 
 /// Verify a single hash-group and, if it yields genuine duplicates, push a
-/// [`DuplicateGroup`] onto `outcome`.
+/// [`DuplicateGroup`] onto `outcome`. Any hard-link notes are pushed to
+/// `outcome.hard_link_notes` (FR-17).
 ///
 /// Collapses identity sets, designates the keeper via `keeper_order`, then star
 /// byte-verifies each non-keeper against the keeper. A non-keeper that fails
@@ -242,7 +346,8 @@ fn process_hash_group<K>(group: Vec<FileRec>, keeper_order: &K, outcome: &mut De
 where
     K: Fn(&FileRec, &FileRec) -> Ordering,
 {
-    let mut reps = collapse_identity(group, &mut outcome.warnings);
+    let (mut reps, hl_notes) = collapse_identity(group, &mut outcome.warnings);
+    outcome.hard_link_notes.extend(hl_notes);
     if reps.len() < 2 {
         // Fewer than two distinct physical files → nothing to remove.
         return;
@@ -708,6 +813,166 @@ mod tests {
         assert_eq!(
             out.warnings[0].path,
             PathBuf::from("/does/not/exist/ghost.jpg")
+        );
+    }
+
+    // ── TASK-0306: canonical sort ─────────────────────────────────────────────
+
+    #[test]
+    fn outcome_groups_are_in_canonical_order_by_keeper_path() {
+        // ADR-0010, TASK-0306: groups must be ordered by keeper path ascending
+        // before find_duplicates returns, regardless of hash-map iteration order.
+        let dir = tempfile::tempdir().unwrap();
+        // Three independent duplicate pairs; whichever hashes first in rayon
+        // must end up in keeper-path order in the output.
+        let a1 = write(&dir, "aaa1.jpg", b"GROUP-A");
+        let a2 = write(&dir, "aaa2.jpg", b"GROUP-A");
+        let b1 = write(&dir, "bbb1.jpg", b"GROUP-B");
+        let b2 = write(&dir, "bbb2.jpg", b"GROUP-B");
+        let c1 = write(&dir, "ccc1.jpg", b"GROUP-C");
+        let c2 = write(&dir, "ccc2.jpg", b"GROUP-C");
+
+        // Supply in shuffled order to stress the sort.
+        let out = find_duplicates(
+            vec![cf(&c1), cf(&a1), cf(&b2), cf(&c2), cf(&b1), cf(&a2)],
+            lex_order,
+        );
+
+        assert_eq!(out.groups.len(), 3, "three duplicate groups");
+        // Canonical: groups sorted by keeper path. Under lex_order, keepers
+        // are aaa1, bbb1, ccc1.
+        let keeper_paths: Vec<_> = out.groups.iter().map(|g| &g.keeper.path).collect();
+        assert_eq!(keeper_paths, vec![&a1, &b1, &c1]);
+    }
+
+    #[test]
+    fn outcome_warnings_are_in_canonical_order_by_path() {
+        // Warnings are sorted by path before returning (ADR-0010).
+        let dir = tempfile::tempdir().unwrap();
+        // Three ghost paths with the same declared size as a real pair.
+        let a = write(&dir, "a.jpg", b"DUP");
+        let b = write(&dir, "b.jpg", b"DUP");
+        let ghost_z = ConfirmedFile {
+            path: PathBuf::from("/zz/ghost.jpg"),
+            size: 3,
+            mtime: None,
+        };
+        let ghost_a = ConfirmedFile {
+            path: PathBuf::from("/aa/ghost.jpg"),
+            size: 3,
+            mtime: None,
+        };
+
+        let out = find_duplicates(vec![cf(&a), cf(&b), ghost_z, ghost_a], lex_order);
+
+        assert_eq!(out.warnings.len(), 2);
+        // Canonical: warnings sorted by path ascending.
+        assert!(
+            out.warnings[0].path < out.warnings[1].path,
+            "warnings must be in ascending path order; got {:?}",
+            out.warnings.iter().map(|w| &w.path).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn canonical_sort_is_independent_of_input_order() {
+        // AC-16 (NFR-3): two runs with shuffled input produce byte-identical
+        // outcomes — the canonical sort is the single determinism mechanism.
+        let dir = tempfile::tempdir().unwrap();
+        let a1 = write(&dir, "aa.jpg", b"SAME");
+        let a2 = write(&dir, "bb.jpg", b"SAME");
+        let b1 = write(&dir, "cc.jpg", b"OTHER");
+        let b2 = write(&dir, "dd.jpg", b"OTHER");
+
+        let out1 = find_duplicates(
+            vec![cf(&a1), cf(&a2), cf(&b1), cf(&b2)],
+            lex_order,
+        );
+        let out2 = find_duplicates(
+            vec![cf(&b2), cf(&a2), cf(&b1), cf(&a1)], // reversed
+            lex_order,
+        );
+
+        assert_eq!(out1, out2, "outcome must be identical regardless of input order");
+    }
+
+    // ── TASK-0306: determinism at different concurrency widths (AC-16) ────────
+
+    #[test]
+    fn outcome_identical_at_single_and_multi_thread_widths() {
+        // AC-16 (NFR-3): outcomes must be byte-identical when rayon uses 1
+        // thread vs. the default pool (multiple threads). The canonical sort
+        // after hashing ensures completion order never leaks into results.
+        use rayon::ThreadPoolBuilder;
+
+        let dir = tempfile::tempdir().unwrap();
+        // Four duplicate pairs → four groups; distinct sizes so they go into
+        // separate cohorts and the parallel + sequential paths both exercise grouping.
+        let a1 = write(&dir, "a1.jpg", b"ALPHA!");
+        let a2 = write(&dir, "a2.jpg", b"ALPHA!");
+        let b1 = write(&dir, "b1.jpg", b"BETA!!");
+        let b2 = write(&dir, "b2.jpg", b"BETA!!");
+        let files = vec![cf(&a1), cf(&a2), cf(&b1), cf(&b2)];
+
+        // Run in a single-thread pool.
+        let out_single = ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap()
+            .install(|| find_duplicates(files.clone(), lex_order));
+
+        // Run in a 4-thread pool.
+        let out_multi = ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap()
+            .install(|| find_duplicates(files, lex_order));
+
+        assert_eq!(
+            out_single, out_multi,
+            "outcome must be byte-identical at different thread-pool widths"
+        );
+    }
+
+    // ── TASK-0306: hard-link notes in DedupOutcome ───────────────────────────
+
+    #[test]
+    fn hard_link_notes_surfaced_for_collapsed_sets() {
+        // FR-17: when a hash-group contains hard links, the collapsed siblings
+        // must be surfaced in DedupOutcome.hard_link_notes.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"HARD_LINK_CONTENT");
+        let b = dir.path().join("b.jpg"); // hard link to a
+        fs::hard_link(&a, &b).expect("hard link creatable in tempdir");
+        let c = write(&dir, "c.jpg", b"HARD_LINK_CONTENT"); // separate copy
+
+        let out = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], lex_order);
+
+        // One duplicate group (a vs c); hard-link note for the (a,b) set.
+        assert_eq!(out.groups.len(), 1);
+        assert_eq!(
+            out.hard_link_notes.len(),
+            1,
+            "one hard-link note expected for the collapsed (a,b) set"
+        );
+        let note = &out.hard_link_notes[0];
+        // Representative is a (first in group-input order), sibling is b.
+        assert_eq!(note.representative, a);
+        assert_eq!(note.siblings, vec![b]);
+    }
+
+    #[test]
+    fn no_hard_link_notes_when_no_hard_links() {
+        // FR-17: when there are no hard links, hard_link_notes must be empty.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"CONTENT");
+        let b = write(&dir, "b.jpg", b"CONTENT");
+
+        let out = find_duplicates(vec![cf(&a), cf(&b)], lex_order);
+
+        assert!(
+            out.hard_link_notes.is_empty(),
+            "no hard-link notes when there are no hard links"
         );
     }
 }
