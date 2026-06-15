@@ -98,12 +98,25 @@ pub struct DuplicateGroup {
 /// before keeper selection; the collapsed paths are surfaced here so the report
 /// can show them as informational notes and **exclude them from the
 /// reclaimable-space figure** (FR-13/FR-17 — they free no space when removed).
+///
+/// ## Canonical form (NFR-3)
+///
+/// `representative` is always the **byte-wise minimum path** among all paths
+/// in the identity set (i.e. `min(representative, siblings[0], siblings[1], …)`).
+/// `siblings` is always **sorted in ascending byte-wise path order**. This
+/// canonical form is established at construction time in [`collapse_identity`]
+/// so the invariant holds everywhere — two runs over identical state produce
+/// byte-identical `HardLinkNote` values regardless of HashMap iteration order
+/// or thread scheduling (AC-16 / NFR-3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HardLinkNote {
-    /// The representative path kept for the hard-link set (the first member
-    /// seen in the group, in group-input order).
+    /// The representative path for the hard-link identity set: the
+    /// **lexicographically smallest** path among all members of the set.
+    /// This is also the path carried by the [`FileRec`] that flows forward
+    /// into keeper selection and the emitted [`DuplicateGroup`].
     pub representative: PathBuf,
-    /// The other paths collapsed into `representative` (hard-link siblings).
+    /// The other paths collapsed into `representative` (hard-link siblings),
+    /// in **sorted ascending byte-wise path order**.
     /// Non-empty — there is at least one sibling, otherwise there is no note.
     pub siblings: Vec<PathBuf>,
 }
@@ -323,10 +336,30 @@ fn collapse_identity(
     let mut notes: Vec<HardLinkNote> = Vec::new();
     let file_recs: Vec<FileRec> = reps
         .into_iter()
-        .map(|(_, rec, siblings)| {
+        .map(|(_, mut rec, mut siblings)| {
             if !siblings.is_empty() {
+                // B1 (NFR-3): canonicalize each note so `representative` is
+                // the **minimum path** (byte-wise) among all paths in the
+                // identity set, and `siblings` are sorted. This makes the note
+                // content identical regardless of HashMap iteration order or
+                // thread scheduling.
+                //
+                // We also update `rec.path` to the minimum path so that the
+                // `FileRec` flowing into keeper selection carries the same path
+                // that the note's `representative` field names. All paths in an
+                // identity set point to the same physical file (same inode), so
+                // switching which path label the FileRec carries does not change
+                // *which file* is kept — only which path name refers to it.
+                // The report's matching logic (`note.representative ∈
+                // group_paths`) depends on these two being in sync.
+                siblings.push(rec.path.clone());
+                siblings.sort();
+                // `siblings` is now non-empty (we just pushed `rec.path`);
+                // `remove(0)` extracts the minimum path.
+                let min_path = siblings.remove(0);
+                rec.path = min_path.clone();
                 notes.push(HardLinkNote {
-                    representative: rec.path.clone(),
+                    representative: min_path,
                     siblings,
                 });
             }
@@ -1084,7 +1117,10 @@ mod tests {
         // Also verify the note is canonical.
         assert_eq!(out_single.hard_link_notes.len(), 1);
         let note = &out_single.hard_link_notes[0];
-        assert_eq!(note.representative, aaa, "representative must be min path (aaa)");
+        assert_eq!(
+            note.representative, aaa,
+            "representative must be min path (aaa)"
+        );
         let mut expected = vec![ppp.clone(), zzz_link.clone()];
         expected.sort();
         assert_eq!(note.siblings, expected, "siblings must be sorted");
