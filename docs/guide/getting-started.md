@@ -40,6 +40,61 @@ imgdedup ~/Pictures /mnt/backup/photos
 
 A path can be a directory or a single file.
 
+## Reading the report
+
+A run prints a **dry-run report** and changes nothing on disk. For each group of
+byte-for-byte identical images it shows the file it would keep (`KEEP`) and the
+duplicates it would remove (`REMOVE`), then a one-line summary:
+
+```text
+Group 1/2 (3 files, 2048 bytes reclaimable):
+  KEEP  /photos/cat.jpg
+  REMOVE /photos/backup/cat.jpg
+  REMOVE /photos/old/cat (1).jpg
+Group 2/2 (2 files, 1024 bytes reclaimable):
+  KEEP  /photos/dog.png
+  REMOVE /photos/dog-copy.png
+
+Summary: 2 duplicate groups, 5 files, 3072 bytes reclaimable.
+```
+
+Reading it:
+
+- **Group header** — `Group 1/2 (3 files, 2048 bytes reclaimable)` numbers the
+  group out of the total, then gives that group's file count (the keeper plus the
+  files that would be removed) and the bytes you would reclaim by removing the
+  duplicates.
+- **`KEEP`** — the one file kept per group. How it is chosen is covered in
+  [Choosing what to keep](choosing-what-to-keep.md).
+- **`REMOVE`** — each duplicate that *would* be removed. Nothing is removed today;
+  this is a report only.
+- **Summary** — totals across all groups: number of groups, total files (keepers
+  plus removable), and total reclaimable space.
+
+If nothing matches, the report is simply:
+
+```text
+No duplicate groups found.
+```
+
+### Warnings
+
+Files that cannot be read or are not recognized as supported images are **skipped,
+not fatal** — the run continues and lists them in a `Warnings:` section at the top
+of the report:
+
+```text
+Warnings:
+  SKIP  /photos/locked.jpg: could not hash file: permission denied
+  SKIP  /photos/notes.txt: content not recognized as a supported image format
+
+Group 1/1 (2 files, 1024 bytes reclaimable):
+  ...
+```
+
+A skipped file never changes the exit code on its own (see
+[Output and exit codes](output-and-exit-codes.md)).
+
 ## Where to go next
 
 - Control what gets scanned → [Scanning and scope](scanning-and-scope.md)
