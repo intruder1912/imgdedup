@@ -46,15 +46,19 @@ const STREAM_BUF_LEN: usize = 64 * 1024;
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// Per-file metadata carried through the engine. **Never** holds file contents
-/// (ADR-0010): only the path, size, and the 32-byte BLAKE3 digest used as a
-/// pre-filter. The identity key is computed transiently during collapse and is
-/// not retained here.
+/// (ADR-0010): only the path, size, mtime, and the 32-byte BLAKE3 digest used
+/// as a pre-filter. The identity key is computed transiently during collapse
+/// and is not retained here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileRec {
     /// Path to the file.
     pub path: PathBuf,
     /// Byte size, threaded through from enumeration via [`ConfirmedFile`].
     pub size: u64,
+    /// Modification time in whole Unix seconds, threaded through from
+    /// enumeration via [`ConfirmedFile`]. `None` when unavailable.
+    /// Used by the keeper rule (TASK-0305).
+    pub mtime: Option<i64>,
     /// 32-byte BLAKE3 digest (pre-filter only).
     hash: [u8; 32],
 }
@@ -160,6 +164,7 @@ where
                 Ok(hash) => recs.push(FileRec {
                     path: cf.path,
                     size: cf.size,
+                    mtime: cf.mtime,
                     hash,
                 }),
                 Err(e) => outcome.warnings.push(EngineWarning {
@@ -349,7 +354,11 @@ mod tests {
     }
 
     fn confirmed(path: PathBuf, size: u64) -> ConfirmedFile {
-        ConfirmedFile { path, size }
+        ConfirmedFile {
+            path,
+            size,
+            mtime: None,
+        }
     }
 
     // ── group_by_size ─────────────────────────────────────────────────────────
@@ -456,12 +465,19 @@ mod tests {
 
     // ── find_duplicates: behavioral ───────────────────────────────────────────
 
-    /// Build a `ConfirmedFile` for a real on-disk file (size from metadata).
+    /// Build a `ConfirmedFile` for a real on-disk file (size and mtime from metadata).
     fn cf(path: &Path) -> ConfirmedFile {
-        let size = fs::metadata(path).unwrap().len();
+        let meta = fs::metadata(path).unwrap();
+        let size = meta.len();
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
         ConfirmedFile {
             path: path.to_path_buf(),
             size,
+            mtime,
         }
     }
 
@@ -667,6 +683,7 @@ mod tests {
         let ghost = ConfirmedFile {
             path: PathBuf::from("/does/not/exist/ghost.jpg"),
             size: 3, // same size as "DUP" so it joins the cohort and is then hashed
+            mtime: None,
         };
 
         let out = find_duplicates(vec![cf(&a), cf(&b), ghost], placeholder_keeper_order);
