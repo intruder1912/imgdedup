@@ -17,25 +17,46 @@
 //! ```text
 //! [optional: per-file warnings from enumeration/sniff/engine]
 //!
-//! Group 1/N (M files, X bytes reclaimable):
+//! Group 1/N (M file[s], X bytes reclaimable):
 //!   KEEP  /path/to/keeper.jpg
 //!   REMOVE /path/to/dup1.jpg
 //!   REMOVE /path/to/dup2.jpg
+//!   [optional: PROTECT row for hard-link anchors]
 //!   [optional: hard-link note]
 //!
 //! ...
 //!
-//! Summary: N duplicate groups, M files, X bytes reclaimable.
+//! [optional: already-deduplicated block]
+//! Already deduplicated (hard-linked) — nothing to reclaim:
+//!   /path/to/rep.jpg
+//!     hard-linked: /path/to/rep.jpg, /path/to/sibling.jpg
+//!
+//! Summary: N duplicate group[s], M file[s], X bytes reclaimable[; K already-deduplicated hard-link set[s] (nothing to reclaim)].
+//! [or: Summary: no duplicate groups to remove; K already-deduplicated hard-link set[s].]
 //! [or: No duplicate groups found.]
 //! ```
+//!
+//! ## Removal opportunities vs. already-deduplicated sets
+//!
+//! A *removal opportunity* is a [`DuplicateGroup`] with `removable.len() >= 1`.
+//! Only removal opportunities are counted as "duplicate groups" in the summary
+//! and rendered as `Group i/N` headings.
+//!
+//! Groups with `removable.is_empty()` (keeper + protected anchor, nothing to
+//! remove — case b) and all-anchor identity sets that produce no
+//! [`DuplicateGroup`] at all (case d) are both surfaced under a single
+//! "Already deduplicated (hard-linked) — nothing to reclaim:" informational
+//! block. They are excluded from group/file/reclaimable totals.
 //!
 //! The renderer is kept separate from the JSON formatter (TASK-0308) so both
 //! can share the [`DedupOutcome`] model without coupling their output formats.
 
-use crate::engine::DedupOutcome;
+use crate::engine::{DedupOutcome, DuplicateGroup, HardLinkNote};
 use crate::enumerate::EnumerateWarning;
 use crate::sniff::SniffWarning;
+use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
+use std::path::{Path, PathBuf};
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -85,25 +106,88 @@ pub fn render(
         writeln!(out).unwrap();
     }
 
-    // ── Duplicate groups ──────────────────────────────────────────────────────
-    let total_groups = outcome.groups.len();
+    // ── Partition groups into removal opportunities and removable-less (case b) ──
+    // A removal opportunity has >= 1 removable file; these render as Group i/N.
+    // A removable-less group (keeper + protected anchors, nothing to remove) is
+    // case (b) of the already-deduplicated presentation.
+    let (removal_groups, removable_less_groups): (Vec<&DuplicateGroup>, Vec<&DuplicateGroup>) =
+        outcome.groups.iter().partition(|g| !g.removable.is_empty());
 
-    if total_groups == 0 {
+    // ── Build the set of note representatives claimed by any emitted group ────
+    // Used to partition hard_link_notes: those matched to a group vs. orphaned
+    // all-anchor notes (case d) that have no associated DuplicateGroup.
+    let claimed_representatives: HashSet<&Path> = outcome
+        .groups
+        .iter()
+        .flat_map(|g| {
+            std::iter::once(g.keeper.path.as_path())
+                .chain(g.removable.iter().map(|f| f.path.as_path()))
+                .chain(g.protected.iter().map(|f| f.path.as_path()))
+        })
+        .collect();
+
+    // All-anchor notes (case d): notes whose representative is not in any group.
+    let all_anchor_notes: Vec<&HardLinkNote> = outcome
+        .hard_link_notes
+        .iter()
+        .filter(|n| !claimed_representatives.contains(n.representative.as_path()))
+        .collect();
+
+    // ── Collect the already-deduplicated entries (cases b + d) ───────────────
+    // For case (b): find the HardLinkNote attached to each removable-less group
+    // (keyed by the group's protected/keeper paths). Collect in canonical order
+    // (notes are already sorted by representative path in DedupOutcome).
+    let case_b_notes: Vec<&HardLinkNote> = outcome
+        .hard_link_notes
+        .iter()
+        .filter(|n| {
+            // Claim this note for case (b) if its representative is the keeper or
+            // a protected anchor in a removable-less group, but NOT in a removal
+            // opportunity group (which would keep the PROTECT row rendering).
+            let in_removable_less = removable_less_groups.iter().any(|g| {
+                g.keeper.path == n.representative
+                    || g.protected.iter().any(|p| p.path == n.representative)
+            });
+            let in_removal_group = removal_groups.iter().any(|g| {
+                g.keeper.path == n.representative
+                    || g.removable.iter().any(|r| r.path == n.representative)
+                    || g.protected.iter().any(|p| p.path == n.representative)
+            });
+            in_removable_less && !in_removal_group
+        })
+        .collect();
+
+    // Merge case (b) and case (d) notes into the already-deduplicated list,
+    // preserving the canonical order (both sub-lists come from `hard_link_notes`
+    // which is already sorted by representative path; merging by advancing through
+    // the single sorted source gives a sorted result).
+    let already_dedup_notes: Vec<&HardLinkNote> = {
+        let mut combined: Vec<&HardLinkNote> = outcome
+            .hard_link_notes
+            .iter()
+            .filter(|n| case_b_notes.contains(n) || all_anchor_notes.contains(n))
+            .collect();
+        combined.sort_by(|a, b| a.representative.cmp(&b.representative));
+        combined
+    };
+
+    // ── Duplicate groups (removal opportunities only) ─────────────────────────
+    let total_groups = removal_groups.len();
+    let mut total_reclaimable: u64 = 0;
+    let mut total_files: usize = 0;
+
+    if total_groups == 0 && already_dedup_notes.is_empty() {
+        // No removal opportunities and nothing already-deduplicated: the truly
+        // empty case.
         writeln!(out, "No duplicate groups found.").unwrap();
         return out;
     }
 
-    // Compute reclaimable space for each group: sum of non-keeper sizes.
-    // Hard-link siblings are excluded from reclaimable-space (FR-17, ADR-0008):
-    // removing one hard-link path frees no storage. Their sizes are already
-    // excluded from the DuplicateGroup (they were collapsed to one representative
-    // in the engine); the HardLinkNote paths are informational only.
-    let mut total_reclaimable: u64 = 0;
-    let mut total_files: usize = 0;
-
-    for (i, group) in outcome.groups.iter().enumerate() {
+    // Render each removal-opportunity group.
+    for (i, group) in removal_groups.iter().enumerate() {
         let group_reclaimable: u64 = group.removable.iter().map(|f| f.size).sum();
-        let group_files = 1 + group.removable.len(); // keeper + removable
+        // group_files = keeper + removable (N1 ruling: protected anchors excluded).
+        let group_files = 1 + group.removable.len();
         total_reclaimable += group_reclaimable;
         total_files += group_files;
 
@@ -138,15 +222,15 @@ pub fn render(
         // hash-match set (FR-17). Match notes to the current group by
         // representative path — a note's representative survives as keeper,
         // removable, or a protected anchor entry.
-        let group_paths: std::collections::HashSet<_> = std::iter::once(&group.keeper.path)
-            .chain(group.removable.iter().map(|f| &f.path))
-            .chain(group.protected.iter().map(|f| &f.path))
+        let group_paths: HashSet<&Path> = std::iter::once(group.keeper.path.as_path())
+            .chain(group.removable.iter().map(|f| f.path.as_path()))
+            .chain(group.protected.iter().map(|f| f.path.as_path()))
             .collect();
         for note in &outcome.hard_link_notes {
-            if group_paths.contains(&note.representative) {
+            if group_paths.contains(note.representative.as_path()) {
                 writeln!(
                     out,
-                    "  NOTE  hard-link set: {} → {}",
+                    "  NOTE  hard-link set: {} \u{2192} {}",
                     note.representative.display(),
                     note.siblings
                         .iter()
@@ -161,17 +245,71 @@ pub fn render(
         writeln!(out).unwrap();
     }
 
+    // ── Already-deduplicated informational block (cases b + d) ───────────────
+    // Printed after the real groups, before the Summary line. Omitted entirely
+    // when there are no already-deduplicated sets.
+    if !already_dedup_notes.is_empty() {
+        writeln!(
+            out,
+            "Already deduplicated (hard-linked) \u{2014} nothing to reclaim:"
+        )
+        .unwrap();
+        for note in &already_dedup_notes {
+            writeln!(out, "  {}", note.representative.display()).unwrap();
+            // Link set = representative + siblings, in canonical byte-wise order.
+            let mut link_set: Vec<PathBuf> = std::iter::once(note.representative.clone())
+                .chain(note.siblings.iter().cloned())
+                .collect();
+            link_set.sort();
+            let link_set_str = link_set
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(out, "    hard-linked: {link_set_str}").unwrap();
+        }
+        writeln!(out).unwrap();
+    }
+
     // ── Summary line ──────────────────────────────────────────────────────────
-    writeln!(
-        out,
-        "Summary: {} duplicate group{}, {} file{}, {} bytes reclaimable.",
-        total_groups,
-        if total_groups == 1 { "" } else { "s" },
-        total_files,
-        if total_files == 1 { "" } else { "s" },
-        total_reclaimable,
-    )
-    .unwrap();
+    let n_dedup_sets = already_dedup_notes.len();
+
+    if total_groups == 0 {
+        // Only already-deduplicated sets found — no removal opportunities.
+        writeln!(
+            out,
+            "Summary: no duplicate groups to remove; {} already-deduplicated hard-link set{}.",
+            n_dedup_sets,
+            if n_dedup_sets == 1 { "" } else { "s" },
+        )
+        .unwrap();
+    } else if n_dedup_sets == 0 {
+        // Only removal opportunities — no already-deduplicated sets.
+        writeln!(
+            out,
+            "Summary: {} duplicate group{}, {} file{}, {} bytes reclaimable.",
+            total_groups,
+            if total_groups == 1 { "" } else { "s" },
+            total_files,
+            if total_files == 1 { "" } else { "s" },
+            total_reclaimable,
+        )
+        .unwrap();
+    } else {
+        // Both removal opportunities and already-deduplicated sets.
+        writeln!(
+            out,
+            "Summary: {} duplicate group{}, {} file{}, {} bytes reclaimable; {} already-deduplicated hard-link set{} (nothing to reclaim).",
+            total_groups,
+            if total_groups == 1 { "" } else { "s" },
+            total_files,
+            if total_files == 1 { "" } else { "s" },
+            total_reclaimable,
+            n_dedup_sets,
+            if n_dedup_sets == 1 { "" } else { "s" },
+        )
+        .unwrap();
+    }
 
     out
 }
@@ -325,16 +463,87 @@ mod tests {
         );
     }
 
-    // ── FR-17: hard-link notes ────────────────────────────────────────────────
+    // ── (c) Pluralization: group-header file count ────────────────────────────
 
     #[test]
-    fn report_shows_hard_link_note() {
-        // FR-17: hard-link siblings must appear as an informational note.
+    fn group_header_uses_plural_files_for_multiple_files() {
+        // (c) spec: group header must say "N files" when N > 1.
         let dir = tempfile::tempdir().unwrap();
-        let a = write_file(&dir, "a.jpg", b"HL CONTENT");
-        let b = dir.path().join("b.jpg");
-        fs::hard_link(&a, &b).expect("hard link creatable in tempdir");
-        let c = write_file(&dir, "c.jpg", b"HL CONTENT"); // separate copy
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
+            report.contains("2 files"),
+            "group header must say '2 files' when there are 2 files; got:\n{report}"
+        );
+        assert!(
+            !report.contains("2 file,"),
+            "group header must NOT say '2 file,' (missing plural); got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn group_header_uses_singular_file_for_one_file() {
+        // (c) spec: group header must say "1 file" (singular) when group has
+        // exactly 1 file (keeper + 0 removable, but that's a removable-less group —
+        // test with a genuine removal-opportunity 1-file header is impossible since
+        // a removal opportunity needs >= 1 removable. The smallest removal
+        // opportunity is 2 files (keeper + 1 removable). Assert "2 files" is
+        // plural and confirm the format string handles the '1 file' case via
+        // the pluralization branch used for total_files.
+        //
+        // Actually the group_files for a real removal opportunity group is always
+        // >= 2 (1 keeper + >= 1 removable). The "1 file" case in the group header
+        // can only be reached if a group has exactly 1 removable and 0 protected.
+        // That's group_files = 2. Verify the pluralization logic directly by
+        // confirming "2 files" is used for the standard 2-file case.
+        //
+        // The singular "1 file" in the group header is exercised only when the
+        // group_files count reaches 1 — which cannot happen for a real removal
+        // group (min is 2). We verify the logic is correct via the summary line's
+        // singular form instead.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+        let c = write_file(&dir, "c.jpg", b"OTHER");
+        let d = write_file(&dir, "d.jpg", b"OTHER");
+
+        // Two groups of 2; verify each header says "2 files".
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b), confirmed(&c), confirmed(&d)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // Both group headers must say "2 files".
+        let count = report.matches("2 files").count();
+        assert!(
+            count >= 2,
+            "both group headers must say '2 files'; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn group_header_singular_file_count_rendered_correctly() {
+        // (c) spec: verify the pluralization branch produces the correct plural form.
+        // A removal-opportunity group always has >= 2 files (1 keeper + >= 1 removable).
+        // Verify the 3-file case: keeper + 2 removable = "3 files".
+        // The singular "1 file" path in the group header is not reachable through
+        // the engine (min is 2); the summary's "1 file" singular is tested via
+        // summary_singular tests.
+
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+        let c = write_file(&dir, "c.jpg", b"SAME");
 
         let outcome = find_duplicates(
             vec![confirmed(&a), confirmed(&b), confirmed(&c)],
@@ -344,8 +553,45 @@ mod tests {
         let report = render(&outcome, &ew, &sw);
 
         assert!(
+            report.contains("3 files"),
+            "group header must say '3 files' for 3-file group; got:\n{report}"
+        );
+    }
+
+    // ── FR-17: hard-link notes ────────────────────────────────────────────────
+
+    #[test]
+    fn report_shows_hard_link_note() {
+        // FR-17: when a group has both removable and protected entries, the hard-link
+        // NOTE line must appear inside the group (the note is associated with the
+        // anchor in a removal-opportunity group).
+        //
+        // Setup: h ↔ h-link (anchor) + c1.jpg + c2.jpg (two standalones).
+        // keeper = c1 (shortest, lex min of non-anchors); removable = c2;
+        // protected = h. This is a removal-opportunity group (removable non-empty).
+        // The NOTE line for {h, h-link} must appear.
+        let dir = tempfile::tempdir().unwrap();
+        let h = write_file(&dir, "h.jpg", b"HL CONTENT");
+        let h_link = dir.path().join("h-link.jpg");
+        fs::hard_link(&h, &h_link).expect("hard link creatable in tempdir");
+        let c1 = write_file(&dir, "c1.jpg", b"HL CONTENT");
+        let c2 = write_file(&dir, "c2.jpg", b"HL CONTENT");
+
+        let outcome = find_duplicates(
+            vec![
+                confirmed(&h),
+                confirmed(&h_link),
+                confirmed(&c1),
+                confirmed(&c2),
+            ],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
             report.contains("NOTE") && report.contains("hard-link"),
-            "report must show hard-link note; got:\n{report}"
+            "report must show hard-link note in removal-opportunity group; got:\n{report}"
         );
     }
 
@@ -358,11 +604,11 @@ mod tests {
         // Setup: a.jpg ↔ b.jpg (one inode, anchor) + c.jpg (separate copy).
         // Under the anchor rule: c is the only non-anchor candidate → keeper;
         // the anchor rep `a` goes to `protected`; removable is empty.
-        // Reclaimable = Σ removable.size = 0 (anchor size not counted).
+        // Reclaimable = 0 (anchor size not counted).
         //
-        // Previously this test expected 10 bytes reclaimable (c removable).
-        // Under the anchor rule: c is the keeper, nothing is removable → 0
-        // bytes reclaimable. The PROTECT row confirms the anchor is present.
+        // Under (b) presentation: this group has no removable → it is a
+        // removable-less group and appears in the already-deduplicated block,
+        // NOT as a "Group i/N" heading. Reclaimable stays 0 in the summary.
         let dir = tempfile::tempdir().unwrap();
         let content = b"0123456789"; // 10 bytes
         let a = write_file(&dir, "a.jpg", content);
@@ -377,21 +623,32 @@ mod tests {
         let (ew, sw) = no_warnings();
         let report = render(&outcome, &ew, &sw);
 
-        // Reclaimable must be 0: the anchor (a) is protected, not removable,
-        // and c is the keeper — nothing is in the removable set.
+        // The group has no removable → it goes into the already-deduplicated block.
+        // The summary must say "no duplicate groups to remove" and mention the
+        // already-deduplicated set (reclaimable is 0 by construction).
         assert!(
-            report.contains("0 bytes reclaimable"),
-            "reclaimable must be 0 (anchor excluded, no standalone removable); got:\n{report}"
+            report.contains("no duplicate groups to remove"),
+            "a removable-less group must not appear as a duplicate group; got:\n{report}"
+        );
+        assert!(
+            report.contains("already-deduplicated hard-link set"),
+            "already-deduplicated block must appear; got:\n{report}"
         );
 
-        // The PROTECT row must be present for the anchor.
+        // The already-deduplicated block must mention the hard-linked paths.
         assert!(
-            report.contains("PROTECT"),
-            "report must show PROTECT row for the anchor; got:\n{report}"
+            report.contains("Already deduplicated (hard-linked)"),
+            "already-deduplicated heading must appear; got:\n{report}"
         );
         assert!(
-            report.contains("hard-linked; removing it frees no space"),
-            "PROTECT row must explain why; got:\n{report}"
+            report.contains("hard-linked:"),
+            "hard-linked entry must appear; got:\n{report}"
+        );
+
+        // No "Group" heading (no removal opportunities).
+        assert!(
+            !report.contains("Group 1/"),
+            "no Group heading expected (removable-less case b); got:\n{report}"
         );
     }
 
@@ -583,7 +840,10 @@ mod tests {
         // a.jpg ↔ a-link.jpg (one inode, anchor) + copy.jpg (separate inode,
         // byte-identical). --keep shortest: copy is the only non-anchor candidate
         // → keeper; the anchor rep (a.jpg) is protected; removable is empty;
-        // reclaimable = 0 bytes. Assert no hard-linked file is ever in removable.
+        // reclaimable = 0 bytes.
+        //
+        // Under (b) presentation: this is a removable-less group → NOT rendered
+        // as a "Group i/N" heading; instead appears in the already-deduplicated block.
         let dir = tempfile::tempdir().unwrap();
         let content = b"beach image bytes"; // 17 bytes
         let a = write_file(&dir, "a.jpg", content);
@@ -598,8 +858,8 @@ mod tests {
         let (ew, sw) = no_warnings();
         let report = render(&outcome, &ew, &sw);
 
-        // One group emitted.
-        assert_eq!(outcome.groups.len(), 1, "one group expected");
+        // Engine: one group emitted.
+        assert_eq!(outcome.groups.len(), 1, "one group expected from engine");
         let g = &outcome.groups[0];
 
         // `copy.jpg` is the keeper (only non-anchor candidate).
@@ -612,44 +872,60 @@ mod tests {
             g.removable
         );
 
-        // Reclaimable = 0.
+        // Report: the group is removable-less (case b) → already-deduplicated block.
         assert!(
-            report.contains("0 bytes reclaimable"),
-            "reclaimable must be 0 (anchor protected, nothing removable); got:\n{report}"
+            report.contains("Already deduplicated (hard-linked)"),
+            "removable-less group must appear in already-deduplicated block; got:\n{report}"
+        );
+        assert!(
+            report.contains("no duplicate groups to remove"),
+            "summary must say no removal opportunities; got:\n{report}"
+        );
+        assert!(
+            report.contains("already-deduplicated hard-link set"),
+            "summary must mention the already-deduplicated set; got:\n{report}"
         );
 
-        // PROTECT row must appear.
+        // No "Group" heading (no removal opportunities).
         assert!(
-            report.contains("PROTECT"),
-            "PROTECT row must appear for the anchor; got:\n{report}"
+            !report.contains("Group 1/"),
+            "no Group heading expected (case b); got:\n{report}"
         );
     }
 
     #[test]
-    fn anchor_protect_row_appears_before_note_in_group() {
-        // The PROTECT row must render for the protected anchor; the NOTE line
-        // must still appear listing siblings. Both must be present.
+    fn anchor_protect_row_appears_in_removal_group_when_removable_nonempty() {
+        // When a group has BOTH removable files AND a protected anchor, the
+        // PROTECT row must appear inside the group (not in the already-dedup block).
+        // Setup: h ↔ h-link (anchor, protected) + c1 (keeper) + c2 (removable).
         let dir = tempfile::tempdir().unwrap();
         let content = b"identical content";
-        let anchor = write_file(&dir, "anchor.jpg", content);
-        let sibling = dir.path().join("sibling.jpg");
-        fs::hard_link(&anchor, &sibling).expect("hard link creatable");
-        let standalone = write_file(&dir, "standalone.jpg", content); // separate inode
+        let h = write_file(&dir, "h.jpg", content);
+        let h_link = dir.path().join("h-link.jpg");
+        fs::hard_link(&h, &h_link).expect("hard link creatable");
+        let c1 = write_file(&dir, "c1.jpg", content);
+        let c2 = write_file(&dir, "c2.jpg", content);
 
         let outcome = find_duplicates(
             vec![
-                confirmed(&anchor),
-                confirmed(&sibling),
-                confirmed(&standalone),
+                confirmed(&h),
+                confirmed(&h_link),
+                confirmed(&c1),
+                confirmed(&c2),
             ],
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
         let report = render(&outcome, &ew, &sw);
 
+        // Must show Group heading (removal opportunity).
+        assert!(
+            report.contains("Group 1/1"),
+            "removal-opportunity group must appear with Group heading; got:\n{report}"
+        );
         assert!(
             report.contains("PROTECT"),
-            "PROTECT label must appear; got:\n{report}"
+            "PROTECT label must appear in the removal-opportunity group; got:\n{report}"
         );
         assert!(
             report.contains("hard-linked; removing it frees no space"),
@@ -662,11 +938,12 @@ mod tests {
     }
 
     #[test]
-    fn all_anchor_group_notes_surface_no_group_in_report() {
-        // ADR-0008 anchor rule edge case 1: all-anchor group (two distinct inodes,
-        // each multiply-linked in-scope, byte-identical). No DuplicateGroup is
-        // emitted; reclaimable = 0; hard-link notes are present in outcome.
-        // The report must show "No duplicate groups found." (no group heading).
+    fn all_anchor_group_notes_surface_in_already_dedup_block() {
+        // (d) spec: all-anchor group emits no DuplicateGroup; the engine puts both
+        // notes in hard_link_notes. The report must surface them in the
+        // already-deduplicated block and use the summary variant
+        // "no duplicate groups to remove; N already-deduplicated hard-link set(s)".
+        // "No duplicate groups found." must NOT appear.
         let dir = tempfile::tempdir().unwrap();
         let a = write_file(&dir, "a.jpg", b"SAME");
         let a2 = dir.path().join("a2.jpg");
@@ -688,11 +965,69 @@ mod tests {
             "all-anchor group must emit no DuplicateGroup"
         );
 
-        // Report shows no duplicate groups (the all-anchor case surfaces via
-        // hard_link_notes which are not rendered as group headings).
+        // "No duplicate groups found." must NOT appear — there ARE already-dedup sets.
         assert!(
-            report.contains("No duplicate groups found."),
-            "all-anchor group must not appear as a duplicate group; got:\n{report}"
+            !report.contains("No duplicate groups found."),
+            "must NOT say 'No duplicate groups found.' when already-dedup sets exist; got:\n{report}"
+        );
+
+        // Already-deduplicated block must appear.
+        assert!(
+            report.contains("Already deduplicated (hard-linked)"),
+            "already-deduplicated heading must appear; got:\n{report}"
+        );
+        assert!(
+            report.contains("hard-linked:"),
+            "hard-linked entries must appear; got:\n{report}"
+        );
+
+        // Summary must use the "no duplicate groups to remove" variant.
+        assert!(
+            report.contains("no duplicate groups to remove"),
+            "summary must say 'no duplicate groups to remove'; got:\n{report}"
+        );
+        assert!(
+            report.contains("2 already-deduplicated hard-link sets"),
+            "summary must mention 2 already-deduplicated sets; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn all_anchor_group_notes_surface_no_group_in_report() {
+        // Legacy test (renamed from the original): all-anchor group must emit no
+        // DuplicateGroup and the report must NOT say "No duplicate groups found."
+        // (Updated under the (b)/(c)/(d) presentation spec.)
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let a2 = dir.path().join("a2.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+        let b2 = dir.path().join("b2.jpg");
+        fs::hard_link(&b, &b2).expect("hard link creatable");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&a2), confirmed(&b), confirmed(&b2)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // No DuplicateGroup emitted.
+        assert!(
+            outcome.groups.is_empty(),
+            "all-anchor group must emit no DuplicateGroup"
+        );
+
+        // Under the new spec: the already-deduplicated block is shown, NOT
+        // "No duplicate groups found." (which only appears when there are no
+        // findings of any kind).
+        assert!(
+            !report.contains("No duplicate groups found."),
+            "must NOT say 'No duplicate groups found.' — already-dedup sets exist; got:\n{report}"
+        );
+        assert!(
+            report.contains("Already deduplicated (hard-linked)"),
+            "already-deduplicated block must appear for all-anchor case; got:\n{report}"
         );
     }
 
@@ -701,6 +1036,9 @@ mod tests {
         // N1 ruling: total_files = keeper + removable (not protected).
         // Two standalones + one anchor: keeper=c1, removable=c2, protected=h.
         // total_files = 2 (not 3), reclaimable = c2.size.
+        //
+        // Since this group has a removable (c2), it IS a removal-opportunity
+        // group and renders as "Group 1/1". The PROTECT row appears for h.
         let dir = tempfile::tempdir().unwrap();
         let content = b"0123456789"; // 10 bytes
         let h = write_file(&dir, "h.jpg", content);
@@ -733,19 +1071,264 @@ mod tests {
             "reclaimable must be 10 bytes (c2 only); got:\n{report}"
         );
 
-        // PROTECT row present for h.
+        // PROTECT row present for h (inside the group heading).
         assert!(
             report.contains("PROTECT"),
             "PROTECT row must be present for h; got:\n{report}"
         );
+
+        // Must render as a proper removal-opportunity group.
+        assert!(
+            report.contains("Group 1/1"),
+            "removal-opportunity group must appear as Group 1/1; got:\n{report}"
+        );
     }
 
-    // ── (c) Pluralization: group-header file count ────────────────────────────
+    // ── (b) Removable-less group → already-deduplicated block ────────────────
 
     #[test]
-    fn group_header_uses_plural_files_for_multiple_files() {
-        // (c) spec: group header must say "N files" (plural) when N > 1.
-        // A 2-file group (keeper + 1 removable) must render "2 files".
+    fn removable_less_group_appears_in_already_dedup_block() {
+        // (b) spec: a DuplicateGroup with keeper + protected anchor(s) but
+        // ZERO removable must NOT appear as a "Group i/N" heading; instead
+        // it must appear in the already-deduplicated block.
+        //
+        // Setup: anchor.jpg ↔ sibling.jpg (one inode) + standalone.jpg (separate).
+        // keeper=standalone, removable=[], protected=[anchor].
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"same content";
+        let anchor = write_file(&dir, "anchor.jpg", content);
+        let sibling = dir.path().join("sibling.jpg");
+        fs::hard_link(&anchor, &sibling).expect("hard link creatable");
+        let standalone = write_file(&dir, "standalone.jpg", content);
+
+        let outcome = find_duplicates(
+            vec![
+                confirmed(&anchor),
+                confirmed(&sibling),
+                confirmed(&standalone),
+            ],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // Engine: one group, keeper=standalone, removable=[], protected=[anchor].
+        assert_eq!(outcome.groups.len(), 1, "one group from engine");
+        assert!(
+            outcome.groups[0].removable.is_empty(),
+            "removable must be empty"
+        );
+        assert_eq!(outcome.groups[0].protected.len(), 1, "one protected anchor");
+
+        // Report: no "Group i/N" heading.
+        assert!(
+            !report.contains("Group 1/"),
+            "removable-less group must NOT appear as Group heading; got:\n{report}"
+        );
+
+        // Already-deduplicated block must appear.
+        assert!(
+            report.contains("Already deduplicated (hard-linked)"),
+            "already-deduplicated heading must appear; got:\n{report}"
+        );
+        assert!(
+            report.contains("hard-linked:"),
+            "hard-linked entry must appear; got:\n{report}"
+        );
+
+        // Summary: "no duplicate groups to remove; 1 already-deduplicated hard-link set."
+        assert!(
+            report.contains("no duplicate groups to remove"),
+            "summary must say 'no duplicate groups to remove'; got:\n{report}"
+        );
+        assert!(
+            report.contains("1 already-deduplicated hard-link set"),
+            "summary must mention 1 already-deduplicated set (singular); got:\n{report}"
+        );
+        // Singular: must not say "1 already-deduplicated hard-link sets".
+        assert!(
+            !report.contains("1 already-deduplicated hard-link sets"),
+            "must use singular 'set' for count 1; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn removable_less_group_not_counted_in_totals() {
+        // (b) spec: removable-less group must NOT count toward duplicate-group,
+        // file, or reclaimable totals.
+        //
+        // Setup: one removal-opportunity group (aaa1+aaa2) AND one removable-less
+        // group (h ↔ h-link + standalone). Summary must count only the
+        // removal-opportunity group (1 group, 2 files, not 3 or more).
+        let dir = tempfile::tempdir().unwrap();
+        let content_a = b"ALPHA"; // 5 bytes
+        let content_b = b"BETA?"; // 5 bytes — same size to force a cohort
+
+        // Removal-opportunity group.
+        let a1 = write_file(&dir, "aa1.jpg", content_a);
+        let a2 = write_file(&dir, "aa2.jpg", content_a);
+
+        // Removable-less group.
+        let h = write_file(&dir, "hh.jpg", content_b);
+        let h_link = dir.path().join("hh-link.jpg");
+        fs::hard_link(&h, &h_link).expect("hard link creatable");
+        let standalone = write_file(&dir, "zz-standalone.jpg", content_b);
+
+        let outcome = find_duplicates(
+            vec![
+                confirmed(&a1),
+                confirmed(&a2),
+                confirmed(&h),
+                confirmed(&h_link),
+                confirmed(&standalone),
+            ],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // Summary must count 1 duplicate group (the alpha pair), 2 files.
+        assert!(
+            report.contains("1 duplicate group,"),
+            "summary must count 1 (removal-opportunity) duplicate group; got:\n{report}"
+        );
+        assert!(
+            report.contains("2 files"),
+            "summary must count 2 files (keeper+removable of the real group only); got:\n{report}"
+        );
+
+        // Summary must mention 1 already-deduplicated set.
+        assert!(
+            report.contains("1 already-deduplicated hard-link set"),
+            "summary must mention 1 already-deduplicated set; got:\n{report}"
+        );
+    }
+
+    // ── (d) All-anchor notes → already-deduplicated block ────────────────────
+
+    #[test]
+    fn all_anchor_already_dedup_block_shows_link_set() {
+        // (d) spec: all-anchor group → no DuplicateGroup; the report shows
+        // the already-deduplicated block with the full link set (representative +
+        // siblings) in canonical byte-wise order.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "alpha.jpg", b"SAME");
+        let a2 = dir.path().join("alpha2.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&a2)],
+            build_comparator(KeepRule::Shortest),
+        );
+        // Only one inode → no group from size pre-filter (only 1 physical file).
+        // Actually both are same size but same inode → collapse → 1 rep → < 2 reps
+        // → no group emitted. hard_link_notes should be empty too (note is only
+        // kept when the rep survives into a group). Let's use two separate inodes
+        // to get the all-anchor scenario.
+        drop(outcome);
+
+        // Two distinct inodes, each multiply-linked.
+        let b = write_file(&dir, "beta.jpg", b"SAME");
+        let b2 = dir.path().join("beta2.jpg");
+        fs::hard_link(&b, &b2).expect("hard link creatable");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&a2), confirmed(&b), confirmed(&b2)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
+            outcome.groups.is_empty(),
+            "all-anchor case must emit no group"
+        );
+        assert_eq!(outcome.hard_link_notes.len(), 2, "two notes expected");
+
+        // Link set entries must include both paths for each inode.
+        assert!(
+            report.contains("hard-linked:"),
+            "hard-linked entries must appear; got:\n{report}"
+        );
+        // The alpha inode set (alpha.jpg, alpha2.jpg) must appear.
+        assert!(
+            report.contains(&a.to_string_lossy().to_string()),
+            "alpha.jpg must appear in block; got:\n{report}"
+        );
+        assert!(
+            report.contains(&a2.to_string_lossy().to_string()),
+            "alpha2.jpg must appear in block; got:\n{report}"
+        );
+    }
+
+    // ── Combined summary clause ───────────────────────────────────────────────
+
+    #[test]
+    fn summary_combined_clause_when_both_groups_and_dedup_sets() {
+        // When there are BOTH removal-opportunity groups AND already-deduplicated
+        // sets, the summary must include both counts with the trailing clause.
+        //
+        // Setup: one removal-opportunity pair (aaa1+aaa2) + one removable-less
+        // group (h ↔ h-link + zz-standalone with same content as h).
+        let dir = tempfile::tempdir().unwrap();
+        let content_a = b"ALPHA"; // 5 bytes
+        let content_b = b"BETAX"; // 5 bytes
+
+        let a1 = write_file(&dir, "aaa1.jpg", content_a);
+        let a2 = write_file(&dir, "aaa2.jpg", content_a);
+
+        let h = write_file(&dir, "hhh.jpg", content_b);
+        let h_link = dir.path().join("hhh-link.jpg");
+        fs::hard_link(&h, &h_link).expect("hard link creatable");
+        let zz = write_file(&dir, "zzz.jpg", content_b); // standalone copy, same content
+
+        let outcome = find_duplicates(
+            vec![
+                confirmed(&a1),
+                confirmed(&a2),
+                confirmed(&h),
+                confirmed(&h_link),
+                confirmed(&zz),
+            ],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // Summary must include both the removal-opportunity count and the
+        // already-deduplicated trailing clause.
+        assert!(
+            report.contains("1 duplicate group,"),
+            "summary must count the removal group; got:\n{report}"
+        );
+        assert!(
+            report.contains("1 already-deduplicated hard-link set (nothing to reclaim)"),
+            "summary must include the trailing already-dedup clause; got:\n{report}"
+        );
+    }
+
+    // ── No findings at all → "No duplicate groups found." ────────────────────
+
+    #[test]
+    fn no_findings_at_all_shows_no_duplicate_groups_found() {
+        // When there are no groups and no hard-link notes, the exact string
+        // "No duplicate groups found." must appear unchanged.
+        let outcome = DedupOutcome::default();
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert_eq!(
+            report.trim(),
+            "No duplicate groups found.",
+            "the exact 'No duplicate groups found.' message must appear when nothing is found"
+        );
+    }
+
+    // ── Summary singular/plural ────────────────────────────────────────────────
+
+    #[test]
+    fn summary_singular_duplicate_group() {
+        // Summary must say "1 duplicate group" (not "1 duplicate groups").
         let dir = tempfile::tempdir().unwrap();
         let a = write_file(&dir, "a.jpg", b"SAME");
         let b = write_file(&dir, "b.jpg", b"SAME");
@@ -757,35 +1340,88 @@ mod tests {
         let (ew, sw) = no_warnings();
         let report = render(&outcome, &ew, &sw);
 
-        // Must say "2 files", never "2 file," (which would be missing the 's').
         assert!(
-            report.contains("2 files"),
-            "group header must say '2 files' (plural); got:\n{report}"
+            report.contains("1 duplicate group,"),
+            "summary must say '1 duplicate group' (singular); got:\n{report}"
         );
         assert!(
-            !report.contains("2 file,"),
-            "group header must NOT omit the plural 's'; got:\n{report}"
+            !report.contains("1 duplicate groups"),
+            "summary must NOT say '1 duplicate groups'; got:\n{report}"
         );
     }
 
     #[test]
-    fn group_header_three_file_group_is_plural() {
-        // (c) spec: 3-file group (keeper + 2 removable) must say "3 files".
+    fn summary_singular_already_dedup_set() {
+        // Summary must say "1 already-deduplicated hard-link set" (not "sets")
+        // when there is exactly one.
         let dir = tempfile::tempdir().unwrap();
         let a = write_file(&dir, "a.jpg", b"SAME");
+        let a2 = dir.path().join("a2.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
         let b = write_file(&dir, "b.jpg", b"SAME");
-        let c = write_file(&dir, "c.jpg", b"SAME");
+        let b2 = dir.path().join("b2.jpg");
+        fs::hard_link(&b, &b2).expect("hard link creatable");
+
+        // All-anchor: 2 inode sets, each with 2 links. But we need only 1 inode
+        // set to test singular. Use just one hard-link pair.
+        let content = b"HL SAME";
+        let x = write_file(&dir, "x.jpg", content);
+        let x2 = dir.path().join("x2.jpg");
+        fs::hard_link(&x, &x2).expect("hard link creatable");
+        let y = write_file(&dir, "y.jpg", content);
+        let y2 = dir.path().join("y2.jpg");
+        fs::hard_link(&y, &y2).expect("hard link creatable");
+
+        // This gives 2 already-dedup sets; use the 2-sets case for the 2-set
+        // plural test and test singular by examining a single-anchor scenario
+        // (the beach case b).
+        drop((x, x2, y, y2, a, a2, b, b2));
+
+        let dir2 = tempfile::tempdir().unwrap();
+        let anchor = write_file(&dir2, "anchor.jpg", b"single");
+        let sib = dir2.path().join("anchor-link.jpg");
+        fs::hard_link(&anchor, &sib).expect("hard link creatable");
+        let standalone = write_file(&dir2, "standalone.jpg", b"single");
 
         let outcome = find_duplicates(
-            vec![confirmed(&a), confirmed(&b), confirmed(&c)],
+            vec![confirmed(&anchor), confirmed(&sib), confirmed(&standalone)],
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
         let report = render(&outcome, &ew, &sw);
 
         assert!(
-            report.contains("3 files"),
-            "group header must say '3 files' for a 3-file group; got:\n{report}"
+            report.contains("1 already-deduplicated hard-link set."),
+            "summary must say '1 already-deduplicated hard-link set.' (singular); got:\n{report}"
+        );
+        assert!(
+            !report.contains("1 already-deduplicated hard-link sets"),
+            "must NOT say 'sets' for count 1; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn summary_plural_already_dedup_sets() {
+        // Summary must say "2 already-deduplicated hard-link sets" (plural) when
+        // there are 2 already-deduplicated sets.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let a2 = dir.path().join("a2.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+        let b2 = dir.path().join("b2.jpg");
+        fs::hard_link(&b, &b2).expect("hard link creatable");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&a2), confirmed(&b), confirmed(&b2)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
+            report.contains("2 already-deduplicated hard-link sets"),
+            "summary must say '2 already-deduplicated hard-link sets' (plural); got:\n{report}"
         );
     }
 }
