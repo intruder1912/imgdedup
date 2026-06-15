@@ -168,9 +168,9 @@ pub fn render(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::KeepRule;
     use crate::engine::{find_duplicates, EngineWarning};
     use crate::keeper::build_comparator;
-    use crate::cli::KeepRule;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -368,7 +368,6 @@ mod tests {
     #[test]
     fn enumerate_warnings_are_surfaced_in_report() {
         // NFR-6: per-file skip warnings from enumeration must appear in report.
-        let dir = tempfile::tempdir().unwrap();
         let outcome = DedupOutcome::default();
         let ew = vec![EnumerateWarning {
             path: PathBuf::from("/some/file.jpg"),
@@ -487,7 +486,12 @@ mod tests {
         let b2 = write_file(&dir, "bbb2.jpg", b"GROUP-B");
 
         let outcome = find_duplicates(
-            vec![confirmed(&b1), confirmed(&a1), confirmed(&b2), confirmed(&a2)],
+            vec![
+                confirmed(&b1),
+                confirmed(&a1),
+                confirmed(&b2),
+                confirmed(&a2),
+            ],
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
@@ -518,7 +522,12 @@ mod tests {
         let b2 = write_file(&dir, "bb2.jpg", b"BETA_");
 
         let outcome = find_duplicates(
-            vec![confirmed(&a1), confirmed(&a2), confirmed(&b1), confirmed(&b2)],
+            vec![
+                confirmed(&a1),
+                confirmed(&a2),
+                confirmed(&b1),
+                confirmed(&b2),
+            ],
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();

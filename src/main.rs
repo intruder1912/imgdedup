@@ -70,6 +70,13 @@ fn run(args: cli::Cli) -> i32 {
 
     // TODO(TASK-0309/0310): act on `dedup.groups` under --apply / --delete.
 
-    // TODO(TASK-0311): wire full exit-code semantics; for now return SUCCESS.
-    exit_code::SUCCESS
+    // Stage 5 — Exit code (ADR-0008 §exit-code, TASK-0311).
+    // A run-level error (non-empty root_errors) → 1. The --exit-code flag
+    // returning 3 when duplicates are found → 3. All other successful runs → 0.
+    // Per-file warnings alone never change the code from 0 (NFR-6).
+    exit_code::compute(
+        !candidate_set.root_errors.is_empty(),
+        args.exit_code,
+        !dedup.groups.is_empty(),
+    )
 }

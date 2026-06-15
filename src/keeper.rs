@@ -146,15 +146,6 @@ mod tests {
         p
     }
 
-    /// Write `bytes` at a nested subpath `dir/sub/name`.
-    fn write_nested(dir: &TempDir, sub: &str, name: &str, bytes: &[u8]) -> PathBuf {
-        let sub_dir = dir.path().join(sub);
-        fs::create_dir_all(&sub_dir).unwrap();
-        let p = sub_dir.join(name);
-        fs::write(&p, bytes).unwrap();
-        p
-    }
-
     /// Build a synthetic `FileRec` without touching the filesystem — used for
     /// pure ordering tests where we control size / mtime directly.
     fn rec(path: &str, mtime: Option<i64>) -> FileRec {
