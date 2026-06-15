@@ -75,6 +75,7 @@
     "mmap",
     "SIGBUS",
     "inode",
+    "hardlink",
     "Cocoa",
     "osascript",
     "walkdir",

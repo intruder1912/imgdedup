@@ -77,6 +77,37 @@ If nothing matches, the report is simply:
 No duplicate groups found.
 ```
 
+### Hard-linked copies
+
+If some of the matching files are **hard links** to the same physical file, they
+are already a single file on disk — removing one frees nothing. `imgdedup` keeps
+them and labels them `PROTECT` rather than `REMOVE`:
+
+```text
+Group 1/1 (2 files, 1024 bytes reclaimable):
+  KEEP  /photos/cat.jpg
+  REMOVE /photos/backup/cat.jpg
+  PROTECT /photos/also-cat.jpg  (hard-linked; removing it frees no space)
+  NOTE  hard-link set: /photos/also-cat.jpg → /photos/cat-link.jpg
+```
+
+A `PROTECT` file is never proposed for removal and is never counted in the
+group's file count or reclaimable bytes. When an entire match is *only*
+hard-linked copies — there is nothing genuinely separate to remove — it is not
+reported as a duplicate group at all; instead it appears under an informational
+block:
+
+```text
+Already deduplicated (hard-linked) — nothing to reclaim:
+  /photos/beach.jpg
+    hard-linked: /photos/beach.jpg, /photos/beach-hardlink.jpg
+
+Summary: no duplicate groups to remove; 1 already-deduplicated hard-link set.
+```
+
+See [Choosing what to keep](choosing-what-to-keep.md#hard-links-are-never-collateral)
+for the full hard-link behavior.
+
 ### Warnings
 
 Files that cannot be read or are not recognized as supported images are **skipped,

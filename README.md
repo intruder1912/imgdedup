@@ -42,7 +42,9 @@ Safety is the product's first principle:
   `--delete` alone is refused. *(Not functional yet.)*
 - **Never byte-blind.** A hash match alone never authorizes removal; files are
   byte-for-byte verified first. Hard-linked copies (already deduplicated on disk)
-  are never proposed for removal.
+  are never proposed for removal: they are shown as `PROTECT` and excluded from
+  the reclaimable-space figure, and a set that is *only* hard links is reported as
+  already-deduplicated rather than as a duplicate group.
 
 ## Installing
 

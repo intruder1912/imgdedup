@@ -14,8 +14,11 @@ in this order:
    (only present when something was skipped).
 2. One block per duplicate group: a header with the group number, its file count,
    and its reclaimable space, then the `KEEP` line and a `REMOVE` line per
-   duplicate (and a `NOTE` line for any hard-linked siblings).
-3. A `Summary:` line with the totals — or `No duplicate groups found.` when there
+   duplicate (plus a `PROTECT` line and a `NOTE` line for any hard-linked
+   siblings, which are kept and excluded from the counts).
+3. An optional `Already deduplicated (hard-linked)` block listing hard-link sets
+   that have nothing to reclaim (only present when such sets exist).
+4. A `Summary:` line with the totals — or `No duplicate groups found.` when there
    is nothing to report.
 
 ```text

@@ -54,25 +54,65 @@ and its rationale are in
 ## Hard links are never collateral
 
 If several paths are hard links to the same physical file, they are already a
-single file on disk — removing one frees no space. `imgdedup` recognizes this,
-collapses the hard-linked paths to one representative, and never proposes removing
-a hard-linked "copy". Only genuinely separate duplicate files are ever candidates
-for removal.
+single file on disk — removing one frees no space while another link still points
+at the same content. `imgdedup` treats such a file as **already deduplicated**: it
+is never proposed for removal, never counted in reclaimable space, and never the
+removable side of a group.
 
-Hard-linked siblings are surfaced as an informational `NOTE` line under their
-group and are deliberately **left out of that group's file count and the
-reclaimable-space figure** — counting them would overstate both, since removing
-them frees nothing:
+### Anchors and the `PROTECT` row
+
+A hard-linked file whose inode has **another scanned link** is called an
+**anchor**. An anchor is shown with a `PROTECT` label, distinct from both `KEEP`
+and `REMOVE`:
 
 ```text
 Group 1/1 (2 files, 1024 bytes reclaimable):
-  KEEP  /photos/a.jpg
-  REMOVE /photos/separate-copy.jpg
+  KEEP  /photos/separate-copy.jpg
+  REMOVE /photos/another-separate-copy.jpg
+  PROTECT /photos/a.jpg  (hard-linked; removing it frees no space)
   NOTE  hard-link set: /photos/a.jpg → /photos/also-a.jpg
 ```
 
-Here `/photos/also-a.jpg` is a hard link to the keeper, so it is reported but is
-not one of the "2 files" and adds nothing to the reclaimable bytes.
+- `PROTECT` files are kept but are **not** the keeper — they are simply files the
+  tool will never delete.
+- The `NOTE  hard-link set:` line lists every path that shares the same physical
+  storage.
+- Anchors are deliberately **left out of the group's file count and the
+  reclaimable-space figure** (here "2 files" = the keeper plus the one removable
+  copy; the anchor adds nothing) — counting them would overstate both, since
+  removing them frees nothing.
+
+### How `--keep` interacts with hard links
+
+The `--keep` rule chooses the keeper **only among the genuinely-removable copies**
+— the separate, non-hard-linked files. Anchors are excluded from that choice up
+front: they are forced to the kept side as `PROTECT` entries, never considered for
+the `KEEP` slot. So the keeper is always one of the standalone copies, and your
+`--keep shortest` / `oldest` / `newest` preference ranks only those.
+
+### Already-deduplicated sets
+
+When a match consists *only* of hard-linked copies — there is no genuinely
+separate file to remove — there is nothing to reclaim, so it is **not** reported
+as a duplicate group. It is surfaced under an informational block instead:
+
+```text
+Already deduplicated (hard-linked) — nothing to reclaim:
+  /photos/beach.jpg
+    hard-linked: /photos/beach.jpg, /photos/beach-hardlink.jpg
+```
+
+These entries are excluded from the duplicate-group, file, and reclaimable totals.
+
+### A note on links outside the scan
+
+Anchor detection only sees the links that fall **within the paths you scanned**.
+If an inode has additional hard links elsewhere on disk that the scan never
+visited, the reclaimable figure is computed as if the scanned paths were the only
+links to that file. Within the scanned scope the accounting is exact; this
+in-scope-only limitation is by design (see
+[ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md), anchor
+rule).
 
 ## Next
 
