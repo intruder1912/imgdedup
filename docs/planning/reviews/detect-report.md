@@ -222,3 +222,182 @@ and FR-17/AC-18. The owner approved the **anchor model**; ADR-0008 is amended
   enter `removable`); apply-time re-validation is unchanged. No change needed,
   but add a note in the apply task (S2/S3) that the removal set never contains
   anchors by construction.
+
+## Product-owner re-acceptance under the anchor model — 2026-06-15
+
+The implementer landed the anchor rule under TDD (165 tests green). I re-verified
+the functional behavior against the rendered output (`src/report.rs` tests),
+`DuplicateGroup.protected` (`src/engine.rs`), and ADR-0008 Amendment 2026-06-15.
+
+### Acceptance verdict
+
+- **FR-17 (hard links already-deduplicated; not proposed for removal; excluded
+  from reclaimable; may be an informational note) — ACCEPTED.** A representative
+  with a surviving in-scope sibling is now an **anchor**: never in `removable`,
+  never counted in reclaimable, surfaced as a `PROTECT` row plus the `NOTE`
+  hard-link-set line. Verified by `report.rs::hard_link_reclaimable_excludes_hard_link_sizes`,
+  `beach_scenario_anchor_protected_reclaimable_zero`,
+  `total_files_and_reclaimable_exclude_protected_anchors`, and
+  `report_shows_hard_link_note`. The earlier defect (anchor leaking into
+  `removable` with its size counted) is gone.
+- **AC-18 (two hard links to the same content: neither proposed for removal; do
+  not contribute to reclaimable) — ACCEPTED.** Both links share one inode → one
+  anchor representative, never removable, size never in reclaimable
+  (`beach_scenario_…` asserts `removable` contains neither link and reclaimable
+  is 0). The pure all-hard-link case emits no removal opportunity at all
+  (`all_anchor_group_notes_surface_no_group_in_report`).
+- **FR-7 / FR-8 (keeper rule + `--keep`) — UNAFFECTED, still accepted.** The
+  `--keep` order now runs over the *genuinely-removable* (non-anchor) members
+  only; the order itself is unchanged. With one non-anchor candidate it is the
+  keeper trivially; with several, the documented tie-break order still applies.
+  Architect Review 1/2 verified the orders match ADR-0008 and are total.
+- **FR-9 (dry-run, mutates nothing) — UNAFFECTED.** `dry_run_does_not_modify_any_file`
+  still green; the report remains a pure formatter.
+- **FR-13 (human-readable summary: groups, keeper, removed files, counts,
+  reclaimable) — UNAFFECTED in substance.** Counts remain keeper+removable per
+  the N1 ruling. (Two cosmetic refinements are specified below — singular/plural
+  and removable-less framing — neither changes what FR-13 mandates; both improve
+  clarity.)
+- **FR-15 / FR-18 (exit codes / `--exit-code`) — UNAFFECTED.** No exit-code logic
+  touched by the anchor fix.
+- **NFR-3 (determinism) — UNAFFECTED, still accepted.** The anchor partition is a
+  total deterministic function computed before keeper selection; `protected` is
+  canonically sorted like `removable` (ADR-0008 edge case 3). Determinism tests
+  pass across thread widths and input orders.
+- **NFR-4 (scale / no whole-file buffering) — UNAFFECTED.** Anchors are skipped,
+  not byte-verified; no new reads or buffering introduced.
+- **NFR-6 (robust per-file errors) — UNAFFECTED.** Warning surfacing is unchanged;
+  the orphaned-note (S1) fix is preserved and extended to anchors.
+
+**Overall: the slice's functional requirements remain accepted under the anchor
+model.** Two of the presentation refinements below ((b), (c)) require small
+`report.rs` string/format changes; per ADR-0013 I am the PR-open gate, so the PR
+opens only after those land under TDD and I have re-confirmed the docs.
+
+### Presentation decisions (architect-deferred — authoritative)
+
+**(a) PROTECT-row wording — KEEP AS-IS.** The row `PROTECT <path>  (hard-linked;
+removing it frees no space)` (rendered with the same two-space indent as
+`KEEP`/`REMOVE`) is accurate, parallel to those rows, and states the *why* in
+plain terms. No change.
+
+**(b) Removable-less group framing — REFRAME (requires `report.rs` change).** A
+group with a keeper + protected anchor(s) but **nothing removable** must **not**
+be presented as a "duplicate group" nor counted in the "duplicate groups" /
+"files" / "reclaimable" totals. Showing `Group 1/1 (1 file, 0 bytes reclaimable)`
+with no `REMOVE` row reads as "you have a duplicate" when there is in fact nothing
+to do — alarming and wrong. Such groups are *already deduplicated*; surface them
+under a dedicated informational block (shared with edge case (d)). See the exact
+spec under "Presentation decisions — report-string spec".
+
+**(c) Pluralization glitch — FIX (requires `report.rs` change).** The group header
+must use `1 file` / `N files` consistently with the summary line. See spec below.
+
+**(d) All-anchor groups — SURFACE as informational (requires `report.rs` change).**
+"No duplicate groups found." is misleading when already-deduplicated hard-link
+sets exist. Fold these into the same "Already deduplicated (hard-linked)" block as
+(b). They remain excluded from the duplicate-group/file/reclaimable counts (they
+free nothing), but the user is told they exist and why nothing is proposed.
+
+### Presentation decisions — report-string spec (for the implementer, TDD)
+
+These are the exact desired output strings/format. (a) is unchanged; (b), (c),
+(d) are the changes.
+
+**(c) Group-header pluralization.** In the group header, pluralize `file` exactly
+as the summary already does:
+
+```text
+Group {i}/{N} ({M} file{s}, {X} bytes reclaimable):
+```
+
+where `{s}` is empty when `M == 1`, else `"s"`. (`M` = keeper + removable, the
+existing count.) Nothing else in the header changes.
+
+**(b)+(d) "Already deduplicated (hard-linked)" informational block.** Define a
+*removal opportunity* as a group with **≥1 removable** file. Only removal
+opportunities are "duplicate groups": they keep the existing `Group i/N …`
+rendering, the `Group`/`file`/`reclaimable` counts, and the `Summary:` line —
+**unchanged**.
+
+Everything that is already-deduplicated and offers nothing to remove is collected
+into a separate, clearly non-alarming block that does **not** use the word
+"duplicate" and is **not** counted in the duplicate-group/file/reclaimable totals.
+This block covers two cases the engine produces:
+
+1. An emitted `DuplicateGroup` whose `removable` is **empty** (keeper + ≥1
+   protected anchor, nothing to remove) — case (b).
+2. All-anchor identity sets that emit **no** `DuplicateGroup` and surface via
+   `hard_link_notes` — case (d).
+
+Desired format (the block appears **after** the duplicate groups, **before** the
+`Summary:` line; omit the whole block when there is nothing already-deduplicated):
+
+```text
+Already deduplicated (hard-linked) — nothing to reclaim:
+  /photos/beach.jpg
+    hard-linked: /photos/beach.jpg, /photos/beach-hardlink.jpg
+  /photos/holiday.png
+    hard-linked: /photos/holiday.png, /photos/holiday-2.png
+```
+
+Format rules:
+
+- Heading line exactly: `Already deduplicated (hard-linked) — nothing to reclaim:`
+  (em dash `—`, matching the existing report's punctuation style; keep
+  markdownlint/cspell-clean — it is code-fenced output, not prose).
+- One entry per already-deduplicated **inode/identity set**. The first indented
+  line (2 spaces) is the representative path. The second line (4 spaces) is the
+  literal `hard-linked:` label followed by the **full link set** for that inode —
+  i.e. the representative plus its siblings — joined by a comma and a space, in
+  canonical (byte-wise) order, so the user sees every path that shares the storage.
+  - For case (b) (a removable-less emitted group), the entry's representative is
+    the group's keeper-or-protected representative that carries the
+    `HardLinkNote`; list the note's representative + siblings.
+  - For case (d) (all-anchor, no group), emit one entry per `HardLinkNote`
+    (one per inode), each listing representative + siblings.
+- The block is **purely informational**: its entries are **not** added to the
+  `total_groups`, `total_files`, or `total_reclaimable` accumulators, and not to
+  the `Group i/N` numbering.
+- **Summary line interaction.** The `Summary:` line counts only the real
+  duplicate groups (removal opportunities). When the *only* findings are
+  already-deduplicated sets (no removal opportunities at all), do **not** print
+  `No duplicate groups found.` followed by nothing; instead print the
+  already-deduplicated block and then a summary that reflects zero reclaimable
+  groups, e.g.:
+
+  ```text
+  Already deduplicated (hard-linked) — nothing to reclaim:
+    /photos/beach.jpg
+      hard-linked: /photos/beach.jpg, /photos/beach-hardlink.jpg
+
+  Summary: no duplicate groups to remove; 1 already-deduplicated hard-link set.
+  ```
+
+  Pluralize `set` (`1 … set` / `N … sets`). When there are **no** findings of any
+  kind (no groups, no already-deduplicated sets), keep the existing
+  `No duplicate groups found.` exactly as today.
+- When there are **both** real duplicate groups **and** already-deduplicated
+  sets, render the groups (with the normal `Summary:` line counting only the
+  groups), the already-deduplicated block, and a single `Summary:` line. Append a
+  trailing clause to that summary noting the already-deduplicated sets, e.g.:
+  `Summary: 2 duplicate groups, 5 files, 3072 bytes reclaimable; 1
+  already-deduplicated hard-link set (nothing to reclaim).` Pluralize `set`.
+
+Net effect: the words "duplicate group" and the reclaimable total now mean
+exactly "things you can act on to free space", and hard-linked already-dedup sets
+are reported honestly without ever masquerading as a removal opportunity. The
+`PROTECT`/`NOTE` rows inside a *removal opportunity* group (a group that still has
+≥1 removable file alongside a protected anchor — e.g. two standalone copies + one
+hard-link set) are **unchanged** by this spec.
+
+### Acceptance gate note (ADR-0013)
+
+(b), (c), (d) are cosmetic/clarity refinements, not safety or correctness
+defects — the anchor safety behavior (FR-17/AC-18) is **already correct and
+accepted now**. I am **not deferring** them: they ship inside this S1 slice under
+TDD before the PR opens, because they change user-visible report text this slice
+introduces and the docs below describe the reframed output. The implementer
+should add report tests for: header pluralization (`1 file`), the
+already-deduplicated block for a removable-less group (case b), the all-anchor
+block (case d), and the combined summary clause.
