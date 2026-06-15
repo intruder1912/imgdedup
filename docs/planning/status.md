@@ -4,11 +4,17 @@ Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
 **Current phase:** Phase 3 — Implementation (TDD)
-**Last updated:** 2026-06-14
+**Last updated:** 2026-06-15
 
 ## In progress
 
-- _(none)_
+- **S1 — Detect & report (read-only)** (`feature/detect-report`). Implementation
+  complete; awaiting product-owner acceptance of FR-7/8/9/13/15/17/18 + NFR-3/4/6
+  and user-doc sync before PR is opened (ADR-0012/ADR-0013).
+  - TASK-0305 ✓ — real keeper rule (shortest/oldest/newest, ADR-0008 total order)
+  - TASK-0306 ✓ — rayon parallel hashing + canonical sort (ADR-0010)
+  - TASK-0307 ✓ — human-readable dry-run report (FR-9/13/17, NFR-6)
+  - TASK-0311 ✓ — exit-code semantics (exit_code::compute, ADR-0008)
 
 ## Up next
 
@@ -22,19 +28,10 @@ the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md). The core slice (TASK-0301..0304) already merged
 task-by-task under the pre-ADR-0013 cadence.
 
-- **Next slice: S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
-  TASK-0306 + TASK-0307 + TASK-0311). This is the first end-to-end usable
-  increment: scan paths → deterministic dry-run report of every duplicate group,
-  its keeper, would-be removals, counts, reclaimable space, and hard-link notes,
-  with `--keep {shortest|oldest|newest}` and the opt-in `--exit-code`. Nothing on
-  disk changes. Within the slice: TASK-0305 replaces the engine's
-  `placeholder_keeper_order` with the real keeper rule (shallowest path → oldest
-  mtime → lexicographic); TASK-0306 wires rayon parallel hashing + canonical-sort
-  determinism; TASK-0307 renders the human report; TASK-0311 maps the outcome to
-  exit codes (incl. `--exit-code` → `3`). S1 opens its PR only once the
-  product-owner has accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and synced the
-  README + the `getting-started`, `scanning-and-scope`, `choosing-what-to-keep`,
-  and exit-code guide pages to shipped behavior (ADR-0012).
+- **S1 PR gate:** product-owner accepts FR-7/8/9/13/15/17/18 + NFR-3/4/6 and
+  syncs the README + `getting-started`, `scanning-and-scope`,
+  `choosing-what-to-keep`, and exit-code guide pages to shipped behavior
+  (ADR-0012). Then architect review (ADR-0013) and PR is opened.
 - **Then, in order:** **S2 — JSON output** (`json-output`; TASK-0308) →
   **S3 — Destructive actions** (`apply-delete`; TASK-0309 → TASK-0310) →
   **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19
