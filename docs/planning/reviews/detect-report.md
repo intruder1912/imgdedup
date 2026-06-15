@@ -46,6 +46,18 @@ members; report is a pure formatter (AC-1/NFR-1 intact); exit-code precedence
 - **N1 (Nit → product-owner) — `total_files` excludes collapsed hard-link
   siblings.** Per-group "file count" = keeper + removable files, not group membership.
   Defensible; confirm against FR-13 wording during product-owner acceptance.
+  - **Product-owner decision (2026-06-15): confirmed — this is the intended
+    semantics; no code change.** FR-13's "group/file counts" is a count of the
+    files the report *acts on* — the keeper plus the duplicates that would be
+    removed. Hard-link siblings are, per FR-17, deliberately *not* removal
+    candidates and free no space, so counting them in the per-group/summary file
+    total would overstate "files involved in a removal decision" and double-count
+    storage that the reclaimable figure already (correctly) excludes. Keeping the
+    count = keeper + removable, with siblings surfaced only on the informational
+    `NOTE` line, keeps the count and the reclaimable figure mutually consistent
+    (both exclude collapsed siblings). The S1 docs describe this explicitly
+    (`docs/guide/getting-started.md` report walkthrough and
+    `docs/guide/choosing-what-to-keep.md` hard-link section).
 - **N2 (Nit) — `Sync` bound on the keeper comparator is broader than strictly
   needed** (comparator runs only in the sequential phase). Harmless; doc-precision
   only. Left as-is.
