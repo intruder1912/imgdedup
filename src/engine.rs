@@ -262,7 +262,9 @@ where
         g.removable.sort_by(keeper_order);
     }
     // Sort groups by keeper path.
-    outcome.groups.sort_by(|a, b| a.keeper.path.cmp(&b.keeper.path));
+    outcome
+        .groups
+        .sort_by(|a, b| a.keeper.path.cmp(&b.keeper.path));
     // Sort warnings by path.
     outcome.warnings.sort_by(|a, b| a.path.cmp(&b.path));
     // Sort hard-link notes by representative path.
@@ -696,12 +698,7 @@ mod tests {
             Ok([0u8; 32])
         }
 
-        let out = dedup_core(
-            vec![cf(&a), cf(&b)],
-            lex_order,
-            const_hasher,
-            true,
-        );
+        let out = dedup_core(vec![cf(&a), cf(&b)], lex_order, const_hasher, true);
 
         assert!(
             out.groups.is_empty(),
@@ -727,12 +724,7 @@ mod tests {
             Ok([0u8; 32])
         }
 
-        let out = dedup_core(
-            vec![cf(&a), cf(&b)],
-            lex_order,
-            const_hasher,
-            true,
-        );
+        let out = dedup_core(vec![cf(&a), cf(&b)], lex_order, const_hasher, true);
         assert_eq!(out.groups.len(), 1);
         assert!(out.warnings.is_empty());
     }
@@ -884,16 +876,16 @@ mod tests {
         let b1 = write(&dir, "cc.jpg", b"OTHER");
         let b2 = write(&dir, "dd.jpg", b"OTHER");
 
-        let out1 = find_duplicates(
-            vec![cf(&a1), cf(&a2), cf(&b1), cf(&b2)],
-            lex_order,
-        );
+        let out1 = find_duplicates(vec![cf(&a1), cf(&a2), cf(&b1), cf(&b2)], lex_order);
         let out2 = find_duplicates(
             vec![cf(&b2), cf(&a2), cf(&b1), cf(&a1)], // reversed
             lex_order,
         );
 
-        assert_eq!(out1, out2, "outcome must be identical regardless of input order");
+        assert_eq!(
+            out1, out2,
+            "outcome must be identical regardless of input order"
+        );
     }
 
     // ── TASK-0306: determinism at different concurrency widths (AC-16) ────────

@@ -308,14 +308,11 @@ fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
                 // mtime: whole-second Unix timestamp. None when the platform
                 // does not provide it (e.g. WebAssembly) or the value is out
                 // of range. We discard sub-second precision (ADR-0008 §keeper).
-                let mtime = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| {
-                        t.duration_since(std::time::UNIX_EPOCH)
-                            .ok()
-                            .map(|d| d.as_secs() as i64)
-                    });
+                let mtime = meta.modified().ok().and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|d| d.as_secs() as i64)
+                });
 
                 out.candidates.push(Candidate::new(path, size, mtime));
             }
