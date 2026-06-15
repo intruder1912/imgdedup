@@ -967,4 +967,205 @@ mod tests {
             "no hard-link notes when there are no hard links"
         );
     }
+
+    // ── B1: hard-link note content is deterministic (NFR-3 / AC-16) ─────────
+
+    #[test]
+    fn hard_link_note_representative_is_min_path_and_siblings_are_sorted() {
+        // B1 / NFR-3 / AC-16: regardless of HashMap iteration order or thread
+        // scheduling, the note's representative must be the lexicographic minimum
+        // among the identity set and siblings must be in sorted order.
+        //
+        // Use a 3-member hard-link set (all same inode) plus a distinct copy so
+        // a group is emitted. The "natural" insertion order may vary; the note
+        // must always be canonical: representative = min(hhh,aaa,mmm) = aaa,
+        // siblings = [hhh, mmm] in sorted order.
+        let dir = tempfile::tempdir().unwrap();
+        // Create three hard-link paths to the same inode. The first created is
+        // "hhh" (not lexicographically smallest) to expose ordering bugs.
+        let hhh = write(&dir, "hhh.jpg", b"INODE_CONTENT");
+        let aaa = dir.path().join("aaa.jpg");
+        fs::hard_link(&hhh, &aaa).expect("hard link creatable");
+        let mmm = dir.path().join("mmm.jpg");
+        fs::hard_link(&hhh, &mmm).expect("hard link creatable");
+        // A separate physical copy so a duplicate group is emitted.
+        let zzz = write(&dir, "zzz.jpg", b"INODE_CONTENT");
+
+        // Run 1: input order where hhh appears first (old code would make hhh
+        // the representative).
+        let out1 = find_duplicates(vec![cf(&hhh), cf(&aaa), cf(&mmm), cf(&zzz)], lex_order);
+        // Run 2: input in a different order (aaa first).
+        let out2 = find_duplicates(vec![cf(&zzz), cf(&mmm), cf(&aaa), cf(&hhh)], lex_order);
+
+        // Both runs must produce exactly one hard-link note.
+        assert_eq!(
+            out1.hard_link_notes.len(),
+            1,
+            "expected one hard-link note (run 1); got {:?}",
+            out1.hard_link_notes
+        );
+        assert_eq!(
+            out2.hard_link_notes.len(),
+            1,
+            "expected one hard-link note (run 2); got {:?}",
+            out2.hard_link_notes
+        );
+
+        let note1 = &out1.hard_link_notes[0];
+        let note2 = &out2.hard_link_notes[0];
+
+        // Representative must be the minimum path among {aaa, hhh, mmm}.
+        assert_eq!(
+            note1.representative, aaa,
+            "representative must be min path (aaa), not first-seen; run 1 got {:?}",
+            note1.representative
+        );
+        assert_eq!(
+            note2.representative, aaa,
+            "representative must be min path (aaa), not first-seen; run 2 got {:?}",
+            note2.representative
+        );
+
+        // Siblings must be sorted: [hhh, mmm].
+        let expected_siblings = vec![hhh.clone(), mmm.clone()];
+        assert_eq!(
+            note1.siblings, expected_siblings,
+            "siblings must be sorted (run 1); got {:?}",
+            note1.siblings
+        );
+        assert_eq!(
+            note2.siblings, expected_siblings,
+            "siblings must be sorted (run 2); got {:?}",
+            note2.siblings
+        );
+
+        // The two outcomes must be byte-identical (NFR-3).
+        assert_eq!(
+            out1, out2,
+            "hard-link note must be identical regardless of input order"
+        );
+    }
+
+    #[test]
+    fn hard_link_notes_identical_at_different_thread_pool_widths() {
+        // B1 / NFR-3 / AC-16: hard-link notes must be byte-identical when rayon
+        // uses 1 thread vs. 4 threads (completion order must not affect notes).
+        use rayon::ThreadPoolBuilder;
+
+        let dir = tempfile::tempdir().unwrap();
+        // 3-member hard-link set: ppp, aaa, zzz_link (min = aaa).
+        let ppp = write(&dir, "ppp.jpg", b"THREAD_CONTENT");
+        let aaa = dir.path().join("aaa.jpg");
+        fs::hard_link(&ppp, &aaa).expect("hard link creatable");
+        let zzz_link = dir.path().join("zzz.jpg");
+        fs::hard_link(&ppp, &zzz_link).expect("hard link creatable");
+        // Separate copy for a group to be emitted.
+        let sep = write(&dir, "sep.jpg", b"THREAD_CONTENT");
+
+        let files = vec![cf(&ppp), cf(&aaa), cf(&zzz_link), cf(&sep)];
+
+        let out_single = ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap()
+            .install(|| find_duplicates(files.clone(), lex_order));
+
+        let out_multi = ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap()
+            .install(|| find_duplicates(files, lex_order));
+
+        assert_eq!(
+            out_single.hard_link_notes, out_multi.hard_link_notes,
+            "hard-link notes must be byte-identical at 1 vs 4 threads"
+        );
+
+        // Also verify the note is canonical.
+        assert_eq!(out_single.hard_link_notes.len(), 1);
+        let note = &out_single.hard_link_notes[0];
+        assert_eq!(note.representative, aaa, "representative must be min path (aaa)");
+        let mut expected = vec![ppp.clone(), zzz_link.clone()];
+        expected.sort();
+        assert_eq!(note.siblings, expected, "siblings must be sorted");
+    }
+
+    // ── S1: no orphaned hard-link note when representative excluded ──────────
+
+    #[test]
+    fn hard_link_note_dropped_when_representative_excluded_by_verify() {
+        // S1: if the representative of a hard-link set fails byte-verify (forced
+        // by const_hasher here), its note must be dropped — it must NOT appear
+        // as an orphan in outcome.hard_link_notes.
+        //
+        // Reverse-lex keeper order makes "zzz" the keeper. The hard-link set
+        // {aaa, bbb} collapses to representative "aaa" (min path). "aaa" becomes
+        // the non-keeper and fails byte-verify against "zzz" (different content).
+        // The note for {aaa, bbb} must therefore be dropped.
+        let dir = tempfile::tempdir().unwrap();
+        let aaa = write(&dir, "aaa.jpg", b"CONTENT-A");
+        let bbb = dir.path().join("bbb.jpg");
+        fs::hard_link(&aaa, &bbb).expect("hard link creatable");
+        // Different content, same size (9 bytes). Sorts last → becomes keeper.
+        let zzz = write(&dir, "zzz.jpg", b"CONTENT-Z");
+
+        fn const_hasher(_p: &Path) -> io::Result<[u8; 32]> {
+            Ok([0u8; 32])
+        }
+
+        let out = dedup_core(
+            vec![cf(&aaa), cf(&bbb), cf(&zzz)],
+            |x, y| y.path.cmp(&x.path), // reverse lex: zzz is keeper
+            const_hasher,
+            true,
+        );
+
+        // No group is emitted (byte-verify rejects the only non-keeper).
+        assert!(
+            out.groups.is_empty(),
+            "no group when non-keeper fails verify; got {:?}",
+            out.groups
+        );
+
+        // The note for {aaa, bbb} must be absent — representative was excluded.
+        assert!(
+            out.hard_link_notes.is_empty(),
+            "orphaned hard-link note must be dropped when representative is excluded; \
+             got {:?}",
+            out.hard_link_notes
+        );
+
+        // Exactly one warning for the verification failure.
+        assert_eq!(
+            out.warnings.len(),
+            1,
+            "exactly one warning expected for the failed verify; got {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn hard_link_note_retained_when_representative_in_group() {
+        // S1 complement: when the representative IS in the final group (as
+        // keeper or removable), the note must be retained.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"SAME_CONTENT");
+        let b = dir.path().join("b.jpg"); // hard link to a
+        fs::hard_link(&a, &b).expect("hard link creatable");
+        let c = write(&dir, "c.jpg", b"SAME_CONTENT"); // separate copy
+
+        let out = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], lex_order);
+
+        // One group (a vs c); note for {a, b} must still be present.
+        assert_eq!(out.groups.len(), 1);
+        assert_eq!(
+            out.hard_link_notes.len(),
+            1,
+            "note must be retained when representative is in the group; got {:?}",
+            out.hard_link_notes
+        );
+        let note = &out.hard_link_notes[0];
+        // a is the min path among {a, b} → representative.
+        assert_eq!(note.representative, a);
+    }
 }
