@@ -121,13 +121,25 @@ pub fn render(
         for removable in &group.removable {
             writeln!(out, "  REMOVE {}", removable.path.display()).unwrap();
         }
+        // Protected anchors: hard-link representatives whose surviving in-scope
+        // siblings pin the inode. Removing them would free 0 bytes.
+        // (ADR-0008 anchor rule, Amendment 2026-06-15.)
+        for protected in &group.protected {
+            writeln!(
+                out,
+                "  PROTECT {}  (hard-linked; removing it frees no space)",
+                protected.path.display()
+            )
+            .unwrap();
+        }
 
         // Hard-link notes for paths that were collapsed within this group's
         // hash-match set (FR-17). Match notes to the current group by
-        // representative path — a note's representative is always the file
-        // that survived into the group's keeper or removable set.
+        // representative path — a note's representative survives as keeper,
+        // removable, or a protected anchor entry.
         let group_paths: std::collections::HashSet<_> = std::iter::once(&group.keeper.path)
             .chain(group.removable.iter().map(|f| &f.path))
+            .chain(group.protected.iter().map(|f| &f.path))
             .collect();
         for note in &outcome.hard_link_notes {
             if group_paths.contains(&note.representative) {
@@ -338,9 +350,18 @@ mod tests {
 
     #[test]
     fn hard_link_reclaimable_excludes_hard_link_sizes() {
-        // FR-17: hard-link siblings are excluded from reclaimable-space.
-        // The only removable in this test is the separate copy (c); the
-        // hard-link sibling (b) is only in the NOTE line.
+        // FR-17 / ADR-0008 anchor rule (Amendment 2026-06-15):
+        // hard-link anchors are NEVER in removable; their size is NEVER counted
+        // in reclaimable.
+        //
+        // Setup: a.jpg ↔ b.jpg (one inode, anchor) + c.jpg (separate copy).
+        // Under the anchor rule: c is the only non-anchor candidate → keeper;
+        // the anchor rep `a` goes to `protected`; removable is empty.
+        // Reclaimable = Σ removable.size = 0 (anchor size not counted).
+        //
+        // Previously this test expected 10 bytes reclaimable (c removable).
+        // Under the anchor rule: c is the keeper, nothing is removable → 0
+        // bytes reclaimable. The PROTECT row confirms the anchor is present.
         let dir = tempfile::tempdir().unwrap();
         let content = b"0123456789"; // 10 bytes
         let a = write_file(&dir, "a.jpg", content);
@@ -355,11 +376,21 @@ mod tests {
         let (ew, sw) = no_warnings();
         let report = render(&outcome, &ew, &sw);
 
-        // Reclaimable must be 10 (the separate copy c), NOT 20 (which would
-        // incorrectly include the hard-link sibling b).
+        // Reclaimable must be 0: the anchor (a) is protected, not removable,
+        // and c is the keeper — nothing is in the removable set.
         assert!(
-            report.contains("10 bytes reclaimable"),
-            "reclaimable must exclude hard-link sibling; got:\n{report}"
+            report.contains("0 bytes reclaimable"),
+            "reclaimable must be 0 (anchor excluded, no standalone removable); got:\n{report}"
+        );
+
+        // The PROTECT row must be present for the anchor.
+        assert!(
+            report.contains("PROTECT"),
+            "report must show PROTECT row for the anchor; got:\n{report}"
+        );
+        assert!(
+            report.contains("hard-linked; removing it frees no space"),
+            "PROTECT row must explain why; got:\n{report}"
         );
     }
 
@@ -540,6 +571,171 @@ mod tests {
         assert!(
             report.contains("4 files"),
             "summary must show 4 files; got:\n{report}"
+        );
+    }
+
+    // ── Anchor rule (ADR-0008 Amendment 2026-06-15) ──────────────────────────
+
+    #[test]
+    fn beach_scenario_anchor_protected_reclaimable_zero() {
+        // The reported 3-file "beach" scenario (ADR-0008 anchor rule):
+        // a.jpg ↔ a-link.jpg (one inode, anchor) + copy.jpg (separate inode,
+        // byte-identical). --keep shortest: copy is the only non-anchor candidate
+        // → keeper; the anchor rep (a.jpg) is protected; removable is empty;
+        // reclaimable = 0 bytes. Assert no hard-linked file is ever in removable.
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"beach image bytes"; // 17 bytes
+        let a = write_file(&dir, "a.jpg", content);
+        let a_link = dir.path().join("a-link.jpg");
+        fs::hard_link(&a, &a_link).expect("hard link creatable");
+        let copy = write_file(&dir, "copy.jpg", content); // separate inode
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&a_link), confirmed(&copy)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // One group emitted.
+        assert_eq!(outcome.groups.len(), 1, "one group expected");
+        let g = &outcome.groups[0];
+
+        // `copy.jpg` is the keeper (only non-anchor candidate).
+        assert_eq!(g.keeper.path, copy, "copy.jpg must be keeper");
+
+        // No hard-linked file in removable.
+        assert!(
+            g.removable.iter().all(|r| r.path != a && r.path != a_link),
+            "hard-linked files must never be in removable; removable={:?}",
+            g.removable
+        );
+
+        // Reclaimable = 0.
+        assert!(
+            report.contains("0 bytes reclaimable"),
+            "reclaimable must be 0 (anchor protected, nothing removable); got:\n{report}"
+        );
+
+        // PROTECT row must appear.
+        assert!(
+            report.contains("PROTECT"),
+            "PROTECT row must appear for the anchor; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn anchor_protect_row_appears_before_note_in_group() {
+        // The PROTECT row must render for the protected anchor; the NOTE line
+        // must still appear listing siblings. Both must be present.
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"identical content";
+        let anchor = write_file(&dir, "anchor.jpg", content);
+        let sibling = dir.path().join("sibling.jpg");
+        fs::hard_link(&anchor, &sibling).expect("hard link creatable");
+        let standalone = write_file(&dir, "standalone.jpg", content); // separate inode
+
+        let outcome = find_duplicates(
+            vec![
+                confirmed(&anchor),
+                confirmed(&sibling),
+                confirmed(&standalone),
+            ],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
+            report.contains("PROTECT"),
+            "PROTECT label must appear; got:\n{report}"
+        );
+        assert!(
+            report.contains("hard-linked; removing it frees no space"),
+            "PROTECT reason must appear; got:\n{report}"
+        );
+        assert!(
+            report.contains("NOTE") && report.contains("hard-link"),
+            "NOTE line must still appear for the collapsed sibling; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn all_anchor_group_notes_surface_no_group_in_report() {
+        // ADR-0008 anchor rule edge case 1: all-anchor group (two distinct inodes,
+        // each multiply-linked in-scope, byte-identical). No DuplicateGroup is
+        // emitted; reclaimable = 0; hard-link notes are present in outcome.
+        // The report must show "No duplicate groups found." (no group heading).
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"SAME");
+        let a2 = dir.path().join("a2.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
+        let b = write_file(&dir, "b.jpg", b"SAME");
+        let b2 = dir.path().join("b2.jpg");
+        fs::hard_link(&b, &b2).expect("hard link creatable");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&a2), confirmed(&b), confirmed(&b2)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // No DuplicateGroup emitted.
+        assert!(
+            outcome.groups.is_empty(),
+            "all-anchor group must emit no DuplicateGroup"
+        );
+
+        // Report shows no duplicate groups (the all-anchor case surfaces via
+        // hard_link_notes which are not rendered as group headings).
+        assert!(
+            report.contains("No duplicate groups found."),
+            "all-anchor group must not appear as a duplicate group; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn total_files_and_reclaimable_exclude_protected_anchors() {
+        // N1 ruling: total_files = keeper + removable (not protected).
+        // Two standalones + one anchor: keeper=c1, removable=c2, protected=h.
+        // total_files = 2 (not 3), reclaimable = c2.size.
+        let dir = tempfile::tempdir().unwrap();
+        let content = b"0123456789"; // 10 bytes
+        let h = write_file(&dir, "h.jpg", content);
+        let h2 = dir.path().join("h2.jpg");
+        fs::hard_link(&h, &h2).expect("hard link creatable");
+        let c1 = write_file(&dir, "c1.jpg", content);
+        let c2 = write_file(&dir, "c2.jpg", content);
+
+        let outcome = find_duplicates(
+            vec![
+                confirmed(&h),
+                confirmed(&h2),
+                confirmed(&c1),
+                confirmed(&c2),
+            ],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        // 2 files acted on (keeper c1 + removable c2); protected h not counted.
+        assert!(
+            report.contains("2 files"),
+            "total_files must be 2 (keeper+removable, not protected); got:\n{report}"
+        );
+
+        // Reclaimable = 10 bytes (c2 only; h is protected, not counted).
+        assert!(
+            report.contains("10 bytes reclaimable"),
+            "reclaimable must be 10 bytes (c2 only); got:\n{report}"
+        );
+
+        // PROTECT row present for h.
+        assert!(
+            report.contains("PROTECT"),
+            "PROTECT row must be present for h; got:\n{report}"
         );
     }
 }
