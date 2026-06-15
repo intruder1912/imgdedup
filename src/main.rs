@@ -6,6 +6,7 @@ mod engine;
 mod enumerate;
 mod exit_code;
 mod keeper;
+mod report;
 mod sniff;
 
 fn main() {
@@ -49,18 +50,26 @@ fn run(args: cli::Cli) -> i32 {
     // Candidates that fail confirmation are dropped and recorded as
     // SniffWarnings; they never enter the grouping pipeline. The size that
     // enumeration stat'd is threaded through into each ConfirmedFile.
-    let (confirmed, _sniff_warnings) = sniff::filter_candidates(candidate_set.candidates);
+    let (confirmed, sniff_warnings) = sniff::filter_candidates(candidate_set.candidates);
 
-    // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304/0305).
+    // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304/0305/0306).
     // Size pre-group → BLAKE3 pre-filter → hash group → identity collapse →
     // byte-for-byte verify against the keeper. Pure analysis: no filesystem
     // mutation. Keeper order comes from the real keeper rule (TASK-0305).
-    let _dedup = engine::find_duplicates(confirmed, keeper::build_comparator(args.keep));
+    // Hashing is parallelized via rayon (TASK-0306). The outcome is canonically
+    // sorted before returning (ADR-0010).
+    let dedup = engine::find_duplicates(confirmed, keeper::build_comparator(args.keep));
 
-    // TODO(TASK-0307): surface `_dedup.groups` + `_dedup.warnings`,
-    //                  `_sniff_warnings`, `candidate_set.warnings`, and
-    //                  `candidate_set.root_errors` in the report.
-    // TODO(TASK-0309/0310): act on `_dedup.groups` under --apply / --delete.
+    // Stage 4 — Human-readable report (FR-9/FR-13/FR-17/NFR-6, TASK-0307).
+    // Render a dry-run summary to stdout. No filesystem mutation here either —
+    // --apply / --delete are TASK-0309/TASK-0310 and handled after this report.
+    if !args.json {
+        let rendered = report::render(&dedup, &candidate_set.warnings, &sniff_warnings);
+        print!("{rendered}");
+    }
 
+    // TODO(TASK-0309/0310): act on `dedup.groups` under --apply / --delete.
+
+    // TODO(TASK-0311): wire full exit-code semantics; for now return SUCCESS.
     exit_code::SUCCESS
 }

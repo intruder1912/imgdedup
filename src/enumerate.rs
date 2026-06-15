@@ -87,12 +87,8 @@ impl Candidate {
 #[derive(Debug, Clone)]
 pub struct EnumerateWarning {
     /// The path of the entry that could not be processed.
-    // TODO(TASK-0307/TASK-0311): consumed by the report and exit-code stages.
-    #[allow(dead_code)]
     pub path: PathBuf,
     /// Human-readable reason the entry was skipped.
-    // TODO(TASK-0307): surfaced by the report unit.
-    #[allow(dead_code)]
     pub reason: String,
 }
 

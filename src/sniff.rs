@@ -89,17 +89,13 @@ pub const HEADER_LEN: usize = 64;
 /// A record describing a candidate that failed magic-byte confirmation.
 ///
 /// Mirrors the shape of [`enumerate::EnumerateWarning`] but is defined here so
-/// that `sniff` stays decoupled from `enumerate`'s internals. TASK-0307 will
-/// collect both warning types and surface them together in the report.
+/// that `sniff` stays decoupled from `enumerate`'s internals. Surfaced by the
+/// report stage (TASK-0307).
 #[derive(Debug, Clone)]
 pub struct SniffWarning {
     /// The path of the file that failed confirmation.
-    // TODO(TASK-0307): surfaced by the report unit.
-    #[allow(dead_code)]
     pub path: PathBuf,
     /// Human-readable reason the file was rejected.
-    // TODO(TASK-0307): surfaced by the report unit.
-    #[allow(dead_code)]
     pub reason: String,
 }
 
