@@ -66,11 +66,18 @@ task-by-task under the pre-ADR-0013 cadence.
     reclaimable space excludes collapsed hard-link members; warnings surfaced.
   - TASK-0311 — `exit_code::compute` pure mapping (0/1/2/3; `--exit-code` → 3 on
     a successful run with duplicates; run-level error 1 takes precedence).
+  - **Anchor rule fix (ADR-0008 Amendment 2026-06-15):** a collapsed representative
+    whose identity set had ≥2 in-scope members is now an **anchor** — never
+    removable, never in reclaimable. `DuplicateGroup` gains `pub protected:
+    Vec<FileRec>`; `--keep` selects the keeper from genuinely-removable non-anchor
+    candidates only; the report renders a `PROTECT` row per anchor. All-anchor
+    groups emit no `DuplicateGroup` (0 reclaimable). Engine and report fully
+    TDD'd; 10 new tests (engine + report), 151 unit + 14 integration tests green.
   Two architect reviews (in-progress + final APPROVE) under the ADR-0006
   resolve-all gate; the in-progress review found and resolved a hard-link-note
   determinism blocker (B1) and an orphaned-note edge case (S1). Product-owner
   accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and synced the README +
-  `docs/guide/` pages. 155 tests green; `make validate` passes. Review log:
+  `docs/guide/` pages. `make validate` passes. Review log:
   [`reviews/detect-report.md`](reviews/detect-report.md). **`--exit-code`
   binary-level E2E (AC-19) deferred to S4.**
 

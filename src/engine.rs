@@ -81,13 +81,24 @@ impl FileRec {
 }
 
 /// A verified duplicate group: one keeper plus the non-keepers confirmed
-/// byte-identical to it and therefore safe to remove.
+/// byte-identical to it and therefore safe to remove, and zero or more
+/// protected hard-link anchors (ADR-0008 anchor rule, Amendment 2026-06-15).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateGroup {
-    /// The file to keep (chosen by the injected keeper ordering).
+    /// The file to keep (chosen by the injected keeper ordering among
+    /// genuinely-removable candidates; never an anchor).
     pub keeper: FileRec,
     /// Non-keepers byte-for-byte verified identical to `keeper`.
+    /// Never contains an anchor (a representative with surviving in-scope
+    /// siblings). Removing these frees real storage.
     pub removable: Vec<FileRec>,
+    /// Hard-link anchors: representatives whose identity sets had ≥2 scanned
+    /// members (non-empty `HardLinkNote.siblings`). These are forced to the
+    /// kept side but are **not** the keeper. Removing them would free 0 bytes
+    /// (surviving siblings still pin the inode), so they are never in
+    /// `removable` and their sizes are never counted in reclaimable.
+    /// (ADR-0008 anchor rule, Amendment 2026-06-15.)
+    pub protected: Vec<FileRec>,
 }
 
 /// An informational note about hard-linked files within a duplicate group
@@ -264,15 +275,17 @@ where
 ///
 /// - `groups`: by keeper path (ascending).
 /// - Within each group's `removable`: by the `keeper_order` comparator.
+/// - Within each group's `protected`: by the `keeper_order` comparator.
 /// - `warnings`: by path.
 /// - `hard_link_notes`: by representative path.
 fn sort_canonical<K>(outcome: &mut DedupOutcome, keeper_order: &K)
 where
     K: Fn(&FileRec, &FileRec) -> Ordering,
 {
-    // Sort each group's removable list by the total order.
+    // Sort each group's removable and protected lists by the total order.
     for g in &mut outcome.groups {
         g.removable.sort_by(keeper_order);
+        g.protected.sort_by(keeper_order);
     }
     // Sort groups by keeper path.
     outcome
@@ -300,9 +313,13 @@ fn group_by_hash(recs: Vec<FileRec>) -> Vec<Vec<FileRec>> {
 /// identity cannot be determined are dropped with a warning — the safe direction
 /// (we never propose removing a file we could not identify).
 ///
-/// Returns the deduplicated list of representative `FileRec`s and any
+/// Returns the deduplicated list of `(FileRec, is_anchor)` pairs and any
 /// [`HardLinkNote`]s for collapsed sets (one note per set that had at least
 /// one sibling collapsed). Notes are used by the report stage (TASK-0307, FR-17).
+///
+/// `is_anchor` is `true` when the representative absorbed ≥1 in-scope sibling
+/// (non-empty siblings list). An anchor must never be a removal candidate
+/// (ADR-0008 anchor rule, Amendment 2026-06-15).
 ///
 /// **Invariant (NFR-4):** `same-file::Handle` holds an open file descriptor for
 /// its lifetime. Identity is therefore resolved here, **only within a single
@@ -312,7 +329,7 @@ fn group_by_hash(recs: Vec<FileRec>) -> Vec<Vec<FileRec>> {
 fn collapse_identity(
     recs: Vec<FileRec>,
     warnings: &mut Vec<EngineWarning>,
-) -> (Vec<FileRec>, Vec<HardLinkNote>) {
+) -> (Vec<(FileRec, bool)>, Vec<HardLinkNote>) {
     // Each entry: the Handle (for equality), the representative FileRec, and
     // any siblings collapsed into it.
     let mut reps: Vec<(Handle, FileRec, Vec<PathBuf>)> = Vec::new();
@@ -334,10 +351,11 @@ fn collapse_identity(
         }
     }
     let mut notes: Vec<HardLinkNote> = Vec::new();
-    let file_recs: Vec<FileRec> = reps
+    let recs_with_anchor: Vec<(FileRec, bool)> = reps
         .into_iter()
         .map(|(_, mut rec, mut siblings)| {
-            if !siblings.is_empty() {
+            let is_anchor = !siblings.is_empty();
+            if is_anchor {
                 // B1 (NFR-3): canonicalize each note so `representative` is
                 // the **minimum path** (byte-wise) among all paths in the
                 // identity set, and `siblings` are sorted. This makes the note
@@ -363,39 +381,74 @@ fn collapse_identity(
                     siblings,
                 });
             }
-            rec
+            (rec, is_anchor)
         })
         .collect();
-    (file_recs, notes)
+    (recs_with_anchor, notes)
 }
 
 /// Verify a single hash-group and, if it yields genuine duplicates, push a
 /// [`DuplicateGroup`] onto `outcome`. Any hard-link notes are pushed to
 /// `outcome.hard_link_notes` (FR-17).
 ///
-/// Collapses identity sets, designates the keeper via `keeper_order`, then star
-/// byte-verifies each non-keeper against the keeper. A non-keeper that fails
-/// verification (a BLAKE3 pre-filter collision, or an I/O error) is excluded and
-/// reported — never removed on a hash match alone (FR-4, NFR-1).
+/// Implements the **anchor rule** (ADR-0008 Amendment 2026-06-15):
+///
+/// 1. Collapse identity sets → list of `(FileRec, is_anchor)`.
+/// 2. Partition into `anchors` (is_anchor) and `candidates` (non-anchors).
+/// 3. If `candidates` is non-empty: keeper = `min_by(keeper_order)` over
+///    candidates; remaining candidates are byte-verified and become `removable`;
+///    all `anchors` go to `protected` (never byte-verified, never removable).
+/// 4. If `candidates` is empty (all-anchor group): emit **no** `DuplicateGroup`;
+///    retain hard-link notes so the report can surface the already-deduplicated
+///    note via the `hard_link_notes` path.
+///
+/// A non-keeper that fails verification (BLAKE3 pre-filter collision or I/O
+/// error) is excluded and reported — never removed on a hash match alone (FR-4,
+/// NFR-1).
 fn process_hash_group<K>(group: Vec<FileRec>, keeper_order: &K, outcome: &mut DedupOutcome)
 where
     K: Fn(&FileRec, &FileRec) -> Ordering,
 {
-    let (mut reps, hl_notes) = collapse_identity(group, &mut outcome.warnings);
-    if reps.len() < 2 {
+    let (reps_with_anchor, hl_notes) = collapse_identity(group, &mut outcome.warnings);
+    if reps_with_anchor.len() < 2 {
         // Fewer than two distinct physical files → nothing to remove.
         // Hard-link notes are also discarded: there is no group to attach them to.
         return;
     }
 
-    // Keeper = minimum under the injected ordering.
-    let keeper_idx = (0..reps.len())
-        .min_by(|&i, &j| keeper_order(&reps[i], &reps[j]))
-        .expect("reps is non-empty");
-    let keeper = reps.remove(keeper_idx);
+    // Partition into anchors (is_anchor = true) and non-anchor candidates.
+    // Anchors are representatives whose identity set had ≥2 in-scope members.
+    // They are never removal candidates (ADR-0008 anchor rule).
+    let mut anchors: Vec<FileRec> = Vec::new();
+    let mut candidates: Vec<FileRec> = Vec::new();
+    for (rec, is_anchor) in reps_with_anchor {
+        if is_anchor {
+            anchors.push(rec);
+        } else {
+            candidates.push(rec);
+        }
+    }
+
+    if candidates.is_empty() {
+        // Edge case 1 (ADR-0008): all representatives are anchors — every
+        // distinct inode is multiply-linked in-scope. Nothing is removable.
+        // Retain all hard-link notes so the report can show the
+        // already-deduplicated note (no DuplicateGroup emitted).
+        for note in hl_notes {
+            outcome.hard_link_notes.push(note);
+        }
+        return;
+    }
+
+    // Keeper = minimum non-anchor candidate under the injected ordering.
+    let keeper_idx = (0..candidates.len())
+        .min_by(|&i, &j| keeper_order(&candidates[i], &candidates[j]))
+        .expect("candidates is non-empty");
+    let keeper = candidates.remove(keeper_idx);
+    // `candidates` now holds the remaining non-anchor files to verify.
 
     let mut removable = Vec::new();
-    for rec in reps {
+    for rec in candidates {
         match files_equal(&keeper.path, &rec.path) {
             Ok(true) => removable.push(rec),
             Ok(false) => outcome.warnings.push(EngineWarning {
@@ -411,24 +464,32 @@ where
         }
     }
 
-    if !removable.is_empty() {
-        // S1: only retain hard-link notes whose representative is present in
-        // the final group (keeper or a retained removable). If the
-        // representative of a note was excluded by byte-verify failure the
-        // note would otherwise be orphaned — `report::render` matches notes
-        // to groups by representative path, so an orphaned note silently
-        // vanishes from the report.
+    // Only emit a DuplicateGroup when there is something to report.
+    // Note: with anchors present we always have at least one protected entry,
+    // so the group is meaningful even with empty removable (the PROTECT row
+    // informs the user about the hard-linked anchor).
+    let has_content = !removable.is_empty() || !anchors.is_empty();
+    if has_content {
+        // Extend note retention (S1 fix + anchor extension): retain notes
+        // whose representative is the keeper, a removable, OR a protected
+        // anchor in the emitted group. The report's group_paths set must
+        // include all three categories for note matching to work.
         let group_paths: std::collections::HashSet<&Path> = std::iter::once(keeper.path.as_path())
             .chain(removable.iter().map(|r| r.path.as_path()))
+            .chain(anchors.iter().map(|r| r.path.as_path()))
             .collect();
         for note in hl_notes {
             if group_paths.contains(note.representative.as_path()) {
                 outcome.hard_link_notes.push(note);
             }
-            // Notes whose representative was excluded are silently dropped:
-            // they have no group to attach to and would appear as orphans.
+            // Notes whose representative was excluded by byte-verify failure
+            // are silently dropped: they have no group to attach to.
         }
-        outcome.groups.push(DuplicateGroup { keeper, removable });
+        outcome.groups.push(DuplicateGroup {
+            keeper,
+            removable,
+            protected: anchors,
+        });
     }
 }
 
@@ -657,6 +718,7 @@ mod tests {
     fn normalize(mut o: DedupOutcome) -> DedupOutcome {
         for g in &mut o.groups {
             g.removable.sort_by(|x, y| x.path.cmp(&y.path));
+            g.protected.sort_by(|x, y| x.path.cmp(&y.path));
         }
         o.groups.sort_by(|x, y| x.keeper.path.cmp(&y.keeper.path));
         o.warnings.sort_by(|x, y| x.path.cmp(&y.path));
@@ -784,7 +846,15 @@ mod tests {
     fn hard_links_are_collapsed_and_never_removed() {
         // AC-18/FR-17: two hard links to the same content are one physical file;
         // they must collapse to a single representative and never be proposed for
-        // removal. A genuine separate copy IS a removal candidate.
+        // removal. A genuine separate copy IS the keeper (it is the only
+        // non-anchor candidate — ADR-0008 anchor rule, Amendment 2026-06-15).
+        //
+        // Previously (pre-anchor-rule) this test asserted `a` was the keeper.
+        // Under the anchor rule, `a` (the hard-link representative) is an
+        // **anchor** (its identity set had 2 in-scope members: `a` and `b`).
+        // Anchors are never removal candidates and are never keepers; `c` (the
+        // lone non-anchor candidate) becomes the keeper, and `a` goes to
+        // `protected`.
         let dir = tempfile::tempdir().unwrap();
         let a = write(&dir, "aaa.jpg", b"SHARED INODE CONTENT");
         let b = dir.path().join("bbb.jpg");
@@ -799,15 +869,36 @@ mod tests {
             "one group from the distinct-identity pair"
         );
         let g = &out.groups[0];
-        // a and c are the two distinct identities; a sorts first → keeper.
-        assert_eq!(g.keeper.path, a);
-        assert_eq!(g.removable.len(), 1, "only the separate copy is removable");
-        assert_eq!(g.removable[0].path, c);
-        // The hard-link sibling b must never appear as keeper or removable.
+
+        // Under the anchor rule: the only non-anchor candidate is `c` → keeper.
+        assert_eq!(
+            g.keeper.path, c,
+            "separate copy must be keeper (only non-anchor candidate)"
+        );
+
+        // removable must be empty: no other non-anchor candidates.
+        assert!(
+            g.removable.is_empty(),
+            "removable must be empty (anchor is protected, not removable); got {:?}",
+            g.removable
+        );
+
+        // The hard-link representative `a` must be in protected.
+        assert_eq!(g.protected.len(), 1, "one protected anchor expected");
+        assert_eq!(
+            g.protected[0].path, a,
+            "hard-link representative must be the protected anchor"
+        );
+
+        // The hard-link sibling `b` must never appear anywhere in the group.
         assert_ne!(g.keeper.path, b);
         assert!(
             g.removable.iter().all(|r| r.path != b),
             "the hard-link sibling must never be proposed for removal"
+        );
+        assert!(
+            g.protected.iter().all(|r| r.path != b),
+            "the hard-link sibling (collapsed) must not appear as protected either"
         );
     }
 
@@ -1146,19 +1237,30 @@ mod tests {
 
     #[test]
     fn hard_link_note_dropped_when_representative_excluded_by_verify() {
-        // S1: if the representative of a hard-link set fails byte-verify (forced
-        // by const_hasher here), its note must be dropped — it must NOT appear
-        // as an orphan in outcome.hard_link_notes.
+        // S1 (updated for anchor rule): previously this tested that a note was
+        // dropped when its representative failed byte-verify as a non-keeper.
+        // Under the anchor rule (ADR-0008 Amendment 2026-06-15) the scenario
+        // changes: the hard-link representative `aaa` is now an **anchor**
+        // (absorbed sibling `bbb`) and goes to `protected`, never byte-verified.
+        // The anchor IS in `group_paths`, so the note is RETAINED. The original
+        // S1 concern (no orphaned notes) still holds: the note is retained
+        // because the anchor is always present in the group's group_paths set.
         //
-        // Reverse-lex keeper order makes "zzz" the keeper. The hard-link set
-        // {aaa, bbb} collapses to representative "aaa" (min path). "aaa" becomes
-        // the non-keeper and fails byte-verify against "zzz" (different content).
-        // The note for {aaa, bbb} must therefore be dropped.
+        // The note-dropping behavior only fires when the representative is a
+        // non-anchor non-keeper that fails byte-verify.  That sub-case is
+        // exercised by `hard_link_note_dropped_for_non_anchor_verify_failure`
+        // below.
+        //
+        // Here we verify the updated behavior: reverse-lex keeper order makes
+        // "zzz" the keeper. The hard-link set {aaa, bbb} collapses to anchor
+        // representative "aaa" (min path). Under the anchor rule, "aaa" is
+        // placed in `protected` (not byte-verified). The note for {aaa, bbb}
+        // is retained because "aaa" is in `group_paths` as a protected entry.
         let dir = tempfile::tempdir().unwrap();
         let aaa = write(&dir, "aaa.jpg", b"CONTENT-A");
         let bbb = dir.path().join("bbb.jpg");
         fs::hard_link(&aaa, &bbb).expect("hard link creatable");
-        // Different content, same size (9 bytes). Sorts last → becomes keeper.
+        // Different content, same size (9 bytes). Sorts last under reverse-lex.
         let zzz = write(&dir, "zzz.jpg", b"CONTENT-Z");
 
         fn const_hasher(_p: &Path) -> io::Result<[u8; 32]> {
@@ -1172,28 +1274,89 @@ mod tests {
             true,
         );
 
-        // No group is emitted (byte-verify rejects the only non-keeper).
+        // Under the anchor rule: group IS emitted (anchor in protected).
+        assert_eq!(
+            out.groups.len(),
+            1,
+            "group must be emitted with anchor in protected; got {:?}",
+            out.groups
+        );
+        let g = &out.groups[0];
+        assert_eq!(g.keeper.path, zzz, "zzz must be keeper");
+        assert!(g.removable.is_empty(), "no removable (anchor not verified)");
+        assert_eq!(g.protected.len(), 1, "one protected anchor");
+        assert_eq!(g.protected[0].path, aaa, "aaa is the protected anchor");
+
+        // Note IS retained because anchor is in group_paths.
+        assert_eq!(
+            out.hard_link_notes.len(),
+            1,
+            "note must be retained (anchor in group_paths); got {:?}",
+            out.hard_link_notes
+        );
+        assert_eq!(out.hard_link_notes[0].representative, aaa);
+
+        // No warnings: anchor is not byte-verified, no failure.
+        assert!(
+            out.warnings.is_empty(),
+            "no warnings expected (anchor skips verify); got {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn hard_link_note_dropped_for_non_anchor_verify_failure() {
+        // S1 original concern: a non-anchor non-keeper that fails byte-verify
+        // is excluded from the group. If that rep had a note, the note is
+        // dropped (no orphan). Here we set up a scenario where:
+        // - `aaa.jpg` is a lone single-link rep (no siblings → NOT an anchor)
+        //   with content "CONTENT-A"
+        // - `zzz.jpg` is the keeper (reverse-lex → zzz first) with content
+        //   "CONTENT-Z" (different)
+        // const_hasher forces them into one hash group. Byte-verify rejects
+        // `aaa` (content differs). No note for `aaa` (it was never an anchor),
+        // so no orphan risk — but the group itself should be empty (no
+        // removable, no protected → no group emitted). No warnings.
+        //
+        // Actually, both are non-anchors (single-link). zzz is keeper; aaa
+        // fails verify → warning. No group emitted.
+        let dir = tempfile::tempdir().unwrap();
+        let aaa = write(&dir, "aaa.jpg", b"CONTENT-A");
+        let zzz = write(&dir, "zzz.jpg", b"CONTENT-Z"); // same size, different content
+
+        fn const_hasher(_p: &Path) -> io::Result<[u8; 32]> {
+            Ok([0u8; 32])
+        }
+
+        let out = dedup_core(
+            vec![cf(&aaa), cf(&zzz)],
+            |x, y| y.path.cmp(&x.path), // reverse lex: zzz is keeper
+            const_hasher,
+            true,
+        );
+
+        // No group (only candidate failed verify, nothing in removable or protected).
         assert!(
             out.groups.is_empty(),
-            "no group when non-keeper fails verify; got {:?}",
+            "no group when non-anchor non-keeper fails verify; got {:?}",
             out.groups
         );
 
-        // The note for {aaa, bbb} must be absent — representative was excluded.
+        // No hard-link notes (no anchors, no notes).
         assert!(
             out.hard_link_notes.is_empty(),
-            "orphaned hard-link note must be dropped when representative is excluded; \
-             got {:?}",
+            "no hard-link notes expected; got {:?}",
             out.hard_link_notes
         );
 
-        // Exactly one warning for the verification failure.
+        // One warning for the verification failure.
         assert_eq!(
             out.warnings.len(),
             1,
-            "exactly one warning expected for the failed verify; got {:?}",
+            "one warning for the rejected non-keeper; got {:?}",
             out.warnings
         );
+        assert_eq!(out.warnings[0].path, aaa);
     }
 
     #[test]
@@ -1219,5 +1382,215 @@ mod tests {
         let note = &out.hard_link_notes[0];
         // a is the min path among {a, b} → representative.
         assert_eq!(note.representative, a);
+    }
+
+    // ── Anchor rule (ADR-0008 Amendment 2026-06-15) ──────────────────────────
+
+    #[test]
+    fn anchor_representative_is_protected_not_removable() {
+        // ADR-0008 anchor rule: hard_links_are_collapsed_and_never_removed
+        // under the anchor rule.
+        //
+        // `aaa.jpg` and `bbb.jpg` are hard links (same inode); `ccc.jpg` is a
+        // separate copy. Under lex_order, the rep for the hard-link set is
+        // `aaa` (min path); `ccc` is the only non-anchor candidate → keeper.
+        // `aaa` must appear in `protected`, NOT in `removable`, NOT as keeper.
+        let dir = tempfile::tempdir().unwrap();
+        let aaa = write(&dir, "aaa.jpg", b"SHARED INODE CONTENT");
+        let bbb = dir.path().join("bbb.jpg");
+        fs::hard_link(&aaa, &bbb).expect("hard link should be creatable in tempdir");
+        let ccc = write(&dir, "ccc.jpg", b"SHARED INODE CONTENT"); // separate copy
+
+        let out = find_duplicates(vec![cf(&aaa), cf(&bbb), cf(&ccc)], lex_order);
+
+        assert_eq!(out.groups.len(), 1, "one group from distinct-identity pair");
+        let g = &out.groups[0];
+
+        // The lone non-anchor candidate (ccc) is the keeper.
+        assert_eq!(
+            g.keeper.path, ccc,
+            "separate copy must be keeper (only non-anchor candidate)"
+        );
+
+        // removable must be empty: no other non-anchor candidates.
+        assert!(
+            g.removable.is_empty(),
+            "removable must be empty (anchor is protected, not removable); got {:?}",
+            g.removable
+        );
+
+        // The anchor representative must be in protected.
+        assert_eq!(g.protected.len(), 1, "one protected anchor expected");
+        assert_eq!(
+            g.protected[0].path, aaa,
+            "hard-link representative must be the protected anchor"
+        );
+
+        // bbb (the sibling) must not appear anywhere in the group.
+        assert_ne!(g.keeper.path, bbb);
+        assert!(g.removable.iter().all(|r| r.path != bbb));
+        assert!(g.protected.iter().all(|r| r.path != bbb));
+
+        // reclaimable = 0 (removable is empty).
+        let reclaimable: u64 = g.removable.iter().map(|r| r.size).sum();
+        assert_eq!(
+            reclaimable, 0,
+            "reclaimable must be 0 when removable is empty"
+        );
+    }
+
+    #[test]
+    fn two_standalones_plus_anchor_keeper_is_standalone_min() {
+        // ADR-0008 anchor rule scenario 2: hard-link set + two standalone copies.
+        //
+        // `h.jpg` ↔ `h2.jpg` (same inode, anchor rep = `h.jpg` which is min path);
+        // `c1.jpg` and `c2.jpg` are distinct inodes, byte-identical to the rest.
+        // lex_order: keeper = min of {c1, c2} = c1; c2 is removable; h is protected.
+        let dir = tempfile::tempdir().unwrap();
+        let h = write(&dir, "h.jpg", b"CONTENT");
+        let h2 = dir.path().join("h2.jpg");
+        fs::hard_link(&h, &h2).expect("hard link creatable");
+        let c1 = write(&dir, "c1.jpg", b"CONTENT");
+        let c2 = write(&dir, "c2.jpg", b"CONTENT");
+
+        let out = find_duplicates(vec![cf(&h), cf(&h2), cf(&c1), cf(&c2)], lex_order);
+
+        assert_eq!(out.groups.len(), 1, "one group");
+        let g = &out.groups[0];
+
+        // Keeper = min non-anchor = c1 (lex order).
+        assert_eq!(g.keeper.path, c1, "keeper must be c1 (min non-anchor)");
+
+        // Removable = the other standalone c2.
+        assert_eq!(g.removable.len(), 1, "one removable");
+        assert_eq!(g.removable[0].path, c2, "c2 must be removable");
+
+        // Protected = the anchor (h).
+        assert_eq!(g.protected.len(), 1, "one protected anchor");
+        assert_eq!(g.protected[0].path, h, "h must be protected anchor");
+
+        // reclaimable = c2.size only (h is anchor, excluded).
+        let reclaimable: u64 = g.removable.iter().map(|r| r.size).sum();
+        let c2_size = fs::metadata(&c2).unwrap().len();
+        assert_eq!(reclaimable, c2_size, "reclaimable = removable size only");
+
+        // Anchor must never be in removable.
+        assert!(
+            g.removable.iter().all(|r| r.path != h),
+            "anchor must never be in removable"
+        );
+    }
+
+    #[test]
+    fn all_anchor_group_emits_no_duplicate_group() {
+        // ADR-0008 anchor rule edge case 1: every distinct inode is multiply-linked
+        // in-scope → every representative is an anchor → no DuplicateGroup emitted.
+        //
+        // Inode I1: a.jpg ↔ a2.jpg; Inode I2: b.jpg ↔ b2.jpg; both byte-identical.
+        // Both representatives are anchors → no group, 0 reclaimable.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"SAME");
+        let a2 = dir.path().join("a2.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
+        let b = write(&dir, "b.jpg", b"SAME");
+        let b2 = dir.path().join("b2.jpg");
+        fs::hard_link(&b, &b2).expect("hard link creatable");
+
+        let out = find_duplicates(vec![cf(&a), cf(&a2), cf(&b), cf(&b2)], lex_order);
+
+        // No DuplicateGroup: all reps are anchors.
+        assert!(
+            out.groups.is_empty(),
+            "all-anchor group must emit no DuplicateGroup; got {:?}",
+            out.groups
+        );
+
+        // Hard-link notes must be present for the two inode sets.
+        assert_eq!(
+            out.hard_link_notes.len(),
+            2,
+            "two hard-link notes expected (one per inode); got {:?}",
+            out.hard_link_notes
+        );
+
+        // No reclaimable bytes.
+        let total_reclaimable: u64 = out
+            .groups
+            .iter()
+            .flat_map(|g| g.removable.iter())
+            .map(|r| r.size)
+            .sum();
+        assert_eq!(
+            total_reclaimable, 0,
+            "all-anchor group must have 0 reclaimable"
+        );
+    }
+
+    #[test]
+    fn non_anchor_single_link_is_ordinary_removal_candidate() {
+        // Regression guard: a representative with NO surviving sibling (the only
+        // scanned link to its inode) is NOT an anchor and must remain an ordinary
+        // removal candidate. The anchor rule must not bar single-link reps.
+        //
+        // a.jpg and b.jpg are distinct inodes (no hard links). Both are byte-identical.
+        // Neither is an anchor. lex_order → keeper = a, removable = b.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"ORDINARY");
+        let b = write(&dir, "b.jpg", b"ORDINARY");
+
+        let out = find_duplicates(vec![cf(&a), cf(&b)], lex_order);
+
+        assert_eq!(out.groups.len(), 1, "ordinary pair must still group");
+        let g = &out.groups[0];
+        assert_eq!(g.keeper.path, a, "a must be keeper (lex min)");
+        assert_eq!(g.removable.len(), 1, "b must be removable");
+        assert_eq!(g.removable[0].path, b);
+        assert!(
+            g.protected.is_empty(),
+            "no anchors when neither rep has siblings; got {:?}",
+            g.protected
+        );
+    }
+
+    #[test]
+    fn anchor_group_determinism_across_input_orders_and_thread_widths() {
+        // NFR-3 / ADR-0008 anchor rule: an anchor-containing group must produce
+        // byte-identical output across shuffled input order and thread-pool widths.
+        use rayon::ThreadPoolBuilder;
+
+        let dir = tempfile::tempdir().unwrap();
+        // hard-link set: h ↔ h2 (anchor); two standalones: c1, c2.
+        let h = write(&dir, "h.jpg", b"ANCHOR_CONTENT");
+        let h2 = dir.path().join("h2.jpg");
+        fs::hard_link(&h, &h2).expect("hard link creatable");
+        let c1 = write(&dir, "c1.jpg", b"ANCHOR_CONTENT");
+        let c2 = write(&dir, "c2.jpg", b"ANCHOR_CONTENT");
+
+        let files_order1 = vec![cf(&h), cf(&h2), cf(&c1), cf(&c2)];
+        let files_order2 = vec![cf(&c2), cf(&c1), cf(&h2), cf(&h)];
+
+        // Same order, 1 vs 4 threads.
+        let out_single = ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap()
+            .install(|| find_duplicates(files_order1.clone(), lex_order));
+        let out_multi = ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap()
+            .install(|| find_duplicates(files_order1.clone(), lex_order));
+
+        assert_eq!(
+            out_single, out_multi,
+            "anchor group must be identical at 1 vs 4 threads"
+        );
+
+        // Reversed input order.
+        let out_reversed = find_duplicates(files_order2, lex_order);
+        assert_eq!(
+            out_single, out_reversed,
+            "anchor group must be identical across input orders"
+        );
     }
 }
