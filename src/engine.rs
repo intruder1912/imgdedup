@@ -63,6 +63,22 @@ pub struct FileRec {
     hash: [u8; 32],
 }
 
+impl FileRec {
+    /// Construct a synthetic `FileRec` for unit tests outside this module.
+    ///
+    /// The `hash` is zeroed — only use this constructor in test code where
+    /// real file I/O and BLAKE3 hashing are not the subject under test.
+    #[cfg(test)]
+    pub fn new_for_test(path: PathBuf, size: u64, mtime: Option<i64>) -> Self {
+        Self {
+            path,
+            size,
+            mtime,
+            hash: [0u8; 32],
+        }
+    }
+}
+
 /// A verified duplicate group: one keeper plus the non-keepers confirmed
 /// byte-identical to it and therefore safe to remove.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,9 +115,8 @@ pub struct DedupOutcome {
 ///
 /// `keeper_order` is a total ordering over [`FileRec`]s; within each verified
 /// group the **minimum** under this ordering is chosen as the keeper and every
-/// other member is a removable non-keeper. The keeper *rule* itself is owned by
-/// TASK-0305; this engine only consumes an ordering, so the two plug together
-/// cleanly. Use [`placeholder_keeper_order`] until TASK-0305 lands.
+/// other member is a removable non-keeper. Build the correct ordering with
+/// [`crate::keeper::build_comparator`] (TASK-0305).
 ///
 /// `keeper_order` should be a **total** ordering. If it is not, the keeper among
 /// tie-comparing files is unspecified (it falls out of internal grouping order)
@@ -117,13 +132,6 @@ where
     K: Fn(&FileRec, &FileRec) -> Ordering,
 {
     dedup_core(files, keeper_order, hash_file, true)
-}
-
-/// Deterministic placeholder keeper ordering used until TASK-0305 defines the
-/// real keeper rule: order lexicographically by path. Keeps engine output stable
-/// for tests and for the not-yet-built report.
-pub fn placeholder_keeper_order(a: &FileRec, b: &FileRec) -> Ordering {
-    a.path.cmp(&b.path)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -353,6 +361,13 @@ mod tests {
         p
     }
 
+    /// Lexicographic-by-path ordering used in engine tests that only care about
+    /// engine mechanics (grouping, collapse, byte-verify) rather than the real
+    /// keeper rule. Mirrors what `lex_order` used to do.
+    fn lex_order(a: &FileRec, b: &FileRec) -> Ordering {
+        a.path.cmp(&b.path)
+    }
+
     fn confirmed(path: PathBuf, size: u64) -> ConfirmedFile {
         ConfirmedFile {
             path,
@@ -499,7 +514,7 @@ mod tests {
         let b = write(&dir, "b.jpg", b"DUPLICATE CONTENT");
         let c = write(&dir, "c.jpg", b"a wholly unique file"); // different size+content
 
-        let out = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], placeholder_keeper_order);
+        let out = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], lex_order);
 
         assert_eq!(out.groups.len(), 1, "exactly one duplicate group");
         assert!(
@@ -518,7 +533,7 @@ mod tests {
 
     #[test]
     fn empty_input_yields_empty_outcome() {
-        let out = find_duplicates(Vec::new(), placeholder_keeper_order);
+        let out = find_duplicates(Vec::new(), lex_order);
         assert_eq!(out, DedupOutcome::default());
     }
 
@@ -530,7 +545,7 @@ mod tests {
         let a = write(&dir, "a.jpg", b"AAAAAAAAAA"); // 10 bytes
         let b = write(&dir, "b.jpg", b"BBBBBBBBBB"); // 10 bytes, same size
 
-        let out = find_duplicates(vec![cf(&a), cf(&b)], placeholder_keeper_order);
+        let out = find_duplicates(vec![cf(&a), cf(&b)], lex_order);
         assert!(out.groups.is_empty(), "different content must not group");
     }
 
@@ -550,8 +565,8 @@ mod tests {
         let d = write(&dir, "d", b"delta"); // 5 bytes, != alpha
         let files = vec![cf(&a1), cf(&a2), cf(&b1), cf(&b2), cf(&c), cf(&d)];
 
-        let with_prefilter = dedup_core(files.clone(), placeholder_keeper_order, hash_file, true);
-        let without_prefilter = dedup_core(files, placeholder_keeper_order, hash_file, false);
+        let with_prefilter = dedup_core(files.clone(), lex_order, hash_file, true);
+        let without_prefilter = dedup_core(files, lex_order, hash_file, false);
 
         assert_eq!(
             normalize(with_prefilter),
@@ -578,7 +593,7 @@ mod tests {
 
         let out = dedup_core(
             vec![cf(&a), cf(&b)],
-            placeholder_keeper_order,
+            lex_order,
             const_hasher,
             true,
         );
@@ -609,7 +624,7 @@ mod tests {
 
         let out = dedup_core(
             vec![cf(&a), cf(&b)],
-            placeholder_keeper_order,
+            lex_order,
             const_hasher,
             true,
         );
@@ -630,7 +645,7 @@ mod tests {
         fs::hard_link(&a, &b).expect("hard link should be creatable in tempdir");
         let c = write(&dir, "ccc.jpg", b"SHARED INODE CONTENT"); // separate copy
 
-        let out = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], placeholder_keeper_order);
+        let out = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], lex_order);
 
         assert_eq!(
             out.groups.len(),
@@ -686,7 +701,7 @@ mod tests {
             mtime: None,
         };
 
-        let out = find_duplicates(vec![cf(&a), cf(&b), ghost], placeholder_keeper_order);
+        let out = find_duplicates(vec![cf(&a), cf(&b), ghost], lex_order);
 
         assert_eq!(out.groups.len(), 1, "the real duplicates still group");
         assert_eq!(out.warnings.len(), 1, "the unreadable file is reported");

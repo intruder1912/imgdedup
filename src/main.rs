@@ -5,6 +5,7 @@ mod cli;
 mod engine;
 mod enumerate;
 mod exit_code;
+mod keeper;
 mod sniff;
 
 fn main() {
@@ -50,11 +51,11 @@ fn run(args: cli::Cli) -> i32 {
     // enumeration stat'd is threaded through into each ConfirmedFile.
     let (confirmed, _sniff_warnings) = sniff::filter_candidates(candidate_set.candidates);
 
-    // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304).
+    // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304/0305).
     // Size pre-group → BLAKE3 pre-filter → hash group → identity collapse →
     // byte-for-byte verify against the keeper. Pure analysis: no filesystem
-    // mutation. TASK-0305 will replace the placeholder keeper ordering.
-    let _dedup = engine::find_duplicates(confirmed, engine::placeholder_keeper_order);
+    // mutation. Keeper order comes from the real keeper rule (TASK-0305).
+    let _dedup = engine::find_duplicates(confirmed, keeper::build_comparator(args.keep));
 
     // TODO(TASK-0307): surface `_dedup.groups` + `_dedup.warnings`,
     //                  `_sniff_warnings`, `candidate_set.warnings`, and
