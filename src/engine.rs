@@ -1744,4 +1744,78 @@ mod tests {
             "Reclaimable must equal beach-copy.jpg size (anchor excluded)"
         );
     }
+
+    #[test]
+    fn standalone_wins_keep_shortest_when_shorter_than_anchors() {
+        // Scenario: short.jpg (standalone, shortest) + longer.jpg ↔ longer-link.jpg (anchor, longer path)
+        // All byte-identical. With --keep shortest, short.jpg (shortest) is a standalone.
+        // Expected: keeper = short.jpg (standalone), removable = [], protected = [longer.jpg, longer-link.jpg]
+
+        let dir = tempfile::tempdir().unwrap();
+
+        // short.jpg (standalone, shortest)
+        let short = write(&dir, "short.jpg", b"identical content");
+
+        // longer.jpg and longer-link.jpg (hard-linked, longer path)
+        let longer = write(&dir, "longer.jpg", b"identical content");
+        let longer_link = dir.path().join("longer-link.jpg");
+        #[cfg(unix)]
+        fs::hard_link(&longer, &longer_link).unwrap();
+        #[cfg(windows)]
+        fs::copy(&longer, &longer_link).unwrap();
+
+        // Get ConfirmedFile entries for all three files
+        let files = vec![cf(&short), cf(&longer), cf(&longer_link)];
+
+        // Run dedup with --keep shortest
+        let shortest_order = crate::keeper::build_comparator(crate::cli::KeepRule::Shortest);
+        let outcome = find_duplicates(files, shortest_order);
+
+        // Assertions
+        assert_eq!(outcome.groups.len(), 1, "Should have 1 duplicate group");
+        let group = &outcome.groups[0];
+
+        // Keeper should be short.jpg (shortest, standalone)
+        assert_eq!(
+            group.keeper.path.file_name().unwrap(),
+            "short.jpg",
+            "Keeper must be short.jpg (shortest path, standalone)"
+        );
+
+        // Removable should be empty (short.jpg is the only standalone and it's the keeper)
+        assert_eq!(
+            group.removable.len(),
+            0,
+            "Should have 0 removable files (short.jpg is keeper, anchor is protected)"
+        );
+
+        // Protected should be [longer.jpg, longer-link.jpg]
+        assert_eq!(
+            group.protected.len(),
+            2,
+            "Should have 2 protected files (anchor and its hard-link sibling)"
+        );
+
+        // Check that both longer files are protected
+        let protected_names: std::collections::HashSet<_> = group
+            .protected
+            .iter()
+            .filter_map(|r| r.path.file_name().and_then(|n| n.to_str()))
+            .collect();
+        assert!(
+            protected_names.contains("longer.jpg"),
+            "longer.jpg must be protected"
+        );
+        assert!(
+            protected_names.contains("longer-link.jpg"),
+            "longer-link.jpg must be protected"
+        );
+
+        // Reclaimable should be 0
+        let reclaimable: u64 = group.removable.iter().map(|r| r.size).sum();
+        assert_eq!(
+            reclaimable, 0,
+            "No standalones to remove, so reclaimable is 0"
+        );
+    }
 }
