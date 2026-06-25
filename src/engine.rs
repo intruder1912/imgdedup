@@ -1593,4 +1593,79 @@ mod tests {
             "anchor group must be identical across input orders"
         );
     }
+
+    #[test]
+    fn anchor_wins_keep_shortest_removes_standalones() {
+        // Scenario: beach.jpg ↔ beach-hardlink.jpg (anchor) + beach-copy.jpg (standalone)
+        // Files are byte-identical. With --keep shortest, beach.jpg (shortest path) is an anchor.
+        // Expected: keeper = beach.jpg (anchor), removable = [beach-copy.jpg], protected = [beach-hardlink.jpg]
+
+        let dir = tempfile::tempdir().unwrap();
+
+        // beach.jpg (anchor, shortest path)
+        let beach = write(&dir, "beach.jpg", b"identical content");
+
+        // beach-hardlink.jpg (same inode as beach.jpg, hard-link)
+        let hardlink = dir.path().join("beach-hardlink.jpg");
+        #[cfg(unix)]
+        fs::hard_link(&beach, &hardlink).unwrap();
+        #[cfg(windows)]
+        {
+            // Windows doesn't reliably support hard_link in std, use copy for this test
+            fs::copy(&beach, &hardlink).unwrap();
+        }
+
+        // beach-copy.jpg (separate inode, standalone, longer path)
+        let copy = write(&dir, "beach-copy.jpg", b"identical content");
+
+        // Get ConfirmedFile entries for all three files
+        let files = vec![cf(&beach), cf(&hardlink), cf(&copy)];
+
+        // Run dedup with --keep shortest
+        let shortest_order = crate::keeper::build_comparator(crate::cli::KeepRule::Shortest);
+        let outcome = find_duplicates(files, shortest_order);
+
+        // Assertions
+        assert_eq!(outcome.groups.len(), 1, "Should have 1 duplicate group");
+        let group = &outcome.groups[0];
+
+        // Keeper should be beach.jpg (shortest, anchor)
+        assert_eq!(
+            group.keeper.path.file_name().unwrap(),
+            "beach.jpg",
+            "Keeper must be beach.jpg (shortest path, anchor)"
+        );
+
+        // Removable should be [beach-copy.jpg]
+        assert_eq!(
+            group.removable.len(),
+            1,
+            "Should have 1 removable file (beach-copy.jpg)"
+        );
+        assert_eq!(
+            group.removable[0].path.file_name().unwrap(),
+            "beach-copy.jpg",
+            "Removable must be beach-copy.jpg"
+        );
+
+        // Protected should be [beach-hardlink.jpg]
+        assert_eq!(
+            group.protected.len(),
+            1,
+            "Should have 1 protected anchor (beach-hardlink.jpg)"
+        );
+        assert_eq!(
+            group.protected[0].path.file_name().unwrap(),
+            "beach-hardlink.jpg",
+            "Protected must be beach-hardlink.jpg (anchor)"
+        );
+
+        // Reclaimable should equal beach-copy.jpg's size only (anchor size excluded)
+        let reclaimable: u64 = group.removable.iter().map(|r| r.size).sum();
+        let copy_size = fs::metadata(&copy).unwrap().len();
+        assert_eq!(
+            reclaimable, copy_size,
+            "Reclaimable must equal beach-copy.jpg size (anchor excluded)"
+        );
+    }
 }
