@@ -165,7 +165,9 @@ inode. Collapsing `{a.jpg, a-link.jpg}` to one representative and then letting
 `--keep shortest` make `a-copy.jpg` the keeper would propose removing the
 representative of the hard-linked inode — yet `a-link.jpg` still pins it, so 0
 bytes are freed, contradicting the intent above.) This ADR resolves that
-intent-vs-mechanism gap with the **anchor rule**:
+intent-vs-mechanism gap with the **anchor rule**: anchors are included in keeper
+selection so that `--keep` ranks all representatives, but if a standalone wins,
+anchors are protected to preserve the hard-link set.
 
 - **Definition.** A collapsed representative whose identity set had **≥2 scanned
   members** — i.e. it absorbed at least one surviving in-scope sibling that is
@@ -200,19 +202,19 @@ intent-vs-mechanism gap with the **anchor rule**:
    reclaimable. This case must not be reported as a removal opportunity.
 
 2. **Standalone copies plus one (or more) hard-link set(s).** The `--keep` rule
-   ranks the **genuinely-removable standalone copies only**; the **minimum**
-   under that order is the single keeper, the remaining standalone copies are
-   removable, and every anchor is protected (kept, not the keeper). The keeper
-   is therefore **always a non-anchored copy** — the anchor is *barred from the
-   removable set*, **not** promoted to keeper. We deliberately do **not** let
-   `--keep` pick the keeper among *all* files with the anchor merely barred from
-   removal: that could make an anchor the keeper and then, if the group had only
-   anchors-plus-one-copy, leave the lone copy removable while an anchor is
-   "kept" — harmless for safety but it conflates "the file the user chose to
-   keep" with "a file we are forbidden to delete". Keeping the keeper a real
-   removable candidate makes the report's KEEP row mean exactly what the user's
-   `--keep` rule selected, and the anchor a separate, clearly-labelled protected
-   entry. Exactly one keeper per group is preserved.
+   ranks **all representatives** (both anchors and standalones) to find the minimum.
+
+   - If the minimum is an **anchor**, that anchor is the single keeper (KEEP), other
+     anchors are protected (PROTECT), and all standalone copies are removable and
+     verified against the anchor keeper. Rationale: an anchor inode always survives
+     (by definition, its sibling pins it), so every standalone copy in the same
+     content group is genuinely redundant and safely removable.
+
+   - If the minimum is a **standalone**, that standalone is the single keeper (KEEP),
+     other standalones are removable, and every anchor is protected (PROTECT). In
+     this case, reclaimable bytes may legitimately be 0 (the user chose to keep
+     the standalone while the anchor cannot be removed), but the report must
+     clearly explain this rather than saying "nothing to reclaim" flatly.
 
 3. **Determinism (NFR-3).** The anchor rule is a **total, deterministic
    partition** computed before keeper selection: "is this representative an
