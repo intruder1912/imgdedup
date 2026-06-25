@@ -426,7 +426,8 @@ where
 
     // Partition into anchors (is_anchor = true) and standalones (non-anchors).
     // Anchors are representatives whose identity set had ≥2 in-scope members.
-    let (anchors, standalones): (Vec<_>, Vec<_>) = reps_with_anchor.into_iter()
+    let (anchors, standalones): (Vec<_>, Vec<_>) = reps_with_anchor
+        .into_iter()
         .partition(|(_, is_anchor)| *is_anchor);
 
     // Early return for all-anchor groups (no keeper to choose)
@@ -444,7 +445,8 @@ where
     // Keeper from all representatives (anchors + standalones).
     // Amendment 2026-06-15: anchors are included in keeper ranking to honor --keep
     // semantics and maximize safe reclamation.
-    let all_reps: Vec<(&FileRec, bool)> = anchors.iter()
+    let all_reps: Vec<(&FileRec, bool)> = anchors
+        .iter()
         .map(|(rec, is_anchor)| (rec, *is_anchor))
         .chain(standalones.iter().map(|(rec, is_anchor)| (rec, *is_anchor)))
         .collect();
@@ -485,9 +487,7 @@ where
             }
         }
 
-        let removable: Vec<FileRec> = standalones.into_iter()
-            .map(|(rec, _)| rec)
-            .collect();
+        let removable: Vec<FileRec> = standalones.into_iter().map(|(rec, _)| rec).collect();
         (protected, removable)
     } else {
         // Keeper is a standalone: protect all anchors and their hard-link siblings,
@@ -513,7 +513,8 @@ where
             }
         }
 
-        let removable: Vec<FileRec> = standalones.into_iter()
+        let removable: Vec<FileRec> = standalones
+            .into_iter()
             .filter(|(rec, _)| rec.path != keeper.path)
             .map(|(rec, _)| rec)
             .collect();
@@ -521,26 +522,25 @@ where
     };
 
     // Byte-verify each candidate removable vs the keeper
-    let verified_removable: Vec<FileRec> = removable.into_iter()
-        .filter(|rec| {
-            match files_equal(&keeper.path, &rec.path) {
-                Ok(true) => true,
-                Ok(false) => {
-                    outcome.warnings.push(EngineWarning {
-                        path: rec.path.clone(),
-                        reason: "content differs from keeper despite a matching hash \
+    let verified_removable: Vec<FileRec> = removable
+        .into_iter()
+        .filter(|rec| match files_equal(&keeper.path, &rec.path) {
+            Ok(true) => true,
+            Ok(false) => {
+                outcome.warnings.push(EngineWarning {
+                    path: rec.path.clone(),
+                    reason: "content differs from keeper despite a matching hash \
                                  (BLAKE3 pre-filter collision); not removed"
-                            .to_owned(),
-                    });
-                    false
-                }
-                Err(e) => {
-                    outcome.warnings.push(EngineWarning {
-                        path: rec.path.clone(),
-                        reason: format!("could not byte-verify against keeper: {e}"),
-                    });
-                    false
-                }
+                        .to_owned(),
+                });
+                false
+            }
+            Err(e) => {
+                outcome.warnings.push(EngineWarning {
+                    path: rec.path.clone(),
+                    reason: format!("could not byte-verify against keeper: {e}"),
+                });
+                false
             }
         })
         .collect();
@@ -1362,8 +1362,14 @@ mod tests {
         // With S2 amendment: protected includes both the anchor representative
         // and its hard-link sibling.
         assert_eq!(g.protected.len(), 2, "anchor representative and sibling");
-        assert!(g.protected.iter().any(|r| r.path == aaa), "aaa must be protected");
-        assert!(g.protected.iter().any(|r| r.path == bbb), "bbb sibling must be protected");
+        assert!(
+            g.protected.iter().any(|r| r.path == aaa),
+            "aaa must be protected"
+        );
+        assert!(
+            g.protected.iter().any(|r| r.path == bbb),
+            "bbb sibling must be protected"
+        );
 
         // Note IS retained because anchor is in group_paths.
         assert_eq!(
@@ -1539,8 +1545,14 @@ mod tests {
 
         // Protected = the anchor (h) and its hard-link sibling (h2).
         assert_eq!(g.protected.len(), 2, "anchor and hard-link sibling");
-        assert!(g.protected.iter().any(|r| r.path == h), "h must be protected");
-        assert!(g.protected.iter().any(|r| r.path == h2), "h2 sibling must be protected");
+        assert!(
+            g.protected.iter().any(|r| r.path == h),
+            "h must be protected"
+        );
+        assert!(
+            g.protected.iter().any(|r| r.path == h2),
+            "h2 sibling must be protected"
+        );
 
         // reclaimable = c2.size only (h and h2 are anchors, excluded).
         let reclaimable: u64 = g.removable.iter().map(|r| r.size).sum();
