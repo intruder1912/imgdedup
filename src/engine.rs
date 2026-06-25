@@ -1680,6 +1680,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn anchor_wins_keep_shortest_removes_standalones() {
         // Scenario: beach.jpg ↔ beach-hardlink.jpg (anchor) + beach-copy.jpg (standalone)
         // Files are byte-identical. With --keep shortest, beach.jpg (shortest path) is an anchor.
@@ -1755,6 +1756,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn standalone_wins_keep_shortest_when_shorter_than_anchors() {
         // Scenario: short.jpg (standalone, shortest) + longer.jpg ↔ longer-link.jpg (anchor, longer path)
         // All byte-identical. With --keep shortest, short.jpg (shortest) is a standalone.
