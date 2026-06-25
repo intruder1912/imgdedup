@@ -4,70 +4,19 @@ Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
 **Current phase:** Phase 3 — Implementation (TDD)
-**Last updated:** 2026-06-15
+**Last updated:** 2026-06-25
 
 ## In progress
 
-- **Slice S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
-  TASK-0306 + TASK-0307 + TASK-0311) — **PR open, awaiting architect re-review
-  before merge** (deferred to the next session by the owner). The first end-to-end
-  usable increment: `imgdedup <paths>` scans, detects exact-duplicate groups, and
-  prints a deterministic **dry-run report** (keeper, would-be removals, group/file
-  counts, reclaimable space, hard-link notes), with a real
-  `--keep {shortest|oldest|newest}` rule and the opt-in `--exit-code`. **Nothing on
-  disk changes.** Delivered:
-  - TASK-0305 — real keeper rule in `src/keeper.rs` (ADR-0008 total orders;
-    byte-wise/case-sensitive path tie-break, whole-second mtime), replacing the
-    engine's `placeholder_keeper_order`; mtime threaded `Candidate` →
-    `ConfirmedFile` → `FileRec` from the existing enumeration stat.
-  - TASK-0306 — rayon parallel hashing within size cohorts + a canonical sort as
-    the sole determinism mechanism (ADR-0010); identical output across thread
-    widths. Adds `rayon`.
-  - TASK-0307 — `src/report.rs` human-readable report (FR-9/13/17, NFR-6);
-    reclaimable space excludes hard-link members; warnings surfaced.
-  - TASK-0311 — `exit_code::compute` pure mapping (0/1/2/3; `--exit-code` → 3 on
-    a successful run with duplicates; run-level error 1 takes precedence).
-  - **Anchor rule fix (ADR-0008 Amendment 2026-06-15):** a collapsed representative
-    whose identity set had ≥2 in-scope members is an **anchor** — never removable,
-    never in reclaimable. `DuplicateGroup` gains `pub protected: Vec<FileRec>`; the
-    report renders a `PROTECT` row, and all-hard-link sets show under an
-    "Already deduplicated (hard-linked)" block excluded from totals.
-  - **Review status:** earlier in-progress + whole-slice reviews APPROVED the
-    pre-anchor slice and resolved a determinism blocker (B1) + an orphaned-note
-    edge case (S1). Product-owner accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and
-    synced the README + `docs/guide/` pages. The **anchor fix + presentation
-    changes still need the architect re-review** (Review 3, deferred). An
-    **OPEN CONCERN** — the anchor-keeper rule under-reclaims and can mislabel a
-    standalone-copy-plus-hard-link-set group as "already deduplicated" — is logged
-    for that re-review. `make validate` passes (177 tests). `--exit-code`
-    binary-level E2E (AC-19) deferred to S4. See
-    [`reviews/detect-report.md`](reviews/detect-report.md).
+(None — S1 shipped, S2 up next)
 
 ## Up next
 
-**Slice cadence is now in force (ADR-0013).** The remaining PRD-0001 work is no
-longer shipped one PR per task: feature delivery is carved into **four coherent
-shippable slices**, each a single branch → granular commits → one squash PR/release.
-The existing TASK-0305..0312 specs stay as the unit of design/TDD; a slice _groups_
-tasks. The full slice map (contained tasks, per-slice user value, and PR-open
-acceptance — FRs + the README/`docs/guide/` docs each slice must deliver) lives in
-the "PRD-0001 delivery slices" subsection of
-[`backlog.md`](backlog.md). The core slice (TASK-0301..0304) already merged
-task-by-task under the pre-ADR-0013 cadence.
+**Slice cadence is now in force (ADR-0013).** S1 (detect-report) is shipped. Remaining PRD-0001 work is delivered as **three remaining coherent shippable slices** (S2, S3, S4), each a single branch → granular commits → one squash PR/release. The full slice map (contained tasks, per-slice user value, and PR-open acceptance) lives in the "PRD-0001 delivery slices" subsection of
+[`backlog.md`](backlog.md).
 
-- **Next slice: S2 — JSON output** (`json-output`; TASK-0308). An independent
-  deterministic machine-readable formatter (`--json`) over the same canonical
-  model S1 built (groups, keeper, intended actions, totals), enabling scripting.
-  Opens its PR once the product-owner has accepted FR-14 + NFR-3 and documented
-  the `--json` field schema in `docs/guide/output-and-exit-codes.md` (ADR-0012/0013).
-- **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 →
-  TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312,
-  tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). S2 and S3 both depend
-  only on S1 and could be worked concurrently on separate branches, but the safe
-  default ships JSON before the destructive surfaces. Each slice rebases on `main`
-  after the previous merges. **The `--exit-code` binary-level E2E test (AC-19) is
-  deferred to S4** per the S1 architect review (see
-  [`reviews/detect-report.md`](reviews/detect-report.md)).
+- **Next slice: S2 — JSON output** (`json-output`; TASK-0308). Independent deterministic machine-readable formatter (`--json`) over the same canonical model S1 built (groups, keeper, intended actions, totals), enabling scripting. Opens PR once product-owner accepts FR-14 + NFR-3 and documents `--json` field schema in `docs/guide/output-and-exit-codes.md` (ADR-0012/0013).
+- **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 + TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). S2 and S3 both depend only on S1 and could be worked concurrently on separate branches, but safe default ships JSON before destructive surfaces. Each slice rebases on `main` after previous merges. **The `--exit-code` binary-level E2E test (AC-19) is deferred to S4** per S1 architect review.
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an
   architect review for significant/risky changes (not per-commit; the
   product-owner or orchestrator may demand one), logged in
@@ -81,6 +30,8 @@ task-by-task under the pre-ADR-0013 cadence.
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Slice S1 — Detect & report (read-only)** (TASK-0305 + TASK-0306 + TASK-0307 + TASK-0311) — **MERGED in PR #25 (2026-06-25)**. First end-to-end usable increment: `imgdedup <paths>` scans, detects exact-duplicate groups, prints deterministic dry-run report with real `--keep {shortest|oldest|newest}` rule and opt-in `--exit-code`. Nothing on disk changes. Delivered all FRs/NFRs and resolved architect Review 3 with **ADR-0008 Amendment 2026-06-15** (anchor rule: collapsed hard-link representatives with in-scope siblings are never removable, protected in output). 178 tests passing (all 3 OS platforms). See [`reviews/detect-report.md`](reviews/detect-report.md).
 
 - **TASK-0214 — PRD-slice delivery cadence & in-progress review protocol
   (ADR-0013).** For **feature delivery**, the unit of work is now a **coherent
