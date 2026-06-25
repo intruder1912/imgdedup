@@ -441,8 +441,9 @@ where
         return;
     }
 
-    // Keeper from all representatives (anchors + standalones)
-    // Build iterator over all reps with their (rec, is_anchor) tuples
+    // Keeper from all representatives (anchors + standalones).
+    // Amendment 2026-06-15: anchors are included in keeper ranking to honor --keep
+    // semantics and maximize safe reclamation.
     let all_reps: Vec<(&FileRec, bool)> = anchors.iter()
         .map(|(rec, is_anchor)| (rec, *is_anchor))
         .chain(standalones.iter().map(|(rec, is_anchor)| (rec, *is_anchor)))
@@ -455,12 +456,10 @@ where
     let (keeper_rec, keeper_is_anchor) = all_reps[keeper_idx];
     let keeper = keeper_rec.clone();
 
-    // Partition removable and protected based on keeper type
-    // Note: We need to include hard-link siblings in protected, reconstructing them
-    // from their representative anchor's metadata.
+    // Partition protected/removable based on keeper type (Amendment 2026-06-15)
     let (protected, removable) = if keeper_is_anchor {
         // Keeper is an anchor: protect other anchors and their hard-link siblings,
-        // remove all standalones. (The keeper's siblings are also protected by definition.)
+        // remove all standalones.
         let mut protected: Vec<FileRec> = Vec::new();
 
         // Add non-keeper anchors
@@ -472,9 +471,7 @@ where
 
         // Add hard-link siblings of ALL anchors (including keeper)
         for note in &hl_notes {
-            // Check if this note's representative is any anchor (keeper or not)
             if anchors.iter().any(|(r, _)| r.path == note.representative) {
-                // Find the anchor to get its metadata
                 if let Some(rep) = anchors.iter().find(|(r, _)| r.path == note.representative) {
                     for sibling_path in &note.siblings {
                         protected.push(FileRec {
