@@ -3,12 +3,13 @@
 A fast, cross-platform command-line tool for finding and safely removing
 duplicate images.
 
-> **Status: under active development (Phase 3 — implementation).** Scanning, scope
-> filtering, magic-byte image confirmation, and the core content-hash
-> deduplication engine (duplicate detection) are implemented; the results
-> **report**, **JSON output**, and the **trash/delete actions** are not yet wired.
-> **So today the tool scans and detects duplicates internally, but does not yet
-> print duplicate groups or modify any files.** See
+> **Status: under active development (Phase 3 — implementation).** The
+> **read-only detect-and-report** workflow is shipped: `imgdedup` scans your
+> paths, finds exact duplicate groups, and prints a human-readable dry-run report
+> showing the keeper and the files that would be removed. **JSON output
+> (`--json`) and the trash/delete actions (`--apply` / `--delete`) are part of the
+> command-line surface but are not functional yet** — they are coming in later
+> releases. So today the tool reports duplicates but never modifies any files. See
 > [`docs/planning/status.md`](docs/planning/status.md) for the live state and
 > [`docs/planning/roadmap.md`](docs/planning/roadmap.md) for the path to v1.0.
 
@@ -32,15 +33,18 @@ the algorithm and safety model are in
 Safety is the product's first principle:
 
 - **Dry run by default.** A normal run only *reports* what it would remove.
-  Nothing on disk changes unless you pass `--apply`.
-- **Recoverable by default when acting.** `--apply` moves non-keepers to the
-  **OS trash / recycle bin**, not oblivion.
-- **Permanent deletion is opt-in and guarded.** `--delete` permanently removes
-  non-keepers and is only valid *together with* `--apply`; using `--delete`
-  alone is refused.
+  Nothing on disk changes. (Today the tool is dry-run only; the acting flags
+  below are reserved for a later release.)
+- **Recoverable by default when acting.** `--apply` will move non-keepers to the
+  **OS trash / recycle bin**, not oblivion. *(Not functional yet.)*
+- **Permanent deletion is opt-in and guarded.** `--delete` will permanently
+  remove non-keepers and is only valid *together with* `--apply`; using
+  `--delete` alone is refused. *(Not functional yet.)*
 - **Never byte-blind.** A hash match alone never authorizes removal; files are
   byte-for-byte verified first. Hard-linked copies (already deduplicated on disk)
-  are never proposed for removal.
+  are never proposed for removal: they are shown as `PROTECT` and excluded from
+  the reclaimable-space figure, and a set that is *only* hard links is reported as
+  already-deduplicated rather than as a duplicate group.
 
 ## Installing
 
@@ -63,23 +67,44 @@ cargo build --release
 imgdedup [OPTIONS] <PATH>...
 ```
 
-`<PATH>...` is one or more files or directories to scan. A plain run is a **dry
-run** — it reports duplicate groups and changes nothing.
+`<PATH>...` is one or more files or directories to scan. A run is a **dry run** —
+it reports duplicate groups and changes nothing.
 
 ```sh
-# Dry run: report duplicate groups under ./photos (default; nothing changes).
+# Report duplicate groups under ./photos (nothing changes).
 imgdedup ./photos
 
 # Scan multiple locations at once.
 imgdedup ~/Pictures /mnt/backup/photos
+```
 
-# Reclaim space by moving duplicates to the OS trash (recoverable).
-imgdedup --apply ./photos
+The report lists each duplicate group with the file to keep (`KEEP`) and the
+duplicates that would be removed (`REMOVE`), then a summary with the group/file
+counts and the space you could reclaim:
+
+```text
+Group 1/1 (2 files, 5242880 bytes reclaimable):
+  KEEP  /photos/beach.jpg
+  REMOVE /photos/backup/beach (copy).jpg
+
+Summary: 1 duplicate group, 2 files, 5242880 bytes reclaimable.
+```
+
+Choose which copy is kept with `--keep`, and make the run signal "duplicates
+found" with `--exit-code`:
+
+```sh
+# Keep the oldest copy in each group instead of the shortest path.
+imgdedup --keep oldest ./photos
+
+# Exit 3 (instead of 0) when any duplicates are found — handy in CI.
+imgdedup --exit-code ./photos
 ```
 
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
-`--apply` / `--delete` (act on duplicates); `--json`, `--exit-code` (output).
+`--exit-code` (signal duplicates via exit status). The `--apply`, `--delete`, and
+`--json` flags exist but are **not functional yet** (coming in a later release).
 Run `imgdedup --help` for the full list.
 
 ## Detailed guide

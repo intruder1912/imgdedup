@@ -4,11 +4,44 @@ Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
 **Current phase:** Phase 3 — Implementation (TDD)
-**Last updated:** 2026-06-14
+**Last updated:** 2026-06-15
 
 ## In progress
 
-- _(none)_
+- **Slice S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
+  TASK-0306 + TASK-0307 + TASK-0311) — **PR open, awaiting architect re-review
+  before merge** (deferred to the next session by the owner). The first end-to-end
+  usable increment: `imgdedup <paths>` scans, detects exact-duplicate groups, and
+  prints a deterministic **dry-run report** (keeper, would-be removals, group/file
+  counts, reclaimable space, hard-link notes), with a real
+  `--keep {shortest|oldest|newest}` rule and the opt-in `--exit-code`. **Nothing on
+  disk changes.** Delivered:
+  - TASK-0305 — real keeper rule in `src/keeper.rs` (ADR-0008 total orders;
+    byte-wise/case-sensitive path tie-break, whole-second mtime), replacing the
+    engine's `placeholder_keeper_order`; mtime threaded `Candidate` →
+    `ConfirmedFile` → `FileRec` from the existing enumeration stat.
+  - TASK-0306 — rayon parallel hashing within size cohorts + a canonical sort as
+    the sole determinism mechanism (ADR-0010); identical output across thread
+    widths. Adds `rayon`.
+  - TASK-0307 — `src/report.rs` human-readable report (FR-9/13/17, NFR-6);
+    reclaimable space excludes hard-link members; warnings surfaced.
+  - TASK-0311 — `exit_code::compute` pure mapping (0/1/2/3; `--exit-code` → 3 on
+    a successful run with duplicates; run-level error 1 takes precedence).
+  - **Anchor rule fix (ADR-0008 Amendment 2026-06-15):** a collapsed representative
+    whose identity set had ≥2 in-scope members is an **anchor** — never removable,
+    never in reclaimable. `DuplicateGroup` gains `pub protected: Vec<FileRec>`; the
+    report renders a `PROTECT` row, and all-hard-link sets show under an
+    "Already deduplicated (hard-linked)" block excluded from totals.
+  - **Review status:** earlier in-progress + whole-slice reviews APPROVED the
+    pre-anchor slice and resolved a determinism blocker (B1) + an orphaned-note
+    edge case (S1). Product-owner accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and
+    synced the README + `docs/guide/` pages. The **anchor fix + presentation
+    changes still need the architect re-review** (Review 3, deferred). An
+    **OPEN CONCERN** — the anchor-keeper rule under-reclaims and can mislabel a
+    standalone-copy-plus-hard-link-set group as "already deduplicated" — is logged
+    for that re-review. `make validate` passes (177 tests). `--exit-code`
+    binary-level E2E (AC-19) deferred to S4. See
+    [`reviews/detect-report.md`](reviews/detect-report.md).
 
 ## Up next
 
@@ -22,25 +55,19 @@ the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md). The core slice (TASK-0301..0304) already merged
 task-by-task under the pre-ADR-0013 cadence.
 
-- **Next slice: S1 — Detect & report (read-only)** (`detect-report`; TASK-0305 +
-  TASK-0306 + TASK-0307 + TASK-0311). This is the first end-to-end usable
-  increment: scan paths → deterministic dry-run report of every duplicate group,
-  its keeper, would-be removals, counts, reclaimable space, and hard-link notes,
-  with `--keep {shortest|oldest|newest}` and the opt-in `--exit-code`. Nothing on
-  disk changes. Within the slice: TASK-0305 replaces the engine's
-  `placeholder_keeper_order` with the real keeper rule (shallowest path → oldest
-  mtime → lexicographic); TASK-0306 wires rayon parallel hashing + canonical-sort
-  determinism; TASK-0307 renders the human report; TASK-0311 maps the outcome to
-  exit codes (incl. `--exit-code` → `3`). S1 opens its PR only once the
-  product-owner has accepted FR-7/8/9/13/15/17/18 + NFR-3/4/6 and synced the
-  README + the `getting-started`, `scanning-and-scope`, `choosing-what-to-keep`,
-  and exit-code guide pages to shipped behavior (ADR-0012).
-- **Then, in order:** **S2 — JSON output** (`json-output`; TASK-0308) →
-  **S3 — Destructive actions** (`apply-delete`; TASK-0309 → TASK-0310) →
-  **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19
-  and NFR-4 cross-platform proof). S2 and S3 both depend only on S1 and could be
-  worked concurrently on separate branches, but the safe default ships JSON before
-  the destructive surfaces. Each slice rebases on `main` after the previous merges.
+- **Next slice: S2 — JSON output** (`json-output`; TASK-0308). An independent
+  deterministic machine-readable formatter (`--json`) over the same canonical
+  model S1 built (groups, keeper, intended actions, totals), enabling scripting.
+  Opens its PR once the product-owner has accepted FR-14 + NFR-3 and documented
+  the `--json` field schema in `docs/guide/output-and-exit-codes.md` (ADR-0012/0013).
+- **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 →
+  TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312,
+  tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). S2 and S3 both depend
+  only on S1 and could be worked concurrently on separate branches, but the safe
+  default ships JSON before the destructive surfaces. Each slice rebases on `main`
+  after the previous merges. **The `--exit-code` binary-level E2E test (AC-19) is
+  deferred to S4** per the S1 architect review (see
+  [`reviews/detect-report.md`](reviews/detect-report.md)).
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an
   architect review for significant/risky changes (not per-commit; the
   product-owner or orchestrator may demand one), logged in

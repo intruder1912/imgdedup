@@ -65,11 +65,17 @@ pub struct Candidate {
     /// `sniff::filter_candidates` into `ConfirmedFile` and consumed by the
     /// engine's size-grouping stage (TASK-0304).
     pub size: u64,
+    /// Modification time of the file in whole Unix seconds (seconds since the
+    /// UNIX epoch), from directory-walk metadata. `None` when the platform
+    /// does not expose mtime or the value cannot be obtained without error.
+    /// No extra stat is performed: this reuses the metadata already fetched for
+    /// `size`. Used by the keeper rule (TASK-0305).
+    pub mtime: Option<i64>,
 }
 
 impl Candidate {
-    fn new(path: PathBuf, size: u64) -> Self {
-        Self { path, size }
+    fn new(path: PathBuf, size: u64, mtime: Option<i64>) -> Self {
+        Self { path, size, mtime }
     }
 }
 
@@ -81,12 +87,8 @@ impl Candidate {
 #[derive(Debug, Clone)]
 pub struct EnumerateWarning {
     /// The path of the entry that could not be processed.
-    // TODO(TASK-0307/TASK-0311): consumed by the report and exit-code stages.
-    #[allow(dead_code)]
     pub path: PathBuf,
     /// Human-readable reason the entry was skipped.
-    // TODO(TASK-0307): surfaced by the report unit.
-    #[allow(dead_code)]
     pub reason: String,
 }
 
@@ -288,9 +290,12 @@ fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
                     continue;
                 }
 
-                // Collect the size from the entry's metadata.
-                let size = match entry.metadata() {
-                    Ok(m) => m.len(),
+                // Collect the size and mtime from the entry's metadata.
+                // Both are extracted from the same metadata call so no extra
+                // stat is performed (TASK-0305 requirement: one stat, no I/O
+                // in the keeper comparator).
+                let meta = match entry.metadata() {
+                    Ok(m) => m,
                     Err(e) => {
                         out.warnings.push(EnumerateWarning::new(
                             path.clone(),
@@ -299,8 +304,17 @@ fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
                         continue;
                     }
                 };
+                let size = meta.len();
+                // mtime: whole-second Unix timestamp. None when the platform
+                // does not provide it (e.g. WebAssembly) or the value is out
+                // of range. We discard sub-second precision (ADR-0008 §keeper).
+                let mtime = meta.modified().ok().and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|d| d.as_secs() as i64)
+                });
 
-                out.candidates.push(Candidate::new(path, size));
+                out.candidates.push(Candidate::new(path, size, mtime));
             }
         }
     }
@@ -1038,5 +1052,60 @@ mod tests {
 
         let names = candidate_names(&result);
         assert_eq!(names, vec!["has.jpg"]);
+    }
+
+    // ── mtime threading ───────────────────────────────────────────────────────
+
+    #[test]
+    fn candidate_carries_mtime_from_metadata() {
+        // mtime is threaded from the single metadata call into Candidate.mtime
+        // (no extra stat). The value must be Some on a real, freshly-created
+        // file on all supported platforms; None is only acceptable when the
+        // platform does not expose mtime (e.g. Wasm).
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("with_mtime.jpg");
+        fs::write(&p, b"data").unwrap();
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(result.candidates.len(), 1);
+        // On all mainstream OS targets (macOS, Linux, Windows) mtime is
+        // available, so Some is expected. The exact value is not asserted
+        // because it depends on when the test runs.
+        assert!(
+            result.candidates[0].mtime.is_some(),
+            "Candidate.mtime should be Some on a real freshly-created file; got None"
+        );
+    }
+
+    #[test]
+    fn candidate_mtime_is_whole_seconds() {
+        // mtime is stored at whole-second resolution (ADR-0008 §keeper rule).
+        // Write a file, record the time-before/after, check mtime is in that
+        // range (i.e. is a real Unix timestamp, not sub-second noise).
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("seconds.jpg");
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        fs::write(&p, b"data").unwrap();
+        let after = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(result.candidates.len(), 1);
+        let mtime = result.candidates[0]
+            .mtime
+            .expect("mtime should be Some for a real file");
+        assert!(
+            mtime >= before && mtime <= after + 1,
+            "mtime {mtime} should be within the write window [{before}, {after}]"
+        );
     }
 }

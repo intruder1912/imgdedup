@@ -1,7 +1,7 @@
 # ADR-0008: Core deduplication algorithm & semantics
 
 - **Status:** accepted
-- **Date:** 2026-06-14
+- **Date:** 2026-06-14 (amended 2026-06-15: hard-link **anchor rule**)
 - **Deciders:** architect, human owner
 - **Related:** [PRD-0001](../prd/PRD-0001-exact-image-deduplication.md)
   (FR-3, FR-4, FR-5, FR-7, FR-8, FR-15, FR-16, FR-17; NFR-1, NFR-2, NFR-3;
@@ -148,11 +148,95 @@ Such files are **already deduplicated**:
   ID (file index) via `GetFileInformationByHandle` (the
   `BY_HANDLE_FILE_INFORMATION` `dwVolumeSerialNumber` + `nFileIndex{High,Low}`),
   surfaced through Rust's Windows file-metadata APIs.
-- Within a verified-duplicate group, files sharing an identity key are collapsed:
-  **at most one** representative of each identity set is ever a removal candidate,
-  and **identical-identity files are never proposed for removal, never trashed or
-  deleted on that basis, and are excluded from the reclaimable-space figure**
-  (FR-13/FR-17). They may appear as an informational note. AC-18 tests this.
+- Within a verified-duplicate group, files sharing an identity key are collapsed
+  to a single representative `FileRec`; the collapsed siblings are recorded as an
+  informational note (`HardLinkNote`) and **identical-identity files are never
+  proposed for removal, never trashed or deleted on that basis** (FR-13/FR-17).
+  AC-18 tests this.
+
+#### Anchors: a collapsed representative with surviving siblings is never removable
+
+The collapse alone is **not sufficient**. Collapsing an identity set to one
+representative leaves that representative free to be chosen as a *removable
+non-keeper* of its group — but removing it frees **nothing**, because its
+surviving in-scope siblings still pin the underlying storage. (Concretely:
+`a.jpg` ↔ `a-link.jpg` are one inode; `a-copy.jpg` is a byte-identical separate
+inode. Collapsing `{a.jpg, a-link.jpg}` to one representative and then letting
+`--keep shortest` make `a-copy.jpg` the keeper would propose removing the
+representative of the hard-linked inode — yet `a-link.jpg` still pins it, so 0
+bytes are freed, contradicting the intent above.) This ADR resolves that
+intent-vs-mechanism gap with the **anchor rule**: anchors are included in keeper
+selection so that `--keep` ranks all representatives, but if a standalone wins,
+anchors are protected to preserve the hard-link set.
+
+- **Definition.** A collapsed representative whose identity set had **≥2 scanned
+  members** — i.e. it absorbed at least one surviving in-scope sibling that is
+  *never* removed — is an **anchor**. Equivalently: the representative carries a
+  non-empty `HardLinkNote.siblings` list. A representative that is the **only
+  scanned link** to its inode (no surviving sibling) is **not** an anchor and is
+  an ordinary removal candidate.
+- **Rule.** An anchor is **never a removal candidate**. The user's `--keep` rule
+  is applied **only among the genuinely-removable** members of the group (the
+  non-anchored, single-in-scope-link `FileRec`s) to choose the **one keeper**.
+  Anchors are reported as **protected** members of the group — neither the keeper
+  (KEEP) nor removable (REMOVE) — and are excluded from the reclaimable figure.
+  This forces every anchor to the "kept" side without making it *the* keeper, so
+  the group always has **exactly one keeper, plus zero or more protected
+  anchors, plus zero or more removable copies**, and no surviving link is ever
+  proposed for removal.
+- **Reclaimable accounting.** The reclaimable-space figure counts **only the
+  sizes of files in the removable set** — bytes that actually free storage when
+  trashed/deleted. An anchor's size is **never** counted: removing one of its
+  paths leaves the inode (and its bytes) alive via the surviving sibling.
+
+##### Edge-case rulings
+
+1. **Group of only hard-link sets (every distinct inode is multiply-linked
+   in-scope).** Every representative is an anchor, so there is **no
+   genuinely-removable member** and therefore **no keeper to choose** and
+   nothing to remove. The group emits **no `KEEP`/`REMOVE` rows and 0
+   reclaimable bytes**; it is surfaced **only** as an informational
+   "already-deduplicated" note listing each inode and its links. Rationale: an
+   inode can only be reclaimed by removing **all** its in-scope links, and we
+   never remove a surviving sibling, so no inode in such a group is ever
+   reclaimable. This case must not be reported as a removal opportunity.
+
+2. **Standalone copies plus one (or more) hard-link set(s).** The `--keep` rule
+   ranks **all representatives** (both anchors and standalones) to find the minimum.
+
+   - If the minimum is an **anchor**, that anchor is the single keeper (KEEP), other
+     anchors are protected (PROTECT), and all standalone copies are removable and
+     verified against the anchor keeper. Rationale: an anchor inode always survives
+     (by definition, its sibling pins it), so every standalone copy in the same
+     content group is genuinely redundant and safely removable.
+
+   - If the minimum is a **standalone**, that standalone is the single keeper (KEEP),
+     other standalones are removable, and every anchor is protected (PROTECT). In
+     this case, reclaimable bytes may legitimately be 0 (the user chose to keep
+     the standalone while the anchor cannot be removed), but the report must
+     clearly explain this rather than saying "nothing to reclaim" flatly.
+
+3. **Determinism (NFR-3).** The anchor rule is a **total, deterministic
+   partition** computed before keeper selection: "is this representative an
+   anchor?" is a pure function of the (canonically-ordered) identity sets, with
+   no dependence on thread or hash-map order. Keeper selection then runs the
+   existing total `--keep` order over the removable subset (`min_by`), so the
+   keeper is total and reproducible. mtime is still compared at whole-second
+   resolution; the lexicographic fall-through still guarantees no "two equally
+   valid keepers" case.
+
+4. **Link count vs "had ≥2 in-scope members".** The engine uses the **in-scope
+   member count it already tracks** (a representative is an anchor iff it
+   absorbed ≥1 collapsed sibling — the existing `HardLinkNote.siblings`
+   non-emptiness). It does **not** stat the OS link count: links **outside the
+   scanned scope** are intentionally **out of scope** for this figure. This is an
+   honest, documented limitation — if an inode has additional links the scan
+   never saw, removing every *in-scope* link of a non-anchored representative may
+   still free 0 bytes on disk. We do not chase out-of-scope links (it would
+   require a second stat per file and still be racy); the reclaimable figure is
+   defined as **"bytes freed assuming the scanned scope is the whole world for
+   that inode"**, and this assumption is stated in the user guide. Within the
+   scanned scope the rule is exact.
 
 ### Magic-byte coverage (FR-3, NFR-2) — use the `infer` crate
 
@@ -177,9 +261,11 @@ than a hand-rolled signature table:
 
 ### Keeper rule + case-insensitive tie-break (FR-7/FR-8, NFR-3, AC-2/AC-6/AC-16)
 
-Exactly one keeper per group, chosen by a **total, deterministic order**. The
-`--keep` flag picks the **primary** criterion; the remaining criteria always break
-ties **in a fixed order**, so the outcome is total and reproducible:
+Exactly one keeper per group, chosen by a **total, deterministic order** among
+the group's **genuinely-removable** members (anchors are excluded from the
+candidate set per the anchor rule above). The `--keep` flag picks the
+**primary** criterion; the remaining criteria always break ties **in a fixed
+order**, so the outcome is total and reproducible:
 
 - **`--keep shortest` (default):** **fewest path segments** (shallowest), then
   **fewest characters** in the full path → then **oldest mtime** → then
@@ -251,6 +337,27 @@ CI check (AC-19).
   sniff, size-group, hash, byte-verify, identity, keeper, report/apply) are seeded
   from this pipeline after this PR. **Product-owner decision needed** on the
   duplicates-found exit code (code `3` reserved).
+
+## Amendment 2026-06-15 — hard-link anchor rule
+
+An end-to-end test of slice S1 (`detect-report`) exposed an unspecified
+interaction between hard-link collapse and the keeper rule: a collapsed
+representative of a multiply-linked inode could be chosen as a *removable*
+non-keeper, contradicting this ADR's own stated intent ("removing one frees
+nothing"; identity files "never proposed for removal"; excluded from
+reclaimable). The mechanism ("at most one representative is ever a removal
+candidate") permitted exactly that.
+
+This amendment (approved by the human owner) adds the **anchor rule** to the
+"Hard-link / file-identity detection" section above: a collapsed representative
+with surviving in-scope siblings is an **anchor**, never a removal candidate;
+`--keep` chooses the single keeper among the **genuinely-removable** members
+only; anchors are reported as protected (neither KEEP nor REMOVE) and excluded
+from reclaimable space. The four edge-case rulings (all-anchor groups,
+standalone-plus-anchor groups, determinism, in-scope-only link counting) are
+recorded there. Implementation lands under TDD as a follow-up to TASK-0304 /
+TASK-0305 / TASK-0307; the in-scope-only limitation is documented in the user
+guide.
 
 ## Pros and cons of the options
 

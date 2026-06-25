@@ -3,12 +3,9 @@
 [← Guide index](README.md)
 
 When `imgdedup` finds a group of byte-for-byte identical images, exactly one is
-designated the **keeper** and the rest are the removable duplicates. This page
-explains how the keeper is chosen and how to change the rule.
-
-> **In development.** The keeper-selection rule is being implemented; the `--keep`
-> flag is already part of the CLI surface. The behavior below is the intended
-> design (PRD-0001, [ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md)).
+designated the **keeper** (printed as `KEEP` in the report) and the rest are the
+removable duplicates (`REMOVE`). This page explains how the keeper is chosen and
+how to change the rule.
 
 ## The `--keep` rule
 
@@ -16,25 +13,110 @@ explains how the keeper is chosen and how to change the rule.
 imgdedup --keep <RULE> ./photos
 ```
 
-| Rule | Keeps the file with… |
-|---|---|
-| `shortest` (default) | the shortest path — fewest path segments, then fewest characters; ties broken by oldest modification time, then lexicographically. |
-| `oldest` | the oldest modification time first, then shortest path, then lexicographically. |
-| `newest` | the newest modification time first, then shortest path, then lexicographically. |
+Each rule is a strict, ordered list of criteria: the first criterion that
+distinguishes two files decides the keeper, and the next criterion is consulted
+only on a tie. Every rule ends in the same final tie-break, so the choice is
+always unambiguous.
 
-The rule is **deterministic**: the same inputs always select the same keeper, so
-runs are reproducible.
+| Rule | Order of criteria (first wins; later ones break ties) |
+|---|---|
+| `shortest` (default) | 1. fewest path segments (shallowest) → 2. fewest characters in the full path → 3. oldest modification time → 4. path order |
+| `oldest` | 1. oldest modification time → 2. fewest path segments → 3. fewest characters → 4. path order |
+| `newest` | 1. newest modification time → 2. fewest path segments → 3. fewest characters → 4. path order |
 
 ```sh
 # Keep the newest copy in each duplicate group.
 imgdedup --keep newest ./inbox
 ```
 
+### The final tie-break and case
+
+The last criterion ("path order") is a **byte-wise, case-sensitive** comparison of
+the full path. There is no locale-aware case folding, so an uppercase `A` (byte
+`0x41`) sorts before a lowercase `a` (byte `0x61`). This makes the choice
+identical on every platform.
+
+### Files with no modification time
+
+If a file's modification time cannot be read, it is treated as the **oldest
+possible** time. So under `shortest`/`oldest` such a file is *preferred* as the
+keeper when the time criterion is reached, and under `newest` it is the *least*
+preferred. Modification times are compared in whole seconds.
+
+### Determinism
+
+The rule is **deterministic**: the same files and the same `--keep` value always
+select the same keeper and produce the same report, regardless of the order the
+files happened to be scanned in or how many CPU cores did the work. The full rule
+and its rationale are in
+[ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md).
+
 ## Hard links are never collateral
 
-If two paths are hard links to the same physical file, they are already a single
-file on disk. `imgdedup` recognizes this and never proposes removing a hard-linked
-"copy" — only genuinely separate duplicate files are ever candidates for removal.
+If several paths are hard links to the same physical file, they are already a
+single file on disk — removing one frees no space while another link still points
+at the same content. `imgdedup` treats such a file as **already deduplicated**: it
+is never proposed for removal, never counted in reclaimable space, and never the
+removable side of a group.
+
+### Anchors and the `PROTECT` row
+
+A hard-linked file whose inode has **another scanned link** is called an
+**anchor**. An anchor is shown with a `PROTECT` label, distinct from both `KEEP`
+and `REMOVE`:
+
+```text
+Group 1/1 (2 files, 1024 bytes reclaimable):
+  KEEP  /photos/separate-copy.jpg
+  REMOVE /photos/another-separate-copy.jpg
+  PROTECT /photos/a.jpg  (hard-linked; removing it frees no space)
+  NOTE  hard-link set: /photos/a.jpg → /photos/also-a.jpg
+```
+
+- `PROTECT` files are kept but are **not** the keeper — they are simply files the
+  tool will never delete.
+- The `NOTE  hard-link set:` line lists every path that shares the same physical
+  storage.
+- Anchors are deliberately **left out of the group's file count and the
+  reclaimable-space figure** (here "2 files" = the keeper plus the one removable
+  copy; the anchor adds nothing) — counting them would overstate both, since
+  removing them frees nothing.
+
+### Hard-links and the `--keep` rule
+
+When a duplicate group contains hard-linked copies (paths to the same underlying file),
+the `--keep` rule ranks **all copies**, including those in the hard-link set.
+
+- If `--keep` selects a path in the hard-link set (e.g., `--keep shortest` picks
+  the shortest path and it belongs to a hard-linked set), the **entire hard-link
+  set is kept**, and any standalone copies become removable.
+
+- If `--keep` selects a standalone copy, that standalone is kept, and hard-linked
+  sets are protected (not removable, because removing them frees no space).
+
+**Example:** `beach.jpg` and `beach-hardlink.jpg` are hard-linked (the same file on disk).
+`beach-copy.jpg` is a separate, byte-identical copy. With `--keep shortest`:
+
+- `beach.jpg` (9 chars) is the shortest path
+- Since it's in the hard-link set, the tool keeps the entire hard-link set
+- `beach-copy.jpg` is marked for removal (freeing its space)
+
+If instead `beach-copy.jpg` were renamed to `b.jpg` (1 char, making it the shortest),
+the result would be:
+
+- `b.jpg` is kept (standalone, shortest)
+- The hard-link set (`beach.jpg`, `beach-hardlink.jpg`) is protected (not removed)
+- Reclaimable space is 0 (the hard-link set cannot be reduced further without breaking one of its paths)
+
+### A note on links outside the scan
+
+Anchor detection only sees the links that fall **within the paths you scanned**.
+If an inode has additional hard links elsewhere on disk that the scan never
+visited, the reclaimable figure is computed as if the scanned paths were the only
+links to that file. Within the scanned scope the accounting is exact; this
+in-scope-only limitation is by design (see
+[ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md), anchor
+rule).
 
 ## Next
 

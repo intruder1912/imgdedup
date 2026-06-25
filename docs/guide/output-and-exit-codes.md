@@ -5,26 +5,44 @@
 This page covers how `imgdedup` reports results and how it signals outcomes
 through its exit code.
 
-> **In development.** The human-readable report and JSON output are being
-> implemented; the `--json` and `--exit-code` flags are already part of the CLI
-> surface. The contract below is the intended design (PRD-0001,
-> [ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md)). Real
-> sample output will be added here as the report stage lands.
-
 ## Human-readable report (default)
 
-By default `imgdedup` prints a human-readable report: each duplicate group with
-its keeper and the files that would be (or were) removed, plus any files that were
-skipped with the reason.
+`imgdedup` prints a human-readable report to standard output. It has three parts,
+in this order:
+
+1. An optional `Warnings:` section listing each file that was skipped and why
+   (only present when something was skipped).
+2. One block per duplicate group: a header with the group number, its file count,
+   and its reclaimable space, then the `KEEP` line and a `REMOVE` line per
+   duplicate (plus a `PROTECT` line and a `NOTE` line for any hard-linked
+   siblings, which are kept and excluded from the counts).
+3. An optional `Already deduplicated (hard-linked)` block listing hard-link sets
+   that have nothing to reclaim (only present when such sets exist).
+4. A `Summary:` line with the totals — or `No duplicate groups found.` when there
+   is nothing to report.
+
+```text
+Warnings:
+  SKIP  /photos/locked.jpg: could not hash file: permission denied
+
+Group 1/1 (2 files, 1024 bytes reclaimable):
+  KEEP  /photos/a.jpg
+  REMOVE /photos/b.jpg
+
+Summary: 1 duplicate group, 2 files, 1024 bytes reclaimable.
+```
+
+For a fuller walkthrough of each line, see
+[Getting started](getting-started.md#reading-the-report). How the `KEEP` file is
+chosen — and why hard-linked siblings are excluded from the counts — is in
+[Choosing what to keep](choosing-what-to-keep.md).
 
 ## `--json`: machine-readable output
 
-For scripting and tooling, `--json` emits the same information as structured JSON
-instead of the human-readable report:
-
-```sh
-imgdedup --json ./photos
-```
+> **Not available yet.** The `--json` flag is present on the command line but does
+> not produce output in this release; it is coming in a later release. For now,
+> use the human-readable report above. This section will document the JSON schema
+> once it ships.
 
 ## `--exit-code`: signal "duplicates found"
 

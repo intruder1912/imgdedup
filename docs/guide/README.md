@@ -5,13 +5,12 @@ companion to the [top-level README](../../README.md): the README gives you the
 overview and a quick start, and the pages here go deep on each part of using the
 tool.
 
-> **Status: under active development (Phase 3).** Scanning, scope filtering,
-> magic-byte image confirmation, and the core content-hash deduplication engine
-> (duplicate detection) are implemented; the results report, JSON output, and the
-> trash/delete actions are not yet wired — so the tool currently scans and detects
-> duplicates internally but does not yet print duplicate groups or modify files.
-> Pages below describe the **intended** behavior and are filled out with real
-> sample output as each stage lands. See
+> **Status: under active development (Phase 3).** The **read-only
+> detect-and-report** workflow is shipped: scanning, scope filtering, magic-byte
+> image confirmation, the content-hash deduplication engine, and the
+> human-readable dry-run report. JSON output (`--json`) and the trash/delete
+> actions (`--apply` / `--delete`) are on the command line but **not functional
+> yet** — those pages mark what is not yet available. See
 > [`docs/planning/status.md`](../planning/status.md) for the live state.
 
 ## Guide pages

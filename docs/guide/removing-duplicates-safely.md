@@ -50,8 +50,10 @@ imgdedup --apply --delete ./photos
 - **Non-images are never touched.** Each candidate's content is confirmed to be a
   real image first; mislabeled or unrecognized files are skipped.
 - **Hard links are respected.** Files that are already the same physical file
-  (hard links) are never proposed for removal — see
-  [Choosing what to keep](choosing-what-to-keep.md).
+  (hard links) are never proposed for removal — they are shown as `PROTECT` and
+  excluded from reclaimable space, and a match that is only hard links is reported
+  as already-deduplicated. See
+  [Choosing what to keep](choosing-what-to-keep.md#hard-links-are-never-collateral).
 
 ## Next
 

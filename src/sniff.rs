@@ -89,17 +89,13 @@ pub const HEADER_LEN: usize = 64;
 /// A record describing a candidate that failed magic-byte confirmation.
 ///
 /// Mirrors the shape of [`enumerate::EnumerateWarning`] but is defined here so
-/// that `sniff` stays decoupled from `enumerate`'s internals. TASK-0307 will
-/// collect both warning types and surface them together in the report.
+/// that `sniff` stays decoupled from `enumerate`'s internals. Surfaced by the
+/// report stage (TASK-0307).
 #[derive(Debug, Clone)]
 pub struct SniffWarning {
     /// The path of the file that failed confirmation.
-    // TODO(TASK-0307): surfaced by the report unit.
-    #[allow(dead_code)]
     pub path: PathBuf,
     /// Human-readable reason the file was rejected.
-    // TODO(TASK-0307): surfaced by the report unit.
-    #[allow(dead_code)]
     pub reason: String,
 }
 
@@ -115,22 +111,26 @@ impl SniffWarning {
 /// A candidate that passed magic-byte confirmation, carried forward to the
 /// dedup engine (TASK-0304).
 ///
-/// Holds the `size` that [`enumerate`] already stat'd so the engine's first
-/// stage (size pre-grouping) does not have to re-stat the file — avoiding a
-/// silent double-stat and a small TOCTOU widening. Decoupled from
-/// [`enumerate::Candidate`] so the confirmed-set carrier is an explicit stage
-/// boundary rather than a reused traversal type.
+/// Holds the `size` and `mtime` that [`enumerate`] already stat'd so the
+/// engine's first stage (size pre-grouping) and the keeper rule (TASK-0305)
+/// do not have to re-stat the file — avoiding a silent double-stat and a small
+/// TOCTOU widening. Decoupled from [`enumerate::Candidate`] so the
+/// confirmed-set carrier is an explicit stage boundary rather than a reused
+/// traversal type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfirmedFile {
     /// Path to the confirmed image file.
     pub path: PathBuf,
     /// Byte size of the file, threaded through from enumeration.
     pub size: u64,
+    /// Modification time in whole Unix seconds, threaded through from
+    /// enumeration. `None` when unavailable (see [`Candidate::mtime`]).
+    pub mtime: Option<i64>,
 }
 
 impl ConfirmedFile {
-    fn new(path: PathBuf, size: u64) -> Self {
-        Self { path, size }
+    fn new(path: PathBuf, size: u64, mtime: Option<i64>) -> Self {
+        Self { path, size, mtime }
     }
 }
 
@@ -190,7 +190,7 @@ pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec
     let mut warnings = Vec::new();
 
     for candidate in candidates {
-        let Candidate { path, size } = candidate;
+        let Candidate { path, size, mtime } = candidate;
         match read_header(&path) {
             Err(e) => {
                 warnings.push(SniffWarning::new(
@@ -200,7 +200,7 @@ pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec
             }
             Ok(buf) => {
                 if is_image_header(&buf) {
-                    confirmed.push(ConfirmedFile::new(path, size));
+                    confirmed.push(ConfirmedFile::new(path, size, mtime));
                 } else {
                     let reason = if buf.is_empty() {
                         "file is empty".to_owned()
@@ -259,10 +259,17 @@ mod tests {
     }
 
     /// Wrap a path in a [`Candidate`] carrying its real on-disk size (0 if the
-    /// file does not exist), mirroring what `enumerate` produces.
+    /// file does not exist) and mtime, mirroring what `enumerate` produces.
     fn candidate(path: PathBuf) -> Candidate {
-        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        Candidate { path, size }
+        let meta = fs::metadata(&path).ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let mtime = meta.as_ref().and_then(|m| {
+            m.modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+        });
+        Candidate { path, size, mtime }
     }
 
     // ── Format-detection tests (one per format) ───────────────────────────────
@@ -599,6 +606,7 @@ mod tests {
         let (confirmed, warnings) = filter_candidates(vec![Candidate {
             path: path.clone(),
             size: expected_size,
+            mtime: None,
         }]);
 
         assert!(warnings.is_empty(), "the JPEG should confirm cleanly");
@@ -623,6 +631,32 @@ mod tests {
             warnings[0].reason.contains("could not read file header"),
             "I/O error reason expected; got: {:?}",
             warnings[0].reason
+        );
+    }
+
+    #[test]
+    fn filter_candidates_threads_mtime_into_confirmed_file() {
+        // The mtime carrier: the mtime enumerate already fetched must be
+        // threaded through into ConfirmedFile unchanged.
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_header: &[u8] = &[
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ];
+        let path = write_fixture(&dir, "mtime_thread.jpg", jpeg_header);
+        let sentinel_mtime: Option<i64> = Some(1_234_567_890);
+
+        let (confirmed, warnings) = filter_candidates(vec![Candidate {
+            path: path.clone(),
+            size: jpeg_header.len() as u64,
+            mtime: sentinel_mtime,
+        }]);
+
+        assert!(warnings.is_empty(), "the JPEG should confirm cleanly");
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(
+            confirmed[0].mtime, sentinel_mtime,
+            "ConfirmedFile.mtime must carry the enumerated mtime through unchanged"
         );
     }
 }
