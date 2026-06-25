@@ -82,27 +82,31 @@ Group 1/1 (2 files, 1024 bytes reclaimable):
   copy; the anchor adds nothing) — counting them would overstate both, since
   removing them frees nothing.
 
-### How `--keep` interacts with hard links
+### Hard-links and the `--keep` rule
 
-The `--keep` rule chooses the keeper **only among the genuinely-removable copies**
-— the separate, non-hard-linked files. Anchors are excluded from that choice up
-front: they are forced to the kept side as `PROTECT` entries, never considered for
-the `KEEP` slot. So the keeper is always one of the standalone copies, and your
-`--keep shortest` / `oldest` / `newest` preference ranks only those.
+When a duplicate group contains hard-linked copies (paths to the same underlying file),
+the `--keep` rule ranks **all copies**, including those in the hard-link set.
 
-### Already-deduplicated sets
+- If `--keep` selects a path in the hard-link set (e.g., `--keep shortest` picks
+  the shortest path and it belongs to a hard-linked set), the **entire hard-link
+  set is kept**, and any standalone copies become removable.
 
-When a match consists *only* of hard-linked copies — there is no genuinely
-separate file to remove — there is nothing to reclaim, so it is **not** reported
-as a duplicate group. It is surfaced under an informational block instead:
+- If `--keep` selects a standalone copy, that standalone is kept, and hard-linked
+  sets are protected (not removable, because removing them frees no space).
 
-```text
-Already deduplicated (hard-linked) — nothing to reclaim:
-  /photos/beach-hardlink.jpg
-    hard-linked: /photos/beach-hardlink.jpg, /photos/beach.jpg
-```
+**Example:** `beach.jpg` and `beach-hardlink.jpg` are hard-linked (the same file on disk).
+`beach-copy.jpg` is a separate, byte-identical copy. With `--keep shortest`:
 
-These entries are excluded from the duplicate-group, file, and reclaimable totals.
+- `beach.jpg` (9 chars) is the shortest path
+- Since it's in the hard-link set, the tool keeps the entire hard-link set
+- `beach-copy.jpg` is marked for removal (freeing its space)
+
+If instead `beach-copy.jpg` were renamed to `b.jpg` (1 char, making it the shortest),
+the result would be:
+
+- `b.jpg` is kept (standalone, shortest)
+- The hard-link set (`beach.jpg`, `beach-hardlink.jpg`) is protected (not removed)
+- Reclaimable space is 0 (the hard-link set cannot be reduced further without breaking one of its paths)
 
 ### A note on links outside the scan
 
