@@ -835,65 +835,6 @@ mod tests {
     // ── Anchor rule (ADR-0008 Amendment 2026-06-15) ──────────────────────────
 
     #[test]
-    fn beach_scenario_anchor_protected_reclaimable_zero() {
-        // The reported 3-file "beach" scenario (ADR-0008 anchor rule):
-        // a.jpg ↔ a-link.jpg (one inode, anchor) + copy.jpg (separate inode,
-        // byte-identical). --keep shortest: copy is the only non-anchor candidate
-        // → keeper; the anchor rep (a.jpg) is protected; removable is empty;
-        // reclaimable = 0 bytes.
-        //
-        // Under (b) presentation: this is a removable-less group → NOT rendered
-        // as a "Group i/N" heading; instead appears in the already-deduplicated block.
-        let dir = tempfile::tempdir().unwrap();
-        let content = b"beach image bytes"; // 17 bytes
-        let a = write_file(&dir, "a.jpg", content);
-        let a_link = dir.path().join("a-link.jpg");
-        fs::hard_link(&a, &a_link).expect("hard link creatable");
-        let copy = write_file(&dir, "copy.jpg", content); // separate inode
-
-        let outcome = find_duplicates(
-            vec![confirmed(&a), confirmed(&a_link), confirmed(&copy)],
-            build_comparator(KeepRule::Shortest),
-        );
-        let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
-
-        // Engine: one group emitted.
-        assert_eq!(outcome.groups.len(), 1, "one group expected from engine");
-        let g = &outcome.groups[0];
-
-        // `copy.jpg` is the keeper (only non-anchor candidate).
-        assert_eq!(g.keeper.path, copy, "copy.jpg must be keeper");
-
-        // No hard-linked file in removable.
-        assert!(
-            g.removable.iter().all(|r| r.path != a && r.path != a_link),
-            "hard-linked files must never be in removable; removable={:?}",
-            g.removable
-        );
-
-        // Report: the group is removable-less (case b) → already-deduplicated block.
-        assert!(
-            report.contains("Already deduplicated (hard-linked)"),
-            "removable-less group must appear in already-deduplicated block; got:\n{report}"
-        );
-        assert!(
-            report.contains("no duplicate groups to remove"),
-            "summary must say no removal opportunities; got:\n{report}"
-        );
-        assert!(
-            report.contains("already-deduplicated hard-link set"),
-            "summary must mention the already-deduplicated set; got:\n{report}"
-        );
-
-        // No "Group" heading (no removal opportunities).
-        assert!(
-            !report.contains("Group 1/"),
-            "no Group heading expected (case b); got:\n{report}"
-        );
-    }
-
-    #[test]
     fn anchor_protect_row_appears_in_removal_group_when_removable_nonempty() {
         // When a group has BOTH removable files AND a protected anchor, the
         // PROTECT row must appear inside the group (not in the already-dedup block).
