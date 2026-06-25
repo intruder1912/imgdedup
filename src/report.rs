@@ -51,7 +51,7 @@
 //! The renderer is kept separate from the JSON formatter (TASK-0308) so both
 //! can share the [`DedupOutcome`] model without coupling their output formats.
 
-use crate::engine::{DedupOutcome, DuplicateGroup, HardLinkNote};
+use crate::engine::{DedupOutcome, HardLinkNote};
 use crate::enumerate::EnumerateWarning;
 use crate::sniff::SniffWarning;
 use std::collections::HashSet;

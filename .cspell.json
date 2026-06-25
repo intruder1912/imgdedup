@@ -76,6 +76,7 @@
     "SIGBUS",
     "inode",
     "hardlink",
+    "standalones",
     "Cocoa",
     "osascript",
     "walkdir",
