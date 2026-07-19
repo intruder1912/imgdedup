@@ -7,10 +7,10 @@ tool.
 
 > **Status: under active development (Phase 3).** The **read-only
 > detect-and-report** workflow is shipped: scanning, scope filtering, magic-byte
-> image confirmation, the content-hash deduplication engine, and the
-> human-readable dry-run report. JSON output (`--json`) and the trash/delete
-> actions (`--apply` / `--delete`) are on the command line but **not functional
-> yet** — those pages mark what is not yet available. See
+> image confirmation, the content-hash deduplication engine, the human-readable
+> dry-run report, and machine-readable `--json` output. The trash/delete actions
+> (`--apply` / `--delete`) are on the command line but **not functional yet** —
+> those pages mark what is not yet available. See
 > [`docs/planning/status.md`](../planning/status.md) for the live state.
 
 ## Guide pages

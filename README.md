@@ -6,10 +6,11 @@ duplicate images.
 > **Status: under active development (Phase 3 — implementation).** The
 > **read-only detect-and-report** workflow is shipped: `imgdedup` scans your
 > paths, finds exact duplicate groups, and prints a human-readable dry-run report
-> showing the keeper and the files that would be removed. **JSON output
-> (`--json`) and the trash/delete actions (`--apply` / `--delete`) are part of the
-> command-line surface but are not functional yet** — they are coming in later
-> releases. So today the tool reports duplicates but never modifies any files. See
+> showing the keeper and the files that would be removed — or a machine-readable
+> document with `--json`. **The trash/delete actions (`--apply` / `--delete`) are
+> part of the command-line surface but are not functional yet** — they are coming
+> in a later release. So today the tool reports duplicates but never modifies any
+> files. See
 > [`docs/planning/status.md`](docs/planning/status.md) for the live state and
 > [`docs/planning/roadmap.md`](docs/planning/roadmap.md) for the path to v1.0.
 
@@ -101,11 +102,23 @@ imgdedup --keep oldest ./photos
 imgdedup --exit-code ./photos
 ```
 
+For scripting, `--json` emits the same results as a machine-readable JSON
+document on standard output (groups, keeper, the files that would be removed, and
+totals) instead of the human-readable report:
+
+```sh
+# Machine-readable output for a script or CI pipeline.
+imgdedup --json ./photos > result.json
+```
+
+The full JSON schema is documented in
+[Output and exit codes](docs/guide/output-and-exit-codes.md#--json-machine-readable-output).
+
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
-`--exit-code` (signal duplicates via exit status). The `--apply`, `--delete`, and
-`--json` flags exist but are **not functional yet** (coming in a later release).
-Run `imgdedup --help` for the full list.
+`--json` (machine-readable output); `--exit-code` (signal duplicates via exit
+status). The `--apply` and `--delete` flags exist but are **not functional yet**
+(coming in a later release). Run `imgdedup --help` for the full list.
 
 ## Detailed guide
 

@@ -98,7 +98,7 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0305 | [Keeper selection](tasks/TASK-0305-keeper-selection.md) (FR-7/8, NFR-3) | implementer | done | no | TASK-0304 |
 | TASK-0306 | [Concurrency & determinism](tasks/TASK-0306-concurrency-and-determinism.md) — rayon + canonical sort (NFR-3/4) | implementer | done | no | TASK-0304 |
 | TASK-0307 | [Human-readable report](tasks/TASK-0307-human-readable-report.md) (FR-9/13, FR-17) | implementer | done | yes | TASK-0305 |
-| TASK-0308 | [JSON output](tasks/TASK-0308-json-output.md) (FR-14) — **acceptance addition (resilience F3):** JSON model must include per-file warnings and root errors | implementer | todo | yes | TASK-0305 |
+| TASK-0308 | [JSON output](tasks/TASK-0308-json-output.md) (FR-14) — **acceptance addition (resilience F3):** JSON model must include per-file warnings and root errors (satisfied: `warnings` + `root_errors` are first-class in the schema) | implementer | done | yes | TASK-0305 |
 | TASK-0309 | [Trash apply + re-validation](tasks/TASK-0309-trash-apply-and-revalidation.md) (FR-10/12/16, NFR-1/6) | implementer | todo | no | TASK-0305 |
 | TASK-0310 | [Permanent delete](tasks/TASK-0310-permanent-delete.md) (FR-11) | implementer | todo | no | TASK-0309 |
 | TASK-0311 | [Exit-code semantics & `--exit-code`](tasks/TASK-0311-exit-code-semantics.md) (FR-15/18) | implementer | done | no | TASK-0307 |
