@@ -2,8 +2,8 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** implementer
-- **Status:** done (slice S2, `feature/json-output`; PO accepted FR-14/NFR-3 +
-  architect whole-slice review resolved — see
+- **Status:** done (slice S2, merged in PR #38; PO accepted FR-14/NFR-3 +
+  architect whole-slice review converged — see
   [`../reviews/json-output.md`](../reviews/json-output.md))
 - **Depends on:** TASK-0305
 - **Parallel:** yes (with TASK-0307)

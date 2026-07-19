@@ -44,7 +44,11 @@ schedule; the backlog stays the canonical task list.
   resilience review + S2 start next window. Batch 2 final (resilience review +
   F1 fix, PR #37) — ~13%; S2 core build (parked on `feature/json-output`) —
   ~20% (window closed at 97%, week 32/31). S2 finish (acceptance, docs,
-  review, PR #38) ran in the next window; actuals reconciled at merge.
+  review, PR #38, merged 2026-07-19) — ~50% of the next window (week 39/40
+  after merge). Batch 3 total ≈ 70, inside its 60–80 estimate — feature
+  slices track estimates far closer than chores did. Week remaining ≈ 60%
+  both pools: batch 4 (est. 60–80) starts a fresh window; at 2–3
+  batches/week the week supports roughly one more batch after it.
 
 ## The batches
 
@@ -53,7 +57,7 @@ schedule; the backlog stays the canonical task list.
 | 0 | Unblock `main` + this plan | chore | TASK-0215 | 15–25 | done (PR #30; actual 26%) |
 | 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | done (PRs #31, #34; actual ~25 across both) |
 | 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | done (PRs #35 + F1-fix PR; actual ~25 total; review found 1 defect, fixed) |
-| 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | in PR (2026-07-19; actuals on merge) |
+| 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | done (PR #38; actual ~70 across two windows) |
 | 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |
 | 5 | S3 — Destructive actions | feature slice | TASK-0309, TASK-0310 | 2 × 60 | todo |
 | 6 | S4 — E2E, scale & field validation | feature slice | TASK-0312, TASK-0314 | 70–90 | todo |

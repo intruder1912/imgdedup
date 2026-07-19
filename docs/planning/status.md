@@ -11,22 +11,13 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 3 / Slice S2 — JSON output (TASK-0308, this PR,
-  `feature/json-output`).** `--json` emits a stable schema_version-1 document
-  (groups with keeper/removable/protected/hard_link_sets/reclaimable_bytes,
-  already_deduplicated sets, totals, and — per resilience F3 — first-class
-  `warnings` + `root_errors`) as a second formatter over the same canonical
-  model as the human report. Product-owner accepted FR-14/NFR-3; full `--json`
-  schema reference added to `docs/guide/output-and-exit-codes.md` + README
-  usage. Architect whole-slice review: approve-with-nits; F1 (doc misstated
-  hard-link `representative` selection) fixed, F2 wording fixed, F3 edge-case
-  JSON tests added (191 tests). See
-  [`reviews/json-output.md`](reviews/json-output.md). Awaiting owner merge.
+- _Nothing — batch 3 merged (PR #38). Batch 4 starts a fresh usage window
+  (see the [batch plan](batch-plan.md) actuals log)._
 
 ## Up next
 
-Batch order per the [batch plan](batch-plan.md): Batch 3 (S2 — JSON output)
-→ then the remaining slices below. Owner decisions
+Batch order per the [batch plan](batch-plan.md): Batch 4 (test tooling &
+golden set) → then the remaining slices below. Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
@@ -52,6 +43,18 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Batch 3 / Slice S2 — JSON output (TASK-0308, PR #38, merged
+  2026-07-19).** `--json` emits a stable schema_version-1 document (groups
+  with keeper/removable/protected/hard_link_sets/reclaimable_bytes,
+  already_deduplicated sets, totals, and — per resilience F3 — first-class
+  `warnings` + `root_errors`) as a second formatter over the same canonical
+  model as the human report. Product-owner accepted FR-14/NFR-3; full
+  `--json` schema reference in `docs/guide/output-and-exit-codes.md` +
+  README usage. Architect whole-slice review approve-with-nits → converged
+  (F1 representative-selection doc fix incl. stale `engine.rs` docstring,
+  F2 wording, F3 edge-case JSON tests). 191 tests on all 3 OS platforms.
+  See [`reviews/json-output.md`](reviews/json-output.md).
 
 - **Batch 2 (final) / TASK-0216 — resilience review + F1 fix (PR #37,
   2026-07-19).** Whole-pipeline error-path review recorded in
