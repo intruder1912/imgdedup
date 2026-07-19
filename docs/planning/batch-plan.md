@@ -63,7 +63,14 @@ schedule; the backlog stays the canonical task list.
   after merge). Batch 3 total ≈ 70, inside its 60–80 estimate — feature
   slices track estimates far closer than chores did. Week remaining ≈ 60%
   both pools: batch 4 (est. 60–80) starts a fresh window; at 2–3
-  batches/week the week supports roughly one more batch after it.
+  batches/week the week supports roughly one more batch after it. Batch 4
+  (PR #41, merged 2026-07-19) — **51%** of its window (est. 60–80; leaner
+  because the unit was inline tester work with a single architect
+  review+confirm dispatch and CI passed first try). Week after merge:
+  47% general / 50% Fable 5 used. Re-scope: batch 4b (est. 45–60) does
+  **not** fit the remaining 49% of this window with margin — per the
+  owner decision it starts its own fresh window; the week supports it
+  (~10–12 weekly points at batch-4's observed burn rate).
 
 ## The batches
 
@@ -73,7 +80,7 @@ schedule; the backlog stays the canonical task list.
 | 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | done (PRs #31, #34; actual ~25 across both) |
 | 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | done (PRs #35 + F1-fix PR; actual ~25 total; review found 1 defect, fixed) |
 | 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | done (PR #38; actual ~70 across two windows) |
-| 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |
+| 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | done (PR #41; actual 51%) |
 | 4b | Progress indication (FR-19) | feature | TASK-0315 | 45–60 | todo |
 | 5 | S3 — Destructive actions | feature slice | TASK-0309, TASK-0310 | 2 × 60 | todo |
 | 6 | S4 — E2E, scale & field validation | feature slice | TASK-0312, TASK-0314 | 70–90 | todo |

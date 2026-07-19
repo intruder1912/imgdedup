@@ -2,8 +2,9 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** tester
-- **Status:** in review (batch 4, PR #41; architect pre-PR review
-  approve-with-nits, nits applied)
+- **Status:** done (batch 4, merged in PR #41; architect review
+  approve-with-nits → nits applied → pre-merge confirmation; finding
+  promoted as TASK-0316)
 - **Depends on:** TASK-0308 (`--json` is the diffed contract)
 - **Parallel:** no
 
