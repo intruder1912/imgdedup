@@ -231,6 +231,38 @@ written there. Diagnostics appear as follows:
 So a script can rely on stdout being pure JSON, while a human watching the
 terminal still sees run-level failures on stderr.
 
+## Saving results to a file
+
+There is **no dedicated output flag** — to keep a result for later, use your
+shell's **output redirection**. This works for both output formats:
+
+```sh
+imgdedup ./photos > report.txt          # save the human-readable report
+imgdedup --json ./photos > result.json  # save the machine-readable JSON
+```
+
+Redirection is reliable here because `imgdedup` keeps a strict separation between
+its two output streams:
+
+- **Standard output** carries **only** the result — the human report, or exactly
+  one JSON document with `--json`. Nothing else is ever written there.
+- **Standard error** carries diagnostics — run-level `root_errors`, and (in a
+  future release) the live progress indicator while a scan runs. Under the default
+  report the per-file `Warnings:` section prints on stdout as part of the report;
+  under `--json` those per-file problems move into the JSON `warnings` array. To
+  redirect only the result and let diagnostics stay on the terminal, capture stdout
+  as shown above.
+
+Because stdout carries nothing but the result, the redirected file stays clean: a
+`> result.json` capture is a valid JSON document you can pipe straight into a
+parser, and a `> report.txt` capture is just the report. To capture the stderr
+diagnostics too, redirect that stream as well — for example
+`imgdedup ./photos > report.txt 2> log.txt`, or `2>&1` to merge them.
+
+> A dedicated `--output <file>` flag was considered and deliberately **not** added:
+> shell redirection already covers saving results with no extra surface. See the
+> [PRD-0001 Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results).
+
 ## `--exit-code`: signal "duplicates found"
 
 Normally a successful run exits `0` whether or not duplicates were found. Pass

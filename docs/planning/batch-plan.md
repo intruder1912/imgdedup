@@ -21,6 +21,21 @@ schedule; the backlog stays the canonical task list.
 - **AI automation support** ships as an in-repo Claude **skill, slash command,
   and custom operator agent** (TASK-0218): dry-run-first, JSON-based, never
   `--delete` unattended.
+- **Progress indication (FR-19, 2026-07-19), three decisions** — from the owner's
+  manual field feedback that the running tool produces no terminal output. Now
+  specified in the
+  [PRD-0001 Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results),
+  built as batch 4b / **TASK-0315**:
+  1. **Progress UX** — a live indicator on **stderr** (phase, `x of y`, %),
+     **default-on**, auto-disabling its in-place render when stderr is not a TTY
+     (falling back to occasional plain, log-friendly lines), with `--no-progress`
+     to force it off. Stdout stays pure in all modes (including `--json`).
+  2. **Stored results = shell redirection, no new flag.**
+     `imgdedup … --json > result.json` — stdout carries only the report/JSON,
+     diagnostics + progress go to stderr. A dedicated `--output` flag was
+     **considered and explicitly deferred** (a PRD non-goal, not a task).
+  3. **Scheduling** — spec now, **build in a fresh usage window as its own unit**;
+     do **not** start implementation ahead of that window.
 
 ## Limits governance (all batches)
 
@@ -59,6 +74,7 @@ schedule; the backlog stays the canonical task list.
 | 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | done (PRs #35 + F1-fix PR; actual ~25 total; review found 1 defect, fixed) |
 | 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | done (PR #38; actual ~70 across two windows) |
 | 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |
+| 4b | Progress indication (FR-19) | feature | TASK-0315 | 45–60 | todo |
 | 5 | S3 — Destructive actions | feature slice | TASK-0309, TASK-0310 | 2 × 60 | todo |
 | 6 | S4 — E2E, scale & field validation | feature slice | TASK-0312, TASK-0314 | 70–90 | todo |
 | 7 | Release flow → v0.1.0 (private) | chore/feature | TASK-0202, TASK-0203, TASK-0211 | 60–80 | todo |
@@ -77,6 +93,15 @@ schedule; the backlog stays the canonical task list.
 - Batch 9 after 3 — the operator agent drives the tool via `--json`.
 - Batch 8 can slot anywhere after 7's docs impact is known; kept late so the
   pass covers final behavior.
+- **Batch 4b (progress, FR-19) after batch 3** — progress must coexist with the
+  `--json` stdout-purity contract shipped in S2 (batch 3), so it starts only once
+  JSON output has landed (depends on TASK-0308). It is **independent of the
+  S3/S4 release-critical path** and can float relative to batches 4/5/6 — but it
+  should land **before batch 7 (v0.1.0)** so the first release ships decent
+  interactive UX. The owner reorders at will; per the owner it is scheduled to
+  build in a **fresh usage window as its own unit** (do not start ahead of that).
+  The stored-results doc note (redirection) documents existing behavior and ships
+  now, decoupled from this batch.
 
 Slice mechanics (branching, in-progress reviews, PR-open gates) are unchanged
 from [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md); this plan only

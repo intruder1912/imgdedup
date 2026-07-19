@@ -60,6 +60,10 @@ Explicitly out of scope for this PRD (YAGNI; some are future phases):
   reserved for a future `--sniff-all` flag (see §10).
 - Moving duplicates to a user-specified quarantine folder — the chosen removal
   model is the OS trash.
+- A dedicated `--output <file>` flag for saving results — deferred. Shell
+  redirection of stdout (`imgdedup … --json > result.json`) is the supported
+  mechanism, because stdout already carries only the report/JSON and all
+  diagnostics go to stderr (see the [Amendment 2026-07-19](#amendment-2026-07-19--progress-indication--stored-results)).
 - GUI, image preview/thumbnails, EXIF-based logic, config files, and watch/daemon
   modes.
 
@@ -139,6 +143,31 @@ User stories:
   can detect duplicates without parsing output. Without the flag, a successful run
   exits `0` regardless of findings (see FR-15). The flag changes only the exit
   status — never what is scanned, grouped, or removed.
+- **FR-19 (Amendment 2026-07-19):** While a scan runs, show **live progress on
+  standard error** so the user can see the tool is working and how far along it
+  is. The indicator conveys both (a) the **overall problem size** — the number of
+  candidate files to be checked, known once enumeration completes — and (b)
+  **ongoing progress** as `x of y` files done plus a **percentage**, labeled with
+  the current phase (e.g. scanning → hashing → verifying; user-facing phase names,
+  not an implementation contract). Progress is **output-only**: it never changes
+  what is scanned, grouped, or removed (like `--json`), and it is written **only
+  to stderr — never to stdout, in any mode (including `--json`)**, so redirected
+  stdout stays a pure report/JSON document (the S2 stdout-purity contract). It is
+  **enabled by default** and **auto-adapts to the terminal**:
+  - When stderr is an **interactive terminal (TTY)**, it renders as a **single line
+    updated in place** (redrawn as counts advance).
+  - When stderr is **not a TTY** (piped, redirected, or captured by CI/logs), the
+    in-place updater is **disabled automatically**; instead it emits **occasional
+    plain, newline-terminated progress lines** — no carriage returns or ANSI
+    control codes — at coarse milestones (phase transitions and bounded percentage
+    steps), so logs stay readable and bounded.
+  - `--no-progress` **disables progress output entirely** (both the TTY and
+    non-TTY paths); nothing progress-related is written to stderr.
+
+  Before enumeration finishes the total `y` is not yet known, so the indicator may
+  show a counting/indeterminate state and switch to `x of y` + percentage once the
+  denominator is fixed. Progress output is **excluded from the determinism/parity
+  guarantees** (NFR-3 governs stdout content only; see §7).
 
 ## 7. Non-functional requirements
 
@@ -149,7 +178,10 @@ User stories:
 - **NFR-2 (no collateral damage):** A non-image is never trashed or deleted;
   magic-byte confirmation (FR-3) precedes every destructive action.
 - **NFR-3 (determinism):** For a given filesystem state and flags, results and
-  keeper choices are identical across runs and platforms.
+  keeper choices are identical across runs and platforms. This guarantee governs
+  **stdout content only** (the report / `--json` document); the FR-19 progress
+  stream on stderr is explicitly excluded from determinism and parity (Amendment
+  2026-07-19).
 - **NFR-4 (scale):** Comfortably process large libraries — on the order of 100k+
   images and hundreds of gigabytes — by streaming file reads (no whole-file
   buffering in memory) and hashing in parallel across CPU cores. Concrete
@@ -183,6 +215,7 @@ Actions (default is dry-run / report only):
 Output:
   --json              Machine-readable output
   --exit-code         Exit 3 if any duplicate groups were found (else 0)
+  --no-progress       Disable the live progress indicator on stderr
 ```
 
 Behavior:
@@ -198,6 +231,12 @@ Behavior:
 - **`--exit-code`:** opt-in; the tool exits `3` when duplicate groups were found
   and `0` when none were, so scripts/CI can detect duplicates without parsing
   output. Without it, a successful run exits `0` regardless of findings.
+- **Progress (Amendment 2026-07-19):** by default a live progress indicator on
+  **stderr** shows the phase, `x of y` files, and a percentage while the run works
+  (a single line redrawn in place on a TTY; occasional plain lines when stderr is
+  redirected). It never writes to stdout, so `imgdedup … > out` and
+  `imgdedup … --json > out.json` capture only the report/JSON. `--no-progress`
+  turns it off.
 - **Errors:** per-file problems are listed and skipped; the overall run still
   completes and summarizes. Exit non-zero only on a run-level failure.
 
@@ -254,6 +293,25 @@ Behavior:
 - **AC-19 (FR-18):** Given `--exit-code`, when a scan finds duplicate groups the
   tool exits `3`; when it finds none it exits `0`; and without `--exit-code` a
   successful run exits `0` even when duplicates are present.
+- **AC-20 (FR-19, stdout purity):** Given progress is enabled (default), when a
+  run completes — in either the default report mode or with `--json` — then
+  **stdout contains exactly the report/JSON document and no progress text**; all
+  progress output appears on stderr only. Redirecting stdout to a file therefore
+  yields a clean report/JSON.
+- **AC-21 (FR-19, TTY):** Given stderr is an interactive terminal, when a scan
+  runs, then a **live single-line** progress indicator is shown on stderr
+  reporting the current phase, `x of y` files, and a percentage, where `y` is the
+  count of candidate files to check (known after enumeration).
+- **AC-22 (FR-19, non-TTY fallback):** Given stderr is **not** a TTY (redirected
+  or piped), when a scan runs, then **no in-place redraw / carriage-return / ANSI
+  control sequences** are emitted; progress instead appears as occasional plain,
+  newline-terminated lines (log-friendly and bounded), or is otherwise absent.
+- **AC-23 (FR-19, opt-out):** Given `--no-progress`, when a scan runs, then **no
+  progress output is written to stderr at all**, and stdout is unchanged.
+- **AC-24 (FR-19, output-only):** Given identical inputs and flags, the groups,
+  keeper, intended removals, and the **stdout report/JSON are identical** whether
+  progress is enabled, disabled (`--no-progress`), or on the non-TTY fallback path
+  — progress affects neither the results nor stdout (NFR-3 unaffected).
 
 ## 10. Open questions
 
@@ -305,3 +363,52 @@ Handed to the architect (Phase 2) unless noted:
 - **Dependencies:** technology-stack ADR (TASK-0201) and design ADRs (hashing,
   cross-platform trash, concurrency) depend on this PRD; implementation tasks are
   seeded into the backlog once those ADRs land.
+
+## Amendment 2026-07-19 — progress indication & stored results
+
+The human owner ran the shipped tool manually on a real folder and gave direct
+product feedback: while the program runs there is **no terminal output at all**,
+so there is no sense of (a) how big the job is, or (b) how far along it is; and
+they wanted a way to **keep the results in a file** to view or process later. The
+orchestrator brainstormed the intent with the owner, who made three decisions
+(2026-07-19), recorded here and reflected in FR-19, AC-20..AC-24, §4, §7 (NFR-3),
+and §8 above.
+
+**Owner decision 1 — progress UX.** A live progress indicator is added, on
+**stderr**, default-on, showing the phase, `x of y` files, and a percentage. It
+**auto-disables its in-place rendering when stderr is not a TTY**, falling back to
+occasional plain, newline-terminated progress lines (log-friendly; no carriage
+returns / ANSI control codes), and `--no-progress` turns it off entirely.
+Formalized as **FR-19** with acceptance criteria **AC-20..AC-24**. Because stdout
+purity is a shipped contract (slice S2, `docs/guide/output-and-exit-codes.md`),
+progress must go to stderr **only** and must never interleave into stdout in any
+mode — including `--json`. Progress is output-only (it changes nothing about what
+is scanned, grouped, or removed) and is excluded from the NFR-3 determinism/parity
+guarantees, which cover stdout content only.
+
+**Owner decision 2 — stored results via redirection, no new flag.** Saving results
+to a file is supported through **shell redirection of stdout**, not a dedicated
+flag:
+
+```sh
+# Human-readable report saved to a file.
+imgdedup ./photos > report.txt
+
+# Machine-readable results saved for a script or later processing.
+imgdedup --json ./photos > result.json
+```
+
+This works precisely because stdout carries **only** the report/JSON while all
+diagnostics (warnings, run-level errors, and the new FR-19 progress) go to stderr,
+so the redirected file stays clean. A dedicated **`--output <file>` flag was
+considered and explicitly deferred** (YAGNI): redirection already covers the need
+with zero new surface. Recorded as a non-goal in §4; it is intentionally **not** a
+backlog task. If a future need arises (e.g. writing a file while also printing a
+human summary to the terminal), it can be revisited in a new PRD/ADR.
+
+**Owner decision 3 — scheduling.** FR-19 is specified now but **built in a fresh
+usage window as its own unit** (implementer, TDD) — see
+[TASK-0315](../planning/tasks/TASK-0315-progress-indication.md) and batch 4b in
+the [batch plan](../planning/batch-plan.md). Implementation must not start ahead of
+that window. The stored-results guidance documents **existing** behavior and ships
+immediately in the README and user guide.

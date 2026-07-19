@@ -105,6 +105,7 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0312 | [E2E acceptance & NFR-4 scale/benchmark](tasks/TASK-0312-e2e-acceptance-and-scale-benchmark.md) (AC-1..19, NFR-4) | tester | todo | no | TASK-0307, TASK-0308, TASK-0309, TASK-0310, TASK-0311 |
 | TASK-0313 | Test-data generator & golden-set oracle harness: deterministic tiny images per supported format + duplicate/near-miss trees with expected-manifest diff against `--json` (task spec written when batch 4 starts) | tester | todo | no | TASK-0308 |
 | TASK-0314 | Real-photo field validation: read-only dry-run + `--json` sanity pass on a copied ~500–1k photo subset; pre-release gate, originals untouched | tester | todo | no | TASK-0312 |
+| TASK-0315 | [Progress indication](tasks/TASK-0315-progress-indication.md) (FR-19) — live stderr progress (phase, x/y, %), TTY-aware with non-TTY fallback, default-on + `--no-progress`, stdout-pure incl. `--json` | implementer | todo | no | TASK-0308 |
 
 ### PRD-0001 delivery slices
 
@@ -162,3 +163,11 @@ TASK-0312 depends on all). S2 and S3 both depend only on S1, so they *could* be
 worked in either order or concurrently on separate branches; the table orders them
 JSON-before-destructive to ship the lower-risk capability first. Each slice rebases
 on `main` after the previous one merges (ADR-0013).
+
+**Post-S1 amendment feature — FR-19 progress indication (TASK-0315).** The
+[Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results)
+added FR-19 (live stderr progress) after the original slice carve. It is a single
+coherent FR, so it ships as **its own one-unit feature branch/PR** rather than
+joining a slice — it depends on TASK-0308 (S2) because progress must coexist with
+the `--json` stdout-purity contract. It is independent of the S3/S4
+release-critical path (see the [batch plan](batch-plan.md) batch 4b).
