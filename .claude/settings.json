@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make validate *)",
+      "Bash(make mdlint *)",
+      "Bash(make spell *)",
+      "Bash(make links *)",
+      "Bash(make build *)",
+      "Bash(make test *)",
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo metadata *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git fetch *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh run view *)",
+      "Bash(gh run list *)",
+      "Bash(gh api repos/* --jq *)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)"
+    ]
+  }
+}

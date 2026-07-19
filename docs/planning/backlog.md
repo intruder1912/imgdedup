@@ -45,18 +45,18 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0201 | Author technology-stack selection ADR (fully open comparison) | architect | done | no | TASK-0101 |
 | TASK-0202 | Author licensing ADR — **owner decided GPL-3.0 (2026-07-19)**; repo stays private for now, ADR formalizes before any public flip | architect | todo | yes | TASK-0007 |
 | TASK-0203 | Wire full semantic-release publishing; resolve push to protected `main` (release bot / GitHub App or release-as-asset) — flips dry-run off | architect | todo | no | TASK-0201 |
-| TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening) | architect | todo | yes | TASK-0007 |
+| TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening; incl. gitleaks image version pin) | architect | done | yes | TASK-0007 |
 | TASK-0205 | Evaluate replacing cspell with `typos` for spell checking | architect | todo | yes | TASK-0007 |
 | TASK-0206 | Promote link check (lychee) from informational to a required CI gate | architect | todo | yes | TASK-0007 |
 | TASK-0207 | Add language toolchain: build, format, lint, test, coverage threshold, local git hooks; wire into `make validate` and CI — **folded into [TASK-0301](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md)** | implementer | done (by TASK-0301) | no | TASK-0201 |
 | TASK-0208 | Add CodeQL + dependency audit for the chosen language | architect | todo | no | TASK-0201 |
-| TASK-0209 | Add Dependabot package ecosystem for the chosen stack | architect | todo | yes | TASK-0201 |
-| TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | todo | yes | TASK-0007 |
+| TASK-0209 | Add Dependabot package ecosystem for the chosen stack (cargo, weekly, `build` prefix) | architect | done | yes | TASK-0201 |
+| TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | done | yes | TASK-0007 |
 | TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases | architect | todo | no | TASK-0203, TASK-0207 |
 | TASK-0212 | [Unit-of-work cadence & planning gate](tasks/TASK-0212-process-unit-of-work-cadence.md) (implements [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md); `ci-gate` + path-filtered Rust matrix) | architect | done | no | — |
 | TASK-0213 | [Documentation ownership & guide structure](tasks/TASK-0213-documentation-ownership.md) (ADR-0012: product-owner owns user docs; README = general, `docs/guide/` = detailed) | product-owner | done | no | TASK-0212 |
 | TASK-0214 | [PRD-slice delivery cadence & in-progress review protocol](tasks/TASK-0214-prd-slice-delivery-cadence.md) (ADR-0013: feature unit = PRD slice; in-progress reviews + acceptance/docs PR-open gate) | architect | done | no | TASK-0212 |
-| TASK-0215 | Unblock `main`: fix MD032 in S1 review log; pin markdownlint-cli2/cspell/markdown-link-check versions in CI, Makefile, validate.sh (stops lint-tool drift) | architect | in-progress | no | — |
+| TASK-0215 | Unblock `main`: fix MD032 in S1 review log; pin markdownlint-cli2/cspell/markdown-link-check versions in CI, Makefile, validate.sh (stops lint-tool drift) | architect | done | no | — |
 | TASK-0216 | Dependency & toolchain refresh + resilience review: Rust stable bump, crate bumps (infer et al.), inline error-path/resilience review with findings promoted to tasks | architect | todo | no | TASK-0215 |
 | TASK-0217 | Docs consistency pass: README + `docs/guide/` + process docs + AI docs (`CLAUDE.md`, `.claude/agents/`) reconciled with shipped behavior | product-owner | todo | no | TASK-0203 |
 | TASK-0218 | AI automation support: in-repo Claude usage skill + slash command + `imgdedup-operator` agent (dry-run-first, `--json`-driven, no unattended `--delete`) | architect | todo | no | TASK-0308 |
