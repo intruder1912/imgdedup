@@ -114,6 +114,21 @@ imgdedup --json ./photos > result.json
 The full JSON schema is documented in
 [Output and exit codes](docs/guide/output-and-exit-codes.md#--json-machine-readable-output).
 
+### Saving results to a file
+
+To keep a result for later, **redirect standard output** — there is no separate
+output flag. It works for both the human report and `--json` because stdout
+carries only the report/JSON while run-level errors go to standard error, so the
+saved file stays a clean report or valid JSON document:
+
+```sh
+imgdedup ./photos > report.txt         # human-readable report
+imgdedup --json ./photos > result.json # machine-readable results
+```
+
+See [Saving results to a file](docs/guide/output-and-exit-codes.md#saving-results-to-a-file)
+for details.
+
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
 `--json` (machine-readable output); `--exit-code` (signal duplicates via exit

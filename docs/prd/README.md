@@ -19,6 +19,6 @@ architecture ([ADRs](../adr/)) and implementation.
 
 | PRD | Title | Status |
 |---|---|---|
-| [PRD-0001](PRD-0001-exact-image-deduplication.md) | Exact image deduplication (scope, UX, safety) | in review |
+| [PRD-0001](PRD-0001-exact-image-deduplication.md) | Exact image deduplication (scope, UX, safety) | approved |
 
 > Status values: `draft` → `in review` → `approved` → `superseded`.
