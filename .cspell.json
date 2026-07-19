@@ -11,6 +11,8 @@
   "dictionaries": ["en_US", "softwareTerms", "filetypes", "misc"],
   "words": [
     "actuals",
+    "RUSTSEC",
+    "crossbeam",
     "imgdedup",
     "dedup",
     "deduplication",

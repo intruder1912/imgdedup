@@ -49,7 +49,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0205 | Evaluate replacing cspell with `typos` for spell checking | architect | todo | yes | TASK-0007 |
 | TASK-0206 | Promote link check (lychee) from informational to a required CI gate | architect | todo | yes | TASK-0007 |
 | TASK-0207 | Add language toolchain: build, format, lint, test, coverage threshold, local git hooks; wire into `make validate` and CI — **folded into [TASK-0301](tasks/TASK-0301-crate-scaffold-cli-surface-toolchain.md)** | implementer | done (by TASK-0301) | no | TASK-0201 |
-| TASK-0208 | Add CodeQL + dependency audit for the chosen language | architect | todo | no | TASK-0201 |
+| TASK-0208 | Dependency audit (reframed per ADR-0007): cargo-deny in CI covering RUSTSEC advisories (supersedes standalone cargo-audit), licenses, bans, sources; `deny.toml` + `make deny`; fixed RUSTSEC-2026-0204 (crossbeam-epoch → 0.9.20) | architect | done | no | TASK-0201 |
 | TASK-0209 | Add Dependabot package ecosystem for the chosen stack (cargo, weekly, `build` prefix) | architect | done | yes | TASK-0201 |
 | TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | done | yes | TASK-0007 |
 | TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases | architect | todo | no | TASK-0203, TASK-0207 |
