@@ -45,7 +45,7 @@ schedule; the backlog stays the canonical task list.
 | # | Batch | Unit | Tasks | Est. 5h % | Status |
 |---|---|---|---|---|---|
 | 0 | Unblock `main` + this plan | chore | TASK-0215 | 15–25 | done (PR #30; actual 26%) |
-| 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | done (PRs #31, #32; actual ~25 across both) |
+| 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | done (PRs #31, #34; actual ~25 across both) |
 | 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | todo |
 | 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | todo |
 | 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |
