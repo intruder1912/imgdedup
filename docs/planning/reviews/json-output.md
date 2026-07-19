@@ -3,8 +3,7 @@
 - **PRD:** [PRD-0001](../../prd/PRD-0001-exact-image-deduplication.md)
 - **Slice scope:** TASK-0308 — `--json` machine-readable output (FR-14 / AC-8,
   NFR-3), a second formatter over the same canonical model as the human report.
-- **Status:** converged — PO acceptance recorded, Review 1 findings resolved;
-  PR open, awaiting owner merge
+- **Status:** closed — converged and merged (PR #38, 2026-07-19)
 
 In-progress review log for this slice
 ([ADR-0013](../../adr/0013-prd-slice-delivery-cadence.md)). One entry per review;
