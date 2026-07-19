@@ -8,7 +8,12 @@
     "*.lock",
     "package-lock.json"
   ],
-  "dictionaries": ["en_US", "softwareTerms", "filetypes", "misc"],
+  "dictionaries": [
+    "en_US",
+    "softwareTerms",
+    "filetypes",
+    "misc"
+  ],
   "words": [
     "actuals",
     "RUSTSEC",
@@ -99,7 +104,8 @@
     "kaizen",
     "dogfood",
     "dogfoods",
-    "dogfooding"
+    "dogfooding",
+    "inodes"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",
