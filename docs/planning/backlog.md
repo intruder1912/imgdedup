@@ -103,9 +103,10 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0310 | [Permanent delete](tasks/TASK-0310-permanent-delete.md) (FR-11) | implementer | todo | no | TASK-0309 |
 | TASK-0311 | [Exit-code semantics & `--exit-code`](tasks/TASK-0311-exit-code-semantics.md) (FR-15/18) | implementer | done | no | TASK-0307 |
 | TASK-0312 | [E2E acceptance & NFR-4 scale/benchmark](tasks/TASK-0312-e2e-acceptance-and-scale-benchmark.md) (AC-1..19, NFR-4) | tester | todo | no | TASK-0307, TASK-0308, TASK-0309, TASK-0310, TASK-0311 |
-| TASK-0313 | Test-data generator & golden-set oracle harness: deterministic tiny images per supported format + duplicate/near-miss trees with expected-manifest diff against `--json` (task spec written when batch 4 starts) | tester | todo | no | TASK-0308 |
+| TASK-0313 | [Test-data generator & golden-set oracle harness](tasks/TASK-0313-golden-set-oracle.md): deterministic tiny images per supported format + duplicate/near-miss trees with expected-manifest diff against `--json` | tester | in review | no | TASK-0308 |
 | TASK-0314 | Real-photo field validation: read-only dry-run + `--json` sanity pass on a copied ~500–1k photo subset; pre-release gate, originals untouched | tester | todo | no | TASK-0312 |
 | TASK-0315 | [Progress indication](tasks/TASK-0315-progress-indication.md) (FR-19) — live stderr progress (phase, x/y, %), TTY-aware with non-TTY fallback, default-on + `--no-progress`, stdout-pure incl. `--json` | implementer | todo | no | TASK-0308 |
+| TASK-0316 | Lone fully-hard-linked sets (one inode, no separate copy) appear nowhere in output, while the guide's `already_deduplicated` wording implies they are listed — golden-set finding (TASK-0313); product-owner decides: surface them in engine or narrow the guide/schema wording | product-owner | todo | no | TASK-0313 |
 
 ### PRD-0001 delivery slices
 

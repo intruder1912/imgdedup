@@ -99,7 +99,8 @@
     "kaizen",
     "dogfood",
     "dogfoods",
-    "dogfooding"
+    "dogfooding",
+    "inodes"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",

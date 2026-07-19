@@ -11,8 +11,18 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing — batch 3 merged (PR #38). Batch 4 starts a fresh usage window
-  (see the [batch plan](batch-plan.md) actuals log)._
+- **Batch 4 — test tooling & golden set
+  ([TASK-0313](tasks/TASK-0313-golden-set-oracle.md), tester-led)** on branch
+  `test/golden-set-oracle`: deterministic tiny-image generator (all 8
+  magic-byte signatures), golden-tree builder with explicit mtimes, and an
+  oracle harness diffing real `imgdedup --json` runs against hand-derived
+  expected manifests (`tests/support/` + `tests/golden_set.rs`; test-only, no
+  production code). 7 scenarios green locally; architect review
+  approve-with-nits → converged; **PR #41 open**, awaiting CI + owner merge. **First-run finding promoted
+  to backlog as TASK-0316:** lone fully-hard-linked sets appear nowhere in
+  output while the guide's `already_deduplicated` wording implies they are
+  listed — pinned in the golden manifest; product-owner to decide
+  surface-vs-reword.
 
 ## Up next
 
@@ -26,9 +36,10 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 **Slice cadence is now in force (ADR-0013).** S1 (detect-report) is shipped. Remaining PRD-0001 work is delivered as **three remaining coherent shippable slices** (S2, S3, S4), each a single branch → granular commits → one squash PR/release. The full slice map (contained tasks, per-slice user value, and PR-open acceptance) lives in the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md).
 
-- **Next: Batch 4 — test tooling & golden set** (TASK-0313, tester-led):
-  deterministic test-data generator + golden-set oracle harness diffing
-  `--json` output (task spec written when the batch starts).
+- **Next after batch 4:** batch 4b (progress indication, TASK-0315, own fresh
+  window) and the release-path slices below; TASK-0316 (hard-link
+  surfacing-vs-wording decision) is product-owner work that can ride any
+  upcoming unit.
 - **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 + TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). Each slice rebases on `main` after previous merges. **The `--exit-code` binary-level E2E test (AC-19) is deferred to S4** per S1 architect review.
 - **New: Batch 4b — progress indication (FR-19, TASK-0315).** Owner field feedback (2026-07-19): the running tool shows no terminal output. Now spec'd as [PRD-0001 Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results): a live **stderr** progress indicator (phase, `x of y`, %), default-on, TTY-aware with a plain non-TTY fallback and `--no-progress` opt-out; stdout stays pure in all modes (incl. `--json`). Ships as its **own one-unit feature branch** after batch 3 (coexists with `--json`), independent of the S3/S4 release path but ideally before v0.1.0. Owner decision: **build in a fresh usage window** — do not start ahead of it. Stored results use **stdout redirection** (`--json > result.json`), no new flag; a `--output` flag was considered and deferred. The redirection **doc note ships now** (documents existing behavior).
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an
