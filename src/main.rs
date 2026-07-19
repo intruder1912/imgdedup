@@ -5,6 +5,7 @@ mod cli;
 mod engine;
 mod enumerate;
 mod exit_code;
+mod json;
 mod keeper;
 mod report;
 mod sniff;
@@ -70,13 +71,23 @@ fn run(args: cli::Cli) -> i32 {
     // sorted before returning (ADR-0010).
     let dedup = engine::find_duplicates(confirmed, keeper::build_comparator(args.keep));
 
-    // Stage 4 — Human-readable report (FR-9/FR-13/FR-17/NFR-6, TASK-0307).
-    // Render a dry-run summary to stdout. No filesystem mutation here either —
-    // --apply / --delete are TASK-0309/TASK-0310 and handled after this report.
-    if !args.json {
-        let rendered = report::render(&dedup, &candidate_set.warnings, &sniff_warnings);
-        print!("{rendered}");
-    }
+    // Stage 4 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
+    // the same canonical model; no filesystem mutation in either — --apply /
+    // --delete are TASK-0309/TASK-0310 and handled after this report.
+    // JSON carries the diagnostics too (resilience F3): warnings and
+    // root_errors are part of the document, while root errors additionally
+    // went to stderr above (F1) so stdout stays one valid JSON document.
+    let rendered = if args.json {
+        json::render(
+            &dedup,
+            &candidate_set.warnings,
+            &sniff_warnings,
+            &candidate_set.root_errors,
+        )
+    } else {
+        report::render(&dedup, &candidate_set.warnings, &sniff_warnings)
+    };
+    print!("{rendered}");
 
     // TODO(TASK-0309/0310): act on `dedup.groups` under --apply / --delete.
 

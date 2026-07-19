@@ -195,3 +195,18 @@ fn nonexistent_root_prints_error_to_stderr_and_exits_1() {
         .code(1)
         .stderr(predicates::str::contains("not/a/real/path-imgdedup-f1"));
 }
+
+/// `--json` must emit a single valid JSON document on stdout (FR-14, AC-8),
+/// with the stable top-level fields present.
+#[test]
+fn json_flag_emits_valid_json_document() {
+    let out = cmd().arg(".").arg("--json").output().unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("--json stdout must parse as JSON");
+    assert_eq!(v["schema_version"], 1);
+    assert!(v["groups"].is_array());
+    assert!(v["totals"].is_object());
+    assert!(v["warnings"].is_array());
+    assert!(v["root_errors"].is_array());
+}
