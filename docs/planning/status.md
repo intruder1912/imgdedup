@@ -11,15 +11,16 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 1 (final) / TASK-0208 — dependency audit gate (this PR).**
-  cargo-deny wired in: `deny.toml` (advisories = RUSTSEC, GPL-3.0-compatible
-  license allow-list, bans, sources), a SHA-pinned `cargo-deny` job in
-  `security.yml`, and `make deny` locally. First audit run found and fixed a
-  real vulnerability: **RUSTSEC-2026-0204** (crossbeam-epoch 0.9.18 via
-  rayon) → `cargo update -p crossbeam-epoch` → 0.9.20. `Cargo.toml` gains
-  `publish = false` (private repo; also lets cargo-deny skip the still-`TBD`
-  own-crate license until TASK-0202). **Owner: after merge, consider adding
-  `cargo-deny` to the required checks on `main`** alongside `secret-scan`.
+- **Batch 2 (refresh half) / TASK-0216 — toolchain & dependency refresh
+  (this PR).** Rust 1.93.1 → **1.97.1** (latest stable), edition 2021 →
+  **2024** (`cargo fix --edition` needed zero source changes; new style
+  edition applied via rustfmt; one new let-chains-era clippy lint fixed by
+  collapsing a redundant nested `if` in `engine.rs` — the outer `any` check
+  duplicated the inner `find`). All direct deps confirmed already at latest
+  stable (crates.io check); `cargo update` refreshed 26 transitives and
+  slimmed the lockfile 114 → 87 packages (an obsolete wasm/wit build-tooling
+  tree dropped out). fmt/clippy `-D warnings`/tests/deny all green. **The resilience/error-path review half of TASK-0216 runs next
+  window** per the batch plan's usage-limit split.
 
 ## Up next
 

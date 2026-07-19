@@ -132,7 +132,7 @@ fn cmp_newest(a: &FileRec, b: &FileRec) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::{find_duplicates, DedupOutcome, FileRec};
+    use crate::engine::{DedupOutcome, FileRec, find_duplicates};
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;

@@ -57,7 +57,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0213 | [Documentation ownership & guide structure](tasks/TASK-0213-documentation-ownership.md) (ADR-0012: product-owner owns user docs; README = general, `docs/guide/` = detailed) | product-owner | done | no | TASK-0212 |
 | TASK-0214 | [PRD-slice delivery cadence & in-progress review protocol](tasks/TASK-0214-prd-slice-delivery-cadence.md) (ADR-0013: feature unit = PRD slice; in-progress reviews + acceptance/docs PR-open gate) | architect | done | no | TASK-0212 |
 | TASK-0215 | Unblock `main`: fix MD032 in S1 review log; pin markdownlint-cli2/cspell/markdown-link-check versions in CI, Makefile, validate.sh (stops lint-tool drift) | architect | done | no | — |
-| TASK-0216 | Dependency & toolchain refresh + resilience review: Rust stable bump, crate bumps (infer et al.), inline error-path/resilience review with findings promoted to tasks | architect | todo | no | TASK-0215 |
+| TASK-0216 | Dependency & toolchain refresh + resilience review: Rust stable bump, crate bumps (infer et al.), inline error-path/resilience review with findings promoted to tasks — refresh half done (Rust 1.97.1, edition 2024, transitives); resilience review remains | architect | in-progress | no | TASK-0215 |
 | TASK-0217 | Docs consistency pass: README + `docs/guide/` + process docs + AI docs (`CLAUDE.md`, `.claude/agents/`) reconciled with shipped behavior | product-owner | todo | no | TASK-0203 |
 | TASK-0218 | AI automation support: in-repo Claude usage skill + slash command + `imgdedup-operator` agent (dry-run-first, `--json`-driven, no unattended `--delete`) | architect | todo | no | TASK-0308 |
 

@@ -473,16 +473,14 @@ where
 
         // Add hard-link siblings of ALL anchors (including keeper)
         for note in &hl_notes {
-            if anchors.iter().any(|(r, _)| r.path == note.representative) {
-                if let Some(rep) = anchors.iter().find(|(r, _)| r.path == note.representative) {
-                    for sibling_path in &note.siblings {
-                        protected.push(FileRec {
-                            path: sibling_path.clone(),
-                            size: rep.0.size,
-                            mtime: rep.0.mtime,
-                            hash: rep.0.hash,
-                        });
-                    }
+            if let Some(rep) = anchors.iter().find(|(r, _)| r.path == note.representative) {
+                for sibling_path in &note.siblings {
+                    protected.push(FileRec {
+                        path: sibling_path.clone(),
+                        size: rep.0.size,
+                        mtime: rep.0.mtime,
+                        hash: rep.0.hash,
+                    });
                 }
             }
         }
@@ -860,7 +858,7 @@ mod tests {
         let b1 = write(&dir, "b1", b"beta-longer"); // different size
         let b2 = write(&dir, "b2", b"beta-longer"); // dup of b1
         let c = write(&dir, "c", b"unique-gamma!"); // unique
-                                                    // Two same-size-but-different-content files (size 5 like alpha):
+        // Two same-size-but-different-content files (size 5 like alpha):
         let d = write(&dir, "d", b"delta"); // 5 bytes, != alpha
         let files = vec![cf(&a1), cf(&a2), cf(&b1), cf(&b2), cf(&c), cf(&d)];
 
