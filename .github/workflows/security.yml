@@ -28,9 +28,22 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect --source=/repo --redact --no-banner --verbose
 
+  # Rust dependency audit (TASK-0208). cargo-deny covers RUSTSEC advisories
+  # (superseding a standalone cargo-audit) plus license, bans, and source
+  # checks — config in deny.toml. Runs on every PR/push like secret-scan;
+  # it reads only Cargo.lock/deny.toml, so doc-only runs are cheap.
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Audit dependencies (advisories, licenses, bans, sources)
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+          rust-version: stable
+
   # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,
-  # which is unavailable on free private repositories. Dependency hygiene is
-  # currently provided by Dependabot; a language-level dependency audit
-  # (e.g. cargo audit / npm audit) is added with the stack in Phase 2
-  # (TASK-0208 / TASK-0209). Re-enable dependency-review if GHAS becomes
-  # available or the repository is made public.
+  # which is unavailable on free private repositories. Dependency-review is
+  # instead covered by Dependabot + the cargo-deny job above. Re-enable
+  # dependency-review if GHAS becomes available or the repository goes public.

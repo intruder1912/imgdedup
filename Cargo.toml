@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Find and remove duplicate images"
 repository = "https://github.com/intruder1912/imgdedup"
+# License decided GPL-3.0 (owner, 2026-07-19); SPDX id lands with the
+# TASK-0202 licensing ADR. Not publishable until then.
 license = "TBD"
+publish = false
 
 [[bin]]
 name = "imgdedup"

@@ -8,7 +8,7 @@
 # rust-toolchain.toml).
 
 .DEFAULT_GOAL := help
-.PHONY: help validate mdlint spell links build test fmt lint coverage
+.PHONY: help validate mdlint spell links build test fmt lint coverage deny
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -38,6 +38,9 @@ build: ## Build the binary (debug)
 
 test: ## Run all Rust tests
 	cargo test
+
+deny: ## Audit dependencies (advisories/licenses/bans/sources; needs cargo-deny installed)
+	cargo deny check
 
 fmt: ## Check Rust formatting (use `cargo fmt` to auto-fix)
 	cargo fmt --check

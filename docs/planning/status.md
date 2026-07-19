@@ -11,15 +11,15 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 1 (partial) / TASK-0204 + TASK-0209 + TASK-0210 — supply-chain
-  hardening (this PR).** All GitHub Actions across `ci.yml`/`security.yml`
-  SHA-pinned to their release commits (Dependabot keeps updating the pins);
-  the gitleaks scan image pinned `latest` → `v8.30.1`; Dependabot `cargo`
-  ecosystem enabled (weekly, `build` prefix); committed
-  `.claude/settings.json` permission allowlist (safe build/test/git/gh
-  read-write commands only — no `rm`, no broad `npx`). **TASK-0208
-  (cargo-audit + cargo-deny CI) deliberately deferred to the next 5h window**
-  per the batch plan's usage-limit split.
+- **Batch 1 (final) / TASK-0208 — dependency audit gate (this PR).**
+  cargo-deny wired in: `deny.toml` (advisories = RUSTSEC, GPL-3.0-compatible
+  license allow-list, bans, sources), a SHA-pinned `cargo-deny` job in
+  `security.yml`, and `make deny` locally. First audit run found and fixed a
+  real vulnerability: **RUSTSEC-2026-0204** (crossbeam-epoch 0.9.18 via
+  rayon) → `cargo update -p crossbeam-epoch` → 0.9.20. `Cargo.toml` gains
+  `publish = false` (private repo; also lets cargo-deny skip the still-`TBD`
+  own-crate license until TASK-0202). **Owner: after merge, consider adding
+  `cargo-deny` to the required checks on `main`** alongside `secret-scan`.
 
 ## Up next
 

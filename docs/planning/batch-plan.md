@@ -35,14 +35,17 @@ schedule; the backlog stays the canonical task list.
   design- and review-heavy steps; use Sonnet for mechanical TDD/doc work.
 - **Actuals log:** Batch 0 — 26% of 5h window (est. 15–25; one extra CI
   round-trip for the cspell@10 Node-22 requirement). Week of 2026-07-19 after
-  batch 0: 27% general / 23% Fable 5.
+  batch 0: 27% general / 23% Fable 5. Batch 1 part 1 (PR #31) — 11% (window
+  at 37%, week 28/25). Both batch-1 halves ran in the same window as batch 0,
+  well under the 50–70 estimate — chore batches are cheaper than planned;
+  feature-slice estimates stay as-is until measured.
 
 ## The batches
 
 | # | Batch | Unit | Tasks | Est. 5h % | Status |
 |---|---|---|---|---|---|
 | 0 | Unblock `main` + this plan | chore | TASK-0215 | 15–25 | done (PR #30; actual 26%) |
-| 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | in-progress (split: 0204/0209/0210 in one PR this window; 0208 next window) |
+| 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | done (PRs #31, #32; actual ~25 across both) |
 | 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | todo |
 | 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | todo |
 | 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |

@@ -1,0 +1,36 @@
+# cargo-deny configuration (TASK-0208, ADR-0005 security gate).
+# Checks: advisories (RUSTSEC db — supersedes a standalone cargo-audit),
+# licenses, bans, sources. CI runs this on every code PR (security.yml);
+# locally: `make deny` (requires cargo-deny: brew install cargo-deny).
+
+[graph]
+all-features = true
+
+[advisories]
+# Defaults: vulnerabilities are errors; unmaintained/unsound/yanked warn.
+
+[licenses]
+# Dependency licenses must be GPL-3.0-compatible (owner decision 2026-07-19;
+# formalized as the project license in TASK-0202). Everything currently in the
+# tree is permissive.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "Unlicense",
+  "CC0-1.0",
+  "Zlib",
+  "Unicode-3.0",
+]
+# imgdedup itself is publish = false and licensed via TASK-0202 (GPL-3.0).
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
