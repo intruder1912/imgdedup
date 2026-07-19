@@ -57,8 +57,8 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0213 | [Documentation ownership & guide structure](tasks/TASK-0213-documentation-ownership.md) (ADR-0012: product-owner owns user docs; README = general, `docs/guide/` = detailed) | product-owner | done | no | TASK-0212 |
 | TASK-0214 | [PRD-slice delivery cadence & in-progress review protocol](tasks/TASK-0214-prd-slice-delivery-cadence.md) (ADR-0013: feature unit = PRD slice; in-progress reviews + acceptance/docs PR-open gate) | architect | done | no | TASK-0212 |
 | TASK-0215 | Unblock `main`: fix MD032 in S1 review log; pin markdownlint-cli2/cspell/markdown-link-check versions in CI, Makefile, validate.sh (stops lint-tool drift) | architect | done | no | — |
-| TASK-0216 | Dependency & toolchain refresh + resilience review: Rust stable bump, crate bumps (infer et al.), inline error-path/resilience review with findings promoted to tasks — refresh half done (Rust 1.97.1, edition 2024, transitives); resilience review remains | architect | in-progress | no | TASK-0215 |
-| TASK-0217 | Docs consistency pass: README + `docs/guide/` + process docs + AI docs (`CLAUDE.md`, `.claude/agents/`) reconciled with shipped behavior | product-owner | todo | no | TASK-0203 |
+| TASK-0216 | Dependency & toolchain refresh + resilience review — refresh (PR #35: Rust 1.97.1, edition 2024, transitives) + [resilience review](reviews/resilience-2026-07.md) (finding F1 silent-root-error defect fixed in the same unit; F3→TASK-0308, F8→TASK-0312/0314) | architect | done | no | TASK-0215 |
+| TASK-0217 | Docs consistency pass: README + `docs/guide/` + process docs + AI docs (`CLAUDE.md`, `.claude/agents/`) reconciled with shipped behavior; unify stderr diagnostic prefix (`error:` vs bare message — resilience review nit) | product-owner | todo | no | TASK-0203 |
 | TASK-0218 | AI automation support: in-repo Claude usage skill + slash command + `imgdedup-operator` agent (dry-run-first, `--json`-driven, no unattended `--delete`) | architect | todo | no | TASK-0308 |
 
 > **Phase 2 design ADRs landed:** TASK-0201 produced
@@ -98,7 +98,7 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0305 | [Keeper selection](tasks/TASK-0305-keeper-selection.md) (FR-7/8, NFR-3) | implementer | done | no | TASK-0304 |
 | TASK-0306 | [Concurrency & determinism](tasks/TASK-0306-concurrency-and-determinism.md) — rayon + canonical sort (NFR-3/4) | implementer | done | no | TASK-0304 |
 | TASK-0307 | [Human-readable report](tasks/TASK-0307-human-readable-report.md) (FR-9/13, FR-17) | implementer | done | yes | TASK-0305 |
-| TASK-0308 | [JSON output](tasks/TASK-0308-json-output.md) (FR-14) | implementer | todo | yes | TASK-0305 |
+| TASK-0308 | [JSON output](tasks/TASK-0308-json-output.md) (FR-14) — **acceptance addition (resilience F3):** JSON model must include per-file warnings and root errors | implementer | todo | yes | TASK-0305 |
 | TASK-0309 | [Trash apply + re-validation](tasks/TASK-0309-trash-apply-and-revalidation.md) (FR-10/12/16, NFR-1/6) | implementer | todo | no | TASK-0305 |
 | TASK-0310 | [Permanent delete](tasks/TASK-0310-permanent-delete.md) (FR-11) | implementer | todo | no | TASK-0309 |
 | TASK-0311 | [Exit-code semantics & `--exit-code`](tasks/TASK-0311-exit-code-semantics.md) (FR-15/18) | implementer | done | no | TASK-0307 |

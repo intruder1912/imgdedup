@@ -183,3 +183,15 @@ fn all_scope_flags_accepted() {
         .assert()
         .code(0);
 }
+
+/// A nonexistent scan root must exit 1 AND explain itself on stderr
+/// (run-level error, ADR-0008; resilience review 2026-07 finding F1 —
+/// previously the run failed silently).
+#[test]
+fn nonexistent_root_prints_error_to_stderr_and_exits_1() {
+    cmd()
+        .arg("/definitely/not/a/real/path-imgdedup-f1")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("not/a/real/path-imgdedup-f1"));
+}

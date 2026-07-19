@@ -45,6 +45,16 @@ fn run(args: cli::Cli) -> i32 {
     // Stage 1 — Enumerate candidate files (ADR-0008, TASK-0302).
     let candidate_set = enumerate::enumerate(&args.paths, &scope);
 
+    // Run-level errors (an unscannable root) must be *visible*, not just
+    // reflected in the exit code (resilience review 2026-07, finding F1).
+    // Printed to stderr so they survive stdout redirection and stay out of
+    // the machine-readable stdout surface (--json, TASK-0308). The run still
+    // continues over the remaining roots and exits 1 at the end (partial
+    // results plus an explicit failure signal).
+    for err in &candidate_set.root_errors {
+        eprintln!("error: {}: {}", err.path.display(), err.reason);
+    }
+
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
     // Hand the enumerated candidates (path + size) to the sniff predicate.
     // Candidates that fail confirmation are dropped and recorded as

@@ -49,7 +49,7 @@ schedule; the backlog stays the canonical task list.
 |---|---|---|---|---|---|
 | 0 | Unblock `main` + this plan | chore | TASK-0215 | 15–25 | done (PR #30; actual 26%) |
 | 1 | Security & supply chain | chore | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | done (PRs #31, #34; actual ~25 across both) |
-| 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | in-progress (split: toolchain/deps/edition refresh this window; resilience review next) |
+| 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | done (PRs #35 + F1-fix PR; actual ~25 total; review found 1 defect, fixed) |
 | 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | todo |
 | 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |
 | 5 | S3 — Destructive actions | feature slice | TASK-0309, TASK-0310 | 2 × 60 | todo |
