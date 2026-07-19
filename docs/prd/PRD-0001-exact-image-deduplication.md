@@ -1,6 +1,6 @@
 # PRD-0001: Exact image deduplication
 
-- **Status:** accepted
+- **Status:** approved
 - **Owner:** product-owner
 - **Created:** 2026-06-13
 - **Related:** [roadmap Phase 1](../planning/roadmap.md), [backlog TASK-0101](../planning/backlog.md), [TEMPLATE](TEMPLATE.md); hands open questions to the architect (TASK-0201 technology-stack ADR and design ADRs)
@@ -305,7 +305,9 @@ Behavior:
 - **AC-22 (FR-19, non-TTY fallback):** Given stderr is **not** a TTY (redirected
   or piped), when a scan runs, then **no in-place redraw / carriage-return / ANSI
   control sequences** are emitted; progress instead appears as occasional plain,
-  newline-terminated lines (log-friendly and bounded), or is otherwise absent.
+  newline-terminated lines (log-friendly and bounded) — at minimum a
+  problem-size line once enumeration completes and a completion line, so a
+  captured log always evidences the run's scale and finish.
 - **AC-23 (FR-19, opt-out):** Given `--no-progress`, when a scan runs, then **no
   progress output is written to stderr at all**, and stdout is unchanged.
 - **AC-24 (FR-19, output-only):** Given identical inputs and flags, the groups,
