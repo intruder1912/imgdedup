@@ -11,23 +11,14 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 4 — test tooling & golden set
-  ([TASK-0313](tasks/TASK-0313-golden-set-oracle.md), tester-led)** on branch
-  `test/golden-set-oracle`: deterministic tiny-image generator (all 8
-  magic-byte signatures), golden-tree builder with explicit mtimes, and an
-  oracle harness diffing real `imgdedup --json` runs against hand-derived
-  expected manifests (`tests/support/` + `tests/golden_set.rs`; test-only, no
-  production code). 7 scenarios green locally; architect review
-  approve-with-nits → converged; **PR #41 open**, awaiting CI + owner merge. **First-run finding promoted
-  to backlog as TASK-0316:** lone fully-hard-linked sets appear nowhere in
-  output while the guide's `already_deduplicated` wording implies they are
-  listed — pinned in the golden manifest; product-owner to decide
-  surface-vs-reword.
+- _Nothing — batch 4 merged (PR #41). Batch 4b (progress indication,
+  TASK-0315) starts a fresh usage window per the owner decision (see the
+  [batch plan](batch-plan.md) actuals log)._
 
 ## Up next
 
-Batch order per the [batch plan](batch-plan.md): Batch 4 (test tooling &
-golden set) → then the remaining slices below. Owner decisions
+Batch order per the [batch plan](batch-plan.md): Batch 4b (progress
+indication, fresh window) → then the remaining slices below. Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
@@ -36,10 +27,10 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 **Slice cadence is now in force (ADR-0013).** S1 (detect-report) is shipped. Remaining PRD-0001 work is delivered as **three remaining coherent shippable slices** (S2, S3, S4), each a single branch → granular commits → one squash PR/release. The full slice map (contained tasks, per-slice user value, and PR-open acceptance) lives in the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md).
 
-- **Next after batch 4:** batch 4b (progress indication, TASK-0315, own fresh
-  window) and the release-path slices below; TASK-0316 (hard-link
-  surfacing-vs-wording decision) is product-owner work that can ride any
-  upcoming unit.
+- **Next: batch 4b (progress indication, TASK-0315)** in its own fresh usage
+  window (owner decision), then the release-path slices below. TASK-0316
+  (hard-link surfacing-vs-wording decision from the batch-4 golden-set
+  finding) is product-owner work that can ride any upcoming unit.
 - **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 + TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). Each slice rebases on `main` after previous merges. **The `--exit-code` binary-level E2E test (AC-19) is deferred to S4** per S1 architect review.
 - **New: Batch 4b — progress indication (FR-19, TASK-0315).** Owner field feedback (2026-07-19): the running tool shows no terminal output. Now spec'd as [PRD-0001 Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results): a live **stderr** progress indicator (phase, `x of y`, %), default-on, TTY-aware with a plain non-TTY fallback and `--no-progress` opt-out; stdout stays pure in all modes (incl. `--json`). Ships as its **own one-unit feature branch** after batch 3 (coexists with `--json`), independent of the S3/S4 release path but ideally before v0.1.0. Owner decision: **build in a fresh usage window** — do not start ahead of it. Stored results use **stdout redirection** (`--json > result.json`), no new flag; a `--output` flag was considered and deferred. The redirection **doc note ships now** (documents existing behavior).
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an
@@ -55,6 +46,25 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Batch 4 / TASK-0313 — test-data generator & golden-set oracle (PR #41,
+  merged 2026-07-19).** Deterministic tiny-image generator for all 8
+  supported magic-byte signatures (`image_bytes(format, seed, len)` — pure
+  function, byte-identical across runs/platforms), golden-tree builder with
+  explicit mtimes + hard links, and an oracle harness diffing real
+  `imgdedup --json` runs against **hand-derived** expected manifests
+  (`tests/support/` + `tests/golden_set.rs`; test-only unit). 7 scenarios:
+  per-format pipeline coverage, near-misses with positive control,
+  mislabeled/empty files, all three `--keep` rules, hard-link
+  protected/already-deduplicated semantics, NFR-3 byte-identical stdout,
+  generator meta-tests. Architect review approve-with-nits → converged +
+  pre-merge confirmation; first JSON-level hard-link assertions green on
+  Windows CI. **Oracle's first run found a doc-vs-behavior gap → TASK-0316**
+  (lone fully-hard-linked sets absent from output vs guide
+  `already_deduplicated` wording; product-owner to decide surface-vs-reword;
+  current behavior pinned in the golden manifest). S4 (TASK-0312) reuses the
+  generator for AC/scale coverage. See
+  [`tasks/TASK-0313-golden-set-oracle.md`](tasks/TASK-0313-golden-set-oracle.md).
 
 - **Batch 3 / Slice S2 — JSON output (TASK-0308, PR #38, merged
   2026-07-19).** `--json` emits a stable schema_version-1 document (groups
