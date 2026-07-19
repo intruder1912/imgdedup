@@ -416,6 +416,98 @@ mod tests {
     }
 
     #[test]
+    fn engine_stage_warning_renders() {
+        let dir = TempDir::new().unwrap();
+        let mut outcome = outcome_from(&dir, &[("a.jpg", b"same"), ("b.jpg", b"same")]);
+        outcome.warnings.push(crate::engine::EngineWarning {
+            path: PathBuf::from("gone.jpg"),
+            reason: "read failed during verify".into(),
+        });
+        let v = parse(&render(&outcome, &[], &[], &[]));
+        let warnings = v["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0]["stage"], "engine");
+        assert_eq!(warnings[0]["path"], "gone.jpg");
+        assert_eq!(warnings[0]["reason"], "read failed during verify");
+    }
+
+    /// ADR-0008 anchor rule: an all-anchor group (≥2 distinct inodes, every
+    /// one multiply-linked in scope) emits no duplicate group — its sets
+    /// surface as `already_deduplicated` and stay out of `totals`.
+    #[test]
+    #[cfg(unix)]
+    fn already_deduplicated_sets_are_populated_and_excluded_from_totals() {
+        let dir = TempDir::new().unwrap();
+        let mut confirmed = Vec::new();
+        for name in ["a.jpg", "b.jpg"] {
+            let orig = dir.path().join(name);
+            fs::write(&orig, b"linked-bytes").unwrap();
+            let link = dir.path().join(format!("{name}.link.jpg"));
+            fs::hard_link(&orig, &link).unwrap();
+            let size = fs::metadata(&orig).unwrap().len();
+            for p in [orig, link] {
+                confirmed.push(crate::sniff::ConfirmedFile {
+                    path: p,
+                    size,
+                    mtime: Some(1),
+                });
+            }
+        }
+        let outcome = find_duplicates(confirmed, build_comparator(KeepRule::Shortest));
+        let v = parse(&render(&outcome, &[], &[], &[]));
+        assert_eq!(v["groups"].as_array().unwrap().len(), 0);
+        let already = v["already_deduplicated"].as_array().unwrap();
+        assert_eq!(already.len(), 2);
+        assert!(
+            already[0]["representative"]
+                .as_str()
+                .unwrap()
+                .ends_with("a.jpg")
+        );
+        assert_eq!(already[0]["siblings"].as_array().unwrap().len(), 1);
+        assert_eq!(v["totals"]["duplicate_groups"], 0);
+        assert_eq!(v["totals"]["removable_files"], 0);
+        assert_eq!(v["totals"]["reclaimable_bytes"], 0);
+        assert_eq!(v["totals"]["already_deduplicated_sets"], 2);
+    }
+
+    /// ADR-0008 anchor rule: a keeper plus a protected anchor (hard-linked
+    /// elsewhere in scope) still renders as a group — with empty `removable`
+    /// and `reclaimable_bytes: 0` — matching the human report's `Group i/N`.
+    #[test]
+    #[cfg(unix)]
+    fn keeper_plus_protected_only_group_renders_with_empty_removable() {
+        let dir = TempDir::new().unwrap();
+        let standalone = dir.path().join("a.jpg");
+        fs::write(&standalone, b"same-bytes").unwrap();
+        let anchor = dir.path().join("bb.jpg");
+        fs::write(&anchor, b"same-bytes").unwrap();
+        let anchor_link = dir.path().join("bb-link.jpg");
+        fs::hard_link(&anchor, &anchor_link).unwrap();
+        let confirmed = [&standalone, &anchor, &anchor_link]
+            .into_iter()
+            .map(|p| crate::sniff::ConfirmedFile {
+                path: p.clone(),
+                size: fs::metadata(p).unwrap().len(),
+                mtime: Some(1),
+            })
+            .collect();
+        let outcome = find_duplicates(confirmed, build_comparator(KeepRule::Shortest));
+        let v = parse(&render(&outcome, &[], &[], &[]));
+        let groups = v["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1);
+        let g = &groups[0];
+        assert!(g["keeper"]["path"].as_str().unwrap().ends_with("a.jpg"));
+        assert_eq!(g["removable"].as_array().unwrap().len(), 0);
+        // The anchor's whole link set is protected: bb.jpg and bb-link.jpg.
+        assert_eq!(g["protected"].as_array().unwrap().len(), 2);
+        assert_eq!(g["reclaimable_bytes"], 0);
+        assert_eq!(v["totals"]["duplicate_groups"], 1);
+        assert_eq!(v["totals"]["removable_files"], 0);
+        assert_eq!(v["totals"]["reclaimable_bytes"], 0);
+    }
+
+    #[test]
     fn hard_link_set_attaches_to_group() {
         #[cfg(unix)]
         {
