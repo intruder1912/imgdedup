@@ -38,7 +38,10 @@ schedule; the backlog stays the canonical task list.
   batch 0: 27% general / 23% Fable 5. Batch 1 part 1 (PR #31) — 11% (window
   at 37%, week 28/25). Both batch-1 halves ran in the same window as batch 0,
   well under the 50–70 estimate — chore batches are cheaper than planned;
-  feature-slice estimates stay as-is until measured.
+  feature-slice estimates stay as-is until measured. Batch 1 part 2 (PR #34) —
+  11% (window 48%, week 29/26). Batch 2 refresh half (PR #35) — 10% (window
+  58%, week 30/28). Four batches' worth of chores fit one window; the
+  resilience review + S2 start next window.
 
 ## The batches
 

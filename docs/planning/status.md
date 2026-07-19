@@ -11,22 +11,14 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 2 (refresh half) / TASK-0216 — toolchain & dependency refresh
-  (this PR).** Rust 1.93.1 → **1.97.1** (latest stable), edition 2021 →
-  **2024** (`cargo fix --edition` needed zero source changes; new style
-  edition applied via rustfmt; one new let-chains-era clippy lint fixed by
-  collapsing a redundant nested `if` in `engine.rs` — the outer `any` check
-  duplicated the inner `find`). All direct deps confirmed already at latest
-  stable (crates.io check); `cargo update` refreshed 26 transitives and
-  slimmed the lockfile 114 → 87 packages (an obsolete wasm/wit build-tooling
-  tree dropped out). fmt/clippy `-D warnings`/tests/deny all green. **The resilience/error-path review half of TASK-0216 runs next
-  window** per the batch plan's usage-limit split.
+(None in flight. **Next: Batch 2, second half** — the TASK-0216
+resilience/error-path review across enumerate → sniff → engine → report,
+findings promoted to backlog tasks; then Batch 3 = slice S2, JSON output.)
 
 ## Up next
 
-Batch order per the [batch plan](batch-plan.md): Batch 1 (security & supply
-chain: TASK-0204/0208/0209/0210) → Batch 2 (dependency/toolchain refresh +
-resilience review: TASK-0216) → then the feature slices below. Owner decisions
+Batch order per the [batch plan](batch-plan.md): finish Batch 2 (resilience
+review) → Batch 3 (S2) → then the feature slices below. Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
@@ -50,6 +42,23 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Batch 2 (refresh half) / TASK-0216 — toolchain & dependency refresh
+  (PR #35, 2026-07-19).** Rust 1.93.1 → **1.97.1**, edition 2021 → **2024**
+  (zero source changes needed; style-edition rustfmt applied; one new clippy
+  `collapsible_if` fixed in `engine.rs`, architect-verified
+  semantics-preserving). All direct deps at latest stable; `cargo update`
+  slimmed the lockfile 114 → 87 packages. The resilience/error-path review
+  half of TASK-0216 remains next.
+
+- **Batch 1 / TASK-0204 + 0208 + 0209 + 0210 — security & supply chain
+  (PRs #31, #34, 2026-07-19).** All actions SHA-pinned + gitleaks image
+  digest-pinned; cargo Dependabot enabled (first fruits: clap 4.6.2 in #32,
+  infer 0.22.0 in #33, both merged); committed `.claude/settings.json`
+  allowlist; cargo-deny audit gate (`deny.toml`, `make deny`, CI job) whose
+  first run caught and fixed **RUSTSEC-2026-0204** (crossbeam-epoch → 0.9.20).
+  **Owner added `cargo-deny` to `main`'s required checks (2026-07-19)** —
+  the audit is now a hard merge gate.
 
 - **Batch 0 / TASK-0215 — `main` unblocked (PR #30, 2026-07-19).** Fixed the
   MD032 that a drifted markdownlint release flagged in
@@ -190,8 +199,9 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- _None currently._ (ADR-0011 branch-protection swap completed 2026-06-14; `main`
-  now requires `ci-gate` plus the doc/security checks.)
+- _None currently._ (`main` requires `ci-gate`, `markdownlint`, `spellcheck`,
+  `structure`, `pr-title`, `secret-scan`, and `cargo-deny` — the last added by
+  the owner 2026-07-19 after PR #34.)
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
