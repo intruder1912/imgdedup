@@ -17,7 +17,7 @@ jobs:
     name: secret-scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
       # Run the gitleaks CLI via its official image (no GitHub API integration,
@@ -25,7 +25,7 @@ jobs:
       # Scans the full git history; non-zero exit = leaks found = job fails.
       - name: Scan for secrets (gitleaks)
         run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect --source=/repo --redact --no-banner --verbose
 
   # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,

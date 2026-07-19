@@ -1,7 +1,6 @@
 version: 2
 updates:
-  # GitHub Actions used in workflows. The package ecosystem for the product
-  # stack (e.g. cargo / npm / pip / gomod) is added in Phase 2 once chosen.
+  # GitHub Actions used in workflows (SHA-pinned; Dependabot updates the pins).
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -11,4 +10,15 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    open-pull-requests-limit: 5
+  # Rust crate dependencies (stack chosen in ADR-0007; TASK-0209).
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "build"
+    labels:
+      - "dependencies"
+      - "rust"
     open-pull-requests-limit: 5

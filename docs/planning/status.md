@@ -11,14 +11,15 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 0 / TASK-0215 — unblock `main` (this PR).** `main` had gone red for
-  every new PR: the unpinned `npx -y markdownlint-cli2` drifted to a version
-  flagging a pre-existing MD032 in `reviews/detect-report.md:420`, failing the
-  required `markdownlint` check (first seen on Dependabot PR #29). This PR
-  fixes the MD032 and pins markdownlint-cli2\@0.23.1, cspell\@10.0.1, and
-  markdown-link-check\@3.14.2 in `ci.yml`, `Makefile`, and
-  `scripts/validate.sh`. **After merge: re-run checks on PR #29 — it should go
-  green for the owner to merge.**
+- **Batch 1 (partial) / TASK-0204 + TASK-0209 + TASK-0210 — supply-chain
+  hardening (this PR).** All GitHub Actions across `ci.yml`/`security.yml`
+  SHA-pinned to their release commits (Dependabot keeps updating the pins);
+  the gitleaks scan image pinned `latest` → `v8.30.1`; Dependabot `cargo`
+  ecosystem enabled (weekly, `build` prefix); committed
+  `.claude/settings.json` permission allowlist (safe build/test/git/gh
+  read-write commands only — no `rm`, no broad `npx`). **TASK-0208
+  (cargo-audit + cargo-deny CI) deliberately deferred to the next 5h window**
+  per the batch plan's usage-limit split.
 
 ## Up next
 
@@ -48,6 +49,14 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Batch 0 / TASK-0215 — `main` unblocked (PR #30, 2026-07-19).** Fixed the
+  MD032 that a drifted markdownlint release flagged in
+  `reviews/detect-report.md`; pinned markdownlint-cli2\@0.23.1,
+  cspell\@10.0.1, markdown-link-check\@3.14.2 across CI/Makefile/validate.sh;
+  CI Node 20 → 22 (cspell\@10 requires ≥22.18). Landed the owner-approved
+  [batch plan](batch-plan.md). Dependabot PR #29 (setup-node 6→7) went green
+  and merged right after.
 
 - **Slice S1 — Detect & report (read-only)** (TASK-0305 + TASK-0306 + TASK-0307 + TASK-0311) — **MERGED in PR #25 (2026-06-25)**. First end-to-end usable increment: `imgdedup <paths>` scans, detects exact-duplicate groups, prints deterministic dry-run report with real `--keep {shortest|oldest|newest}` rule and opt-in `--exit-code`. Nothing on disk changes. Delivered all FRs/NFRs and resolved architect Review 3 with **ADR-0008 Amendment 2026-06-15** (anchor rule: collapsed hard-link representatives with in-scope siblings are never removable, protected in output). 178 tests passing (all 3 OS platforms). See [`reviews/detect-report.md`](reviews/detect-report.md).
 
