@@ -135,10 +135,13 @@ fn every_supported_format_flows_the_full_pipeline() {
 /// AC: files that *look* like duplicate candidates but are not byte-identical
 /// never group — same format+size with different content (hash pre-filter),
 /// same format with different size (size pre-grouping), and a different
-/// format at the same size (content differs from byte 0).
+/// format at the same size (content differs from byte 0). A genuine pair in
+/// the same tree acts as the positive control: it proves the tree was
+/// scanned, so the near-miss absences cannot pass vacuously (review nit F1).
 #[test]
 fn near_misses_never_form_groups() {
     let dir = tempfile::tempdir().expect("tempdir");
+    let control = image_bytes(ImageFormat::Png, 4, 64);
     materialize(
         dir.path(),
         &[
@@ -146,11 +149,23 @@ fn near_misses_never_form_groups() {
             spec("b.png", image_bytes(ImageFormat::Png, 2, 64), T),
             spec("c.png", image_bytes(ImageFormat::Png, 1, 96), T),
             spec("d.bmp", image_bytes(ImageFormat::Bmp, 3, 64), T),
+            spec("e1.png", control.clone(), T),
+            spec("e2.png", control, T),
         ],
         &[],
     );
 
-    let expected = manifest(vec![], vec![], totals(0, 0, 0, 0));
+    // Only the control pair groups (equal depth and chars, equal mtime →
+    // lexicographic tie-break keeps `e1.png`); every near-miss stays out.
+    let expected = manifest(
+        vec![plain_group(
+            file("e1.png", 64, T),
+            vec![file("e2.png", 64, T)],
+            64,
+        )],
+        vec![],
+        totals(1, 1, 64, 0),
+    );
 
     let actual = run_json(dir.path(), &[]);
     assert_json_eq(&actual, &expected);
