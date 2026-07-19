@@ -13,6 +13,8 @@
     "actuals",
     "RUSTSEC",
     "crossbeam",
+    "mtimes",
+    "sniffable",
     "imgdedup",
     "dedup",
     "deduplication",

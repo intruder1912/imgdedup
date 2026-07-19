@@ -11,14 +11,19 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-(None in flight. **Next: Batch 2, second half** — the TASK-0216
-resilience/error-path review across enumerate → sniff → engine → report,
-findings promoted to backlog tasks; then Batch 3 = slice S2, JSON output.)
+- **Batch 2 (final) / TASK-0216 — resilience review + F1 fix (this PR).**
+  Whole-pipeline error-path review recorded in
+  [`reviews/resilience-2026-07.md`](reviews/resilience-2026-07.md). Core
+  verdict: all I/O failures degrade safely (warn + never-remove). One defect
+  (F1): a nonexistent/unreadable scan root exited 1 **silently** — fixed:
+  root errors now print to stderr (`error: <path>: <reason>`), regression
+  test added (179 tests). F3 adds a JSON-diagnostics acceptance note to
+  TASK-0308; F8 rides S4 field validation.
 
 ## Up next
 
-Batch order per the [batch plan](batch-plan.md): finish Batch 2 (resilience
-review) → Batch 3 (S2) → then the feature slices below. Owner decisions
+Batch order per the [batch plan](batch-plan.md): Batch 3 (S2 — JSON output)
+→ then the remaining slices below. Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
