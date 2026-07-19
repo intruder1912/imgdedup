@@ -17,7 +17,8 @@ docs pass → AI automation, batched within Claude usage limits.
   magic-byte signatures), golden-tree builder with explicit mtimes, and an
   oracle harness diffing real `imgdedup --json` runs against hand-derived
   expected manifests (`tests/support/` + `tests/golden_set.rs`; test-only, no
-  production code). 7 scenarios green locally. **First-run finding promoted
+  production code). 7 scenarios green locally; architect review
+  approve-with-nits → converged; **PR #41 open**, awaiting CI + owner merge. **First-run finding promoted
   to backlog as TASK-0316:** lone fully-hard-linked sets appear nowhere in
   output while the guide's `already_deduplicated` wording implies they are
   listed — pinned in the golden manifest; product-owner to decide

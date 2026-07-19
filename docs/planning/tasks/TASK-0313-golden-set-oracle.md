@@ -2,7 +2,8 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** tester
-- **Status:** in progress (batch 4, branch `test/golden-set-oracle`)
+- **Status:** in review (batch 4, PR #41; architect pre-PR review
+  approve-with-nits, nits applied)
 - **Depends on:** TASK-0308 (`--json` is the diffed contract)
 - **Parallel:** no
 
