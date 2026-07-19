@@ -21,9 +21,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Lint Markdown
-        run: npx -y markdownlint-cli2 "**/*.md"
+        run: npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
   spellcheck:
     name: spellcheck
@@ -32,9 +32,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
       - name: Spell-check docs
-        run: npx -y cspell --no-progress "**/*.md"
+        run: npx -y cspell@10.0.1 --no-progress "**/*.md"
 
   structure:
     name: structure

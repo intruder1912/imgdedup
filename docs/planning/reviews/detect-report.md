@@ -417,6 +417,7 @@ The original edge-2 ruling ("anchor never keeper; keeper chosen from non-anchors
 - **All-anchor groups:** emit no group, surface only as "already deduplicated" notes
 
 **Beach scenario outcome (fixed):** With `beach.jpg` ↔ `beach-hardlink.jpg` (anchor) + `beach-copy.jpg` (standalone), `--keep shortest`:
+
 - `beach.jpg` (shortest anchor) is keeper
 - `beach-copy.jpg` is removable (reclaim = its size)
 - `beach-hardlink.jpg` is protected

@@ -3,14 +3,32 @@
 Live snapshot of where the project stands. Update this in every PR. This is the
 first file to read when resuming work.
 
-**Current phase:** Phase 3 — Implementation (TDD)
-**Last updated:** 2026-06-25
+**Current phase:** Phase 3 — Implementation (TDD), executed per the
+owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
+S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
+docs pass → AI automation, batched within Claude usage limits.
+**Last updated:** 2026-07-19
 
 ## In progress
 
-(None — S1 shipped, S2 up next)
+- **Batch 0 / TASK-0215 — unblock `main` (this PR).** `main` had gone red for
+  every new PR: the unpinned `npx -y markdownlint-cli2` drifted to a version
+  flagging a pre-existing MD032 in `reviews/detect-report.md:420`, failing the
+  required `markdownlint` check (first seen on Dependabot PR #29). This PR
+  fixes the MD032 and pins markdownlint-cli2\@0.23.1, cspell\@10.0.1, and
+  markdown-link-check\@3.14.2 in `ci.yml`, `Makefile`, and
+  `scripts/validate.sh`. **After merge: re-run checks on PR #29 — it should go
+  green for the owner to merge.**
 
 ## Up next
+
+Batch order per the [batch plan](batch-plan.md): Batch 1 (security & supply
+chain: TASK-0204/0208/0209/0210) → Batch 2 (dependency/toolchain refresh +
+resilience review: TASK-0216) → then the feature slices below. Owner decisions
+2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
+generated golden set (TASK-0313), real photos only for read-only field
+validation (TASK-0314), AI automation = skill + command + operator agent
+(TASK-0218).
 
 **Slice cadence is now in force (ADR-0013).** S1 (detect-report) is shipped. Remaining PRD-0001 work is delivered as **three remaining coherent shippable slices** (S2, S3, S4), each a single branch → granular commits → one squash PR/release. The full slice map (contained tasks, per-slice user value, and PR-open acceptance) lives in the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md).

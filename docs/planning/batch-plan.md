@@ -1,0 +1,67 @@
+# Batch plan — housekeeping to first release (2026-07)
+
+Owner-approved execution schedule (2026-07-19) taking `imgdedup` from the
+post-S1 state to a first private release. It overlays the
+[roadmap](roadmap.md) phases and the [backlog](backlog.md) tasks with an
+explicit **batch order sized to Claude usage limits** (Pro tier: 5-hour
+rolling window + weekly caps, with a separate Fable 5 pool). This file is the
+schedule; the backlog stays the canonical task list.
+
+## Owner decisions recorded here
+
+- **License: GPL-3.0** (TASK-0202 ADR to formalize). Repo **stays private for
+  now**; going public is a later, separate decision. First release is a
+  private GitHub release.
+- **Test oracle = generated golden set, not real photos.** Correctness tests
+  need known ground truth, so a deterministic generator produces tiny valid
+  images per supported format plus duplicate/near-miss trees with an expected
+  manifest (TASK-0313). Real photos serve only as a **read-only field
+  validation** on a copied subset (~500–1k files) before release (TASK-0314);
+  originals are never touched.
+- **AI automation support** ships as an in-repo Claude **skill, slash command,
+  and custom operator agent** (TASK-0218): dry-run-first, JSON-based, never
+  `--delete` unattended.
+
+## Limits governance (all batches)
+
+- Each batch ≈ one session, estimated as % of one Pro 5-hour window below;
+  realistic pace is **2–3 batches/week** under the weekly caps.
+- Start of batch: check the estimate against what remains in the window/week
+  (both pools). End of batch: reconcile with `/usage` actuals and re-scope the
+  remaining batches.
+- Every batch keeps a mid-point cut line (a commit leaving the branch
+  coherent) in case usage trends over the estimate.
+- Subagent fan-out is expensive; prefer inline work. Reserve Fable 5 for
+  design- and review-heavy steps; use Sonnet for mechanical TDD/doc work.
+
+## The batches
+
+| # | Batch | Unit | Tasks | Est. 5h % | Status |
+|---|---|---|---|---|---|
+| 0 | Unblock `main` + this plan | chore | TASK-0215 | 15–25 | in-progress |
+| 1 | Security & supply chain | chore (2–3 small PRs) | TASK-0204, TASK-0208, TASK-0209, TASK-0210 | 50–70 | todo |
+| 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | todo |
+| 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | todo |
+| 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | todo |
+| 5 | S3 — Destructive actions | feature slice | TASK-0309, TASK-0310 | 2 × 60 | todo |
+| 6 | S4 — E2E, scale & field validation | feature slice | TASK-0312, TASK-0314 | 70–90 | todo |
+| 7 | Release flow → v0.1.0 (private) | chore/feature | TASK-0202, TASK-0203, TASK-0211 | 60–80 | todo |
+| 8 | Docs consistency pass | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | todo |
+| 9 | AI automation support | feature | TASK-0218 | 50–70 | todo |
+
+## Ordering constraints
+
+- Batch 0 first — `main` is red (unpinned markdownlint drift) and blocks every
+  PR, including Dependabot #29.
+- Batches 1–2 before 5 — supply-chain and dependency hardening land before the
+  destructive-actions code.
+- Batch 3 before 4 — the test oracle diffs `--json` output.
+- Batch 4 before 6 — S4 uses the generator for AC/scale coverage.
+- Batch 7 after 6 — release gate is S4 green plus field validation.
+- Batch 9 after 3 — the operator agent drives the tool via `--json`.
+- Batch 8 can slot anywhere after 7's docs impact is known; kept late so the
+  pass covers final behavior.
+
+Slice mechanics (branching, in-progress reviews, PR-open gates) are unchanged
+from [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md); this plan only
+fixes the order and the usage-limit envelope.
