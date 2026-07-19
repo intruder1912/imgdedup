@@ -534,7 +534,9 @@ mod tests {
         // candidate_names already sorts alphabetically.
         assert_eq!(
             names,
-            vec!["a.jpg", "b.jpeg", "c.png", "d.gif", "e.webp", "f.bmp", "g.tif", "h.tiff"]
+            vec![
+                "a.jpg", "b.jpeg", "c.png", "d.gif", "e.webp", "f.bmp", "g.tif", "h.tiff"
+            ]
         );
     }
 

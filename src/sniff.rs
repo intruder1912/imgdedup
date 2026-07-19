@@ -372,7 +372,7 @@ mod tests {
         let mut bytes = b"RIFF".to_vec();
         bytes.extend_from_slice(&[0x24, 0x00, 0x00, 0x00]); // file size (dummy)
         bytes.extend_from_slice(b"WEBP"); // format marker
-                                          // Minimal VP8L chunk
+        // Minimal VP8L chunk
         bytes.extend_from_slice(b"VP8L");
         bytes.extend_from_slice(&[0x0A, 0x00, 0x00, 0x00]); // chunk size
         bytes.extend_from_slice(&[0x2F, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x08, 0x08, 0x00]);

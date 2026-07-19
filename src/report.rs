@@ -286,7 +286,7 @@ pub fn render(
 mod tests {
     use super::*;
     use crate::cli::KeepRule;
-    use crate::engine::{find_duplicates, EngineWarning};
+    use crate::engine::{EngineWarning, find_duplicates};
     use crate::keeper::build_comparator;
     use std::fs;
     use std::path::PathBuf;
