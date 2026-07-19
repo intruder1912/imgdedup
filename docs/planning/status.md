@@ -11,14 +11,17 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 2 (final) / TASK-0216 — resilience review + F1 fix (this PR).**
-  Whole-pipeline error-path review recorded in
-  [`reviews/resilience-2026-07.md`](reviews/resilience-2026-07.md). Core
-  verdict: all I/O failures degrade safely (warn + never-remove). One defect
-  (F1): a nonexistent/unreadable scan root exited 1 **silently** — fixed:
-  root errors now print to stderr (`error: <path>: <reason>`), regression
-  test added (179 tests). F3 adds a JSON-diagnostics acceptance note to
-  TASK-0308; F8 rides S4 field validation.
+- **Batch 3 / Slice S2 — JSON output (TASK-0308, this PR,
+  `feature/json-output`).** `--json` emits a stable schema_version-1 document
+  (groups with keeper/removable/protected/hard_link_sets/reclaimable_bytes,
+  already_deduplicated sets, totals, and — per resilience F3 — first-class
+  `warnings` + `root_errors`) as a second formatter over the same canonical
+  model as the human report. Product-owner accepted FR-14/NFR-3; full `--json`
+  schema reference added to `docs/guide/output-and-exit-codes.md` + README
+  usage. Architect whole-slice review: approve-with-nits; F1 (doc misstated
+  hard-link `representative` selection) fixed, F2 wording fixed, F3 edge-case
+  JSON tests added (191 tests). See
+  [`reviews/json-output.md`](reviews/json-output.md). Awaiting owner merge.
 
 ## Up next
 
@@ -32,8 +35,10 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 **Slice cadence is now in force (ADR-0013).** S1 (detect-report) is shipped. Remaining PRD-0001 work is delivered as **three remaining coherent shippable slices** (S2, S3, S4), each a single branch → granular commits → one squash PR/release. The full slice map (contained tasks, per-slice user value, and PR-open acceptance) lives in the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md).
 
-- **Next slice: S2 — JSON output** (`json-output`; TASK-0308). Independent deterministic machine-readable formatter (`--json`) over the same canonical model S1 built (groups, keeper, intended actions, totals), enabling scripting. Opens PR once product-owner accepts FR-14 + NFR-3 and documents `--json` field schema in `docs/guide/output-and-exit-codes.md` (ADR-0012/0013).
-- **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 + TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). S2 and S3 both depend only on S1 and could be worked concurrently on separate branches, but safe default ships JSON before destructive surfaces. Each slice rebases on `main` after previous merges. **The `--exit-code` binary-level E2E test (AC-19) is deferred to S4** per S1 architect review.
+- **Next: Batch 4 — test tooling & golden set** (TASK-0313, tester-led):
+  deterministic test-data generator + golden-set oracle harness diffing
+  `--json` output (task spec written when the batch starts).
+- **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 + TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). Each slice rebases on `main` after previous merges. **The `--exit-code` binary-level E2E test (AC-19) is deferred to S4** per S1 architect review.
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an
   architect review for significant/risky changes (not per-commit; the
   product-owner or orchestrator may demand one), logged in
@@ -47,6 +52,15 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Batch 2 (final) / TASK-0216 — resilience review + F1 fix (PR #37,
+  2026-07-19).** Whole-pipeline error-path review recorded in
+  [`reviews/resilience-2026-07.md`](reviews/resilience-2026-07.md). Core
+  verdict: all I/O failures degrade safely (warn + never-remove). One defect
+  (F1): a nonexistent/unreadable scan root exited 1 **silently** — fixed:
+  root errors now print to stderr (`error: <path>: <reason>`), regression
+  test added. F3 added the JSON-diagnostics acceptance note to TASK-0308
+  (satisfied in S2); F8 rides S4 field validation.
 
 - **Batch 2 (refresh half) / TASK-0216 — toolchain & dependency refresh
   (PR #35, 2026-07-19).** Rust 1.93.1 → **1.97.1**, edition 2021 → **2024**

@@ -125,7 +125,7 @@ The document is pretty-printed and ends with a trailing newline.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `representative` | string | The representative path of the identity set (the canonical, byte-wise smallest path). |
+| `representative` | string | The representative path of the identity set: the shortest path, with lexicographic order as the tie-break. |
 | `siblings` | array of string | The *other* paths that share the same inode/file identity. The full link set is `representative` plus `siblings`. |
 
 **Totals object:**
@@ -168,8 +168,9 @@ The document is pretty-printed and ends with a trailing newline.
 For a given filesystem state and set of flags, `--json` emits a **byte-identical**
 document across runs and platforms (NFR-3). The groups, keeper choice, and
 hard-link sets come from an already canonically sorted result; on top of that the
-`warnings` and `root_errors` arrays are **sorted by path** before serialization,
-and field order is fixed. This makes the output safe to diff or snapshot in CI.
+`warnings` array is **grouped by stage (`enumerate`, `sniff`, `engine`) and
+sorted by path within each stage**, the `root_errors` array is **sorted by
+path**, and field order is fixed. This makes the output safe to diff or snapshot in CI.
 
 ### `mode` semantics
 
@@ -188,9 +189,11 @@ one such path frees no space, so they are never proposed for removal (the anchor
 rule; see [ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md)
 and [Choosing what to keep](choosing-what-to-keep.md#hard-links-are-never-collateral)).
 
-- A **`protected`** entry is a hard-link *anchor* that is kept alongside the
-  `keeper`: it is neither the keeper nor removable, and its size is excluded from
-  `reclaimable_bytes`. A group may consist of a keeper plus only protected
+- A **`protected`** entry is a path belonging to a hard-link *anchor* set that
+  is kept alongside the `keeper`: it is neither the keeper nor removable, and
+  its size is excluded from `reclaimable_bytes`. Every path of a non-keeper
+  anchor set is listed; if the keeper is itself hard-linked, its sibling paths
+  (not the keeper itself) appear here too. A group may consist of a keeper plus only protected
   anchors, in which case `removable` is empty and `reclaimable_bytes` is `0`.
 - A group's **`hard_link_sets`** list the identity sets whose representative is
   part of that group, so a script can see exactly which paths share storage.

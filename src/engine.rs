@@ -112,9 +112,12 @@ pub struct DuplicateGroup {
 ///
 /// ## Canonical form (NFR-3)
 ///
-/// `representative` is always the **byte-wise minimum path** among all paths
-/// in the identity set (i.e. `min(representative, siblings[0], siblings[1], …)`).
-/// `siblings` is always **sorted in ascending byte-wise path order**. This
+/// `representative` is always the **shortest path** among all paths in the
+/// identity set, with ascending byte-wise path order as the tie-break (S2
+/// amendment: the keeper-preferred path, so hard-link sets respect `--keep
+/// shortest`).
+/// `siblings` keeps the same **(path length, byte-wise path)** ordering that
+/// selected the representative. This
 /// canonical form is established at construction time in [`collapse_identity`]
 /// so the invariant holds everywhere — two runs over identical state produce
 /// byte-identical `HardLinkNote` values regardless of HashMap iteration order
@@ -122,7 +125,8 @@ pub struct DuplicateGroup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HardLinkNote {
     /// The representative path for the hard-link identity set: the
-    /// **lexicographically smallest** path among all members of the set.
+    /// **shortest** path among all members of the set (lexicographic
+    /// order as the tie-break).
     /// This is also the path carried by the [`FileRec`] that flows forward
     /// into keeper selection and the emitted [`DuplicateGroup`].
     pub representative: PathBuf,
