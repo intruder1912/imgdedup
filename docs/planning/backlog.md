@@ -2,7 +2,8 @@
 
 Fine-grained, repo-tracked work items. This is the canonical to-do list. Each
 non-trivial task gets a spec file in [`tasks/`](tasks/) named `TASK-XXXX-<slug>.md`.
-Status mirrors [`status.md`](status.md).
+Status mirrors [`status.md`](status.md). Execution order and usage-limit
+budgeting live in the [batch plan](batch-plan.md) (owner-approved 2026-07-19).
 
 ## Columns
 
@@ -42,7 +43,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
 | TASK-0201 | Author technology-stack selection ADR (fully open comparison) | architect | done | no | TASK-0101 |
-| TASK-0202 | Author licensing ADR (decide license before any public release) | architect | todo | yes | TASK-0007 |
+| TASK-0202 | Author licensing ADR — **owner decided GPL-3.0 (2026-07-19)**; repo stays private for now, ADR formalizes before any public flip | architect | todo | yes | TASK-0007 |
 | TASK-0203 | Wire full semantic-release publishing; resolve push to protected `main` (release bot / GitHub App or release-as-asset) — flips dry-run off | architect | todo | no | TASK-0201 |
 | TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening) | architect | todo | yes | TASK-0007 |
 | TASK-0205 | Evaluate replacing cspell with `typos` for spell checking | architect | todo | yes | TASK-0007 |
@@ -55,6 +56,10 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0212 | [Unit-of-work cadence & planning gate](tasks/TASK-0212-process-unit-of-work-cadence.md) (implements [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md); `ci-gate` + path-filtered Rust matrix) | architect | done | no | — |
 | TASK-0213 | [Documentation ownership & guide structure](tasks/TASK-0213-documentation-ownership.md) (ADR-0012: product-owner owns user docs; README = general, `docs/guide/` = detailed) | product-owner | done | no | TASK-0212 |
 | TASK-0214 | [PRD-slice delivery cadence & in-progress review protocol](tasks/TASK-0214-prd-slice-delivery-cadence.md) (ADR-0013: feature unit = PRD slice; in-progress reviews + acceptance/docs PR-open gate) | architect | done | no | TASK-0212 |
+| TASK-0215 | Unblock `main`: fix MD032 in S1 review log; pin markdownlint-cli2/cspell/markdown-link-check versions in CI, Makefile, validate.sh (stops lint-tool drift) | architect | in-progress | no | — |
+| TASK-0216 | Dependency & toolchain refresh + resilience review: Rust stable bump, crate bumps (infer et al.), inline error-path/resilience review with findings promoted to tasks | architect | todo | no | TASK-0215 |
+| TASK-0217 | Docs consistency pass: README + `docs/guide/` + process docs + AI docs (`CLAUDE.md`, `.claude/agents/`) reconciled with shipped behavior | product-owner | todo | no | TASK-0203 |
+| TASK-0218 | AI automation support: in-repo Claude usage skill + slash command + `imgdedup-operator` agent (dry-run-first, `--json`-driven, no unattended `--delete`) | architect | todo | no | TASK-0308 |
 
 > **Phase 2 design ADRs landed:** TASK-0201 produced
 > [ADR-0007](../adr/0007-technology-stack-rust-clap.md) (stack = Rust + clap) plus
@@ -98,6 +103,8 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0310 | [Permanent delete](tasks/TASK-0310-permanent-delete.md) (FR-11) | implementer | todo | no | TASK-0309 |
 | TASK-0311 | [Exit-code semantics & `--exit-code`](tasks/TASK-0311-exit-code-semantics.md) (FR-15/18) | implementer | done | no | TASK-0307 |
 | TASK-0312 | [E2E acceptance & NFR-4 scale/benchmark](tasks/TASK-0312-e2e-acceptance-and-scale-benchmark.md) (AC-1..19, NFR-4) | tester | todo | no | TASK-0307, TASK-0308, TASK-0309, TASK-0310, TASK-0311 |
+| TASK-0313 | Test-data generator & golden-set oracle harness: deterministic tiny images per supported format + duplicate/near-miss trees with expected-manifest diff against `--json` (task spec written when batch 4 starts) | tester | todo | no | TASK-0308 |
+| TASK-0314 | Real-photo field validation: read-only dry-run + `--json` sanity pass on a copied ~500–1k photo subset; pre-release gate, originals untouched | tester | todo | no | TASK-0312 |
 
 ### PRD-0001 delivery slices
 

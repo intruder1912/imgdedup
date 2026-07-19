@@ -23,13 +23,13 @@ validate: mdlint spell fmt lint test ## Run all local validation (run before eve
 # ── Documentation checks ──────────────────────────────────────────────────────
 
 mdlint: ## Lint Markdown
-	npx -y markdownlint-cli2 "**/*.md"
+	npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
 spell: ## Spell-check documentation
-	npx -y cspell --no-progress "**/*.md"
+	npx -y cspell@10.0.1 --no-progress "**/*.md"
 
 links: ## Check links in Markdown (best-effort; CI runs the authoritative check)
-	npx -y markdown-link-check --quiet --config .markdown-link-check.json $$(git ls-files '*.md')
+	npx -y markdown-link-check@3.14.2 --quiet --config .markdown-link-check.json $$(git ls-files '*.md')
 
 # ── Rust checks ───────────────────────────────────────────────────────────────
 

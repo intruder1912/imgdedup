@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: "20"
       - name: Lint Markdown
-        run: npx -y markdownlint-cli2 "**/*.md"
+        run: npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
   spellcheck:
     name: spellcheck
@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: "20"
       - name: Spell-check docs
-        run: npx -y cspell --no-progress "**/*.md"
+        run: npx -y cspell@10.0.1 --no-progress "**/*.md"
 
   structure:
     name: structure

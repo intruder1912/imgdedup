@@ -15,10 +15,10 @@ if ! command -v npx >/dev/null 2>&1; then
 fi
 
 echo "==> Markdown lint"
-npx -y markdownlint-cli2 "**/*.md"
+npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
 echo "==> Spell check"
-npx -y cspell --no-progress "**/*.md"
+npx -y cspell@10.0.1 --no-progress "**/*.md"
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "error: cargo is required for Rust validation." >&2
