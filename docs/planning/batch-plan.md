@@ -41,7 +41,10 @@ schedule; the backlog stays the canonical task list.
   feature-slice estimates stay as-is until measured. Batch 1 part 2 (PR #34) —
   11% (window 48%, week 29/26). Batch 2 refresh half (PR #35) — 10% (window
   58%, week 30/28). Four batches' worth of chores fit one window; the
-  resilience review + S2 start next window.
+  resilience review + S2 start next window. Batch 2 final (resilience review +
+  F1 fix, PR #37) — ~13%; S2 core build (parked on `feature/json-output`) —
+  ~20% (window closed at 97%, week 32/31). S2 finish (acceptance, docs,
+  review, PR #38) ran in the next window; actuals reconciled at merge.
 
 ## The batches
 
