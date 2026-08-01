@@ -36,6 +36,18 @@
 //!   transitions plus [`NON_TTY_PERCENT_STEP`]-sized percentage steps — so
 //!   redirected logs stay small and readable.
 //! - **Disabled:** use [`NoProgress`] — it writes nothing, anywhere, ever.
+//!
+//! ## Per-phase denominators
+//!
+//! The engine (`engine.rs`) advances `x` incrementally, per file, as it is
+//! hashed — not in one bulk jump at the end of hashing — so the dominant,
+//! slow phase on a real photo library actually animates from 0% to 100%
+//! instead of sitting at 0% and then jumping. Verifying is typically a much
+//! smaller workload than the full candidate count `y`, so the engine calls
+//! [`ProgressSink::retotal`] when it enters that phase: reusing `y` would
+//! either overrun it or pin the display at a misleading "100%" while the
+//! tool is still working. `retotal` resets the counter and gives the new
+//! phase its own, honest denominator.
 
 use std::io::Write;
 use std::sync::Mutex;
@@ -99,6 +111,21 @@ pub trait ProgressSink: Sync + Send {
     /// call over a run equals the total passed to `set_total`.
     fn advance(&self, n: u64);
 
+    /// Reset the numerator to zero and fix a **new** denominator, for a
+    /// phase whose workload differs from the run-wide total set via
+    /// `set_total` (e.g. verifying is typically a much smaller workload than
+    /// the full candidate count `y`). Without this, a later phase would
+    /// either keep counting past a denominator it has already exceeded, or
+    /// stay pinned at "100%" while genuinely still working — either reads to
+    /// the user as hung or finished when it is neither.
+    ///
+    /// Does **not** itself trigger a repaint — callers should pair it with
+    /// an immediately-following `set_phase` (or `advance`) call so the phase
+    /// label and the new denominator change together, atomically, in the
+    /// rendered output, rather than flashing a stale phase/total
+    /// combination.
+    fn retotal(&self, total: u64);
+
     /// The run is complete: flush and clean up any in-place render state.
     fn finish(&self);
 }
@@ -113,6 +140,7 @@ impl ProgressSink for NoProgress {
     fn set_total(&self, _total: u64) {}
     fn set_phase(&self, _phase: Phase) {}
     fn advance(&self, _n: u64) {}
+    fn retotal(&self, _total: u64) {}
     fn finish(&self) {}
 }
 
@@ -170,6 +198,22 @@ impl<W: Write> Progress<W> {
     /// Snapshot the current phase/current/total/percent and (subject to the
     /// TTY throttle / non-TTY milestone rules, unless `force`) repaint.
     fn record(&self, force: bool) {
+        // Acquire the state lock *first* and take the phase/current/total
+        // snapshot while holding it, rather than snapshotting beforehand.
+        // `advance` is called concurrently from rayon worker threads during
+        // hashing (FR-19); if the snapshot were taken outside this lock, two
+        // threads could race so that the one with a *staler* (lower)
+        // `current` reading acquires the lock second and prints an
+        // out-of-order, lower percentage after a fresher one was already
+        // shown. Snapshotting inside the lock serializes "read counters,
+        // decide whether to print, update last-shown bookkeeping" into one
+        // atomic step, so printed milestones are always monotonically
+        // non-decreasing (`current` only ever grows via `fetch_add`, or is
+        // deliberately reset by `retotal`, which is always paired with a
+        // following `set_phase`/`advance` call — never racing a hashing
+        // burst).
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+
         let phase = *self.phase.lock().unwrap_or_else(|e| e.into_inner());
         let total_known = self.total_known.load(Ordering::Relaxed);
         let total = self.total.load(Ordering::Relaxed);
@@ -186,8 +230,6 @@ impl<W: Write> Progress<W> {
         } else {
             None
         };
-
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
 
         if self.tty {
             if !force && st.last_paint.elapsed() < TTY_REPAINT_INTERVAL {
@@ -243,6 +285,15 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         self.record(false);
     }
 
+    fn retotal(&self, total: u64) {
+        // No `record()` call here by design (see the trait doc): the caller
+        // pairs this with an immediately-following `set_phase`/`advance`,
+        // which is what actually triggers the (now consistent) repaint.
+        self.current.store(0, Ordering::Relaxed);
+        self.total.store(total, Ordering::Relaxed);
+        self.total_known.store(true, Ordering::Relaxed);
+    }
+
     fn finish(&self) {
         if self.tty {
             // Force one final full repaint (bypassing the throttle) so the
@@ -279,6 +330,9 @@ mod tests {
         sink.set_total(10);
         sink.advance(3);
         sink.advance(7);
+        sink.retotal(4);
+        sink.set_phase(Phase::Verifying);
+        sink.advance(4);
         sink.finish();
         // NoProgress holds no writer at all: there is nothing to assert on
         // beyond "this never panics" — by construction it cannot write
@@ -461,6 +515,49 @@ mod tests {
     }
 
     #[test]
+    fn non_tty_percent_milestones_are_monotonic_under_concurrent_advances() {
+        // Regression: `advance` is called from rayon worker threads during
+        // hashing (real engine usage, FR-19). A racy implementation could
+        // snapshot a *stale*, lower percentage in one thread and print it
+        // after a fresher, higher one has already been shown by another
+        // thread — a confusing "progress went backward" log. Milestone
+        // percentages must be monotonically non-decreasing regardless of
+        // thread interleaving.
+        let p = Progress::new(Vec::new(), false);
+        p.set_total(1000);
+        p.set_phase(Phase::Hashing);
+
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    for _ in 0..125 {
+                        p.advance(1);
+                    }
+                });
+            }
+        });
+
+        let out = captured(&p);
+        let mut last_pct: Option<u64> = None;
+        let mut milestones_seen = 0;
+        for line in out.lines() {
+            let Some(pct_str) = line.rsplit('(').next().and_then(|s| s.strip_suffix("%)")) else {
+                continue;
+            };
+            let pct: u64 = pct_str.parse().expect("percent must parse as u64");
+            milestones_seen += 1;
+            if let Some(prev) = last_pct {
+                assert!(
+                    pct >= prev,
+                    "percent must never regress: {prev}% then {pct}% in {out:?}"
+                );
+            }
+            last_pct = Some(pct);
+        }
+        assert!(milestones_seen > 0, "expected at least one milestone line");
+    }
+
+    #[test]
     fn non_tty_does_not_repeat_same_percent_bucket() {
         let p = Progress::new(Vec::new(), false);
         p.set_total(100);
@@ -476,6 +573,59 @@ mod tests {
         assert_eq!(
             before, after,
             "advances within the same percent bucket must not add lines"
+        );
+    }
+
+    // ── Phase retotal (defect fix: verify phase must not read as hung) ────
+
+    #[test]
+    fn retotal_resets_counter_and_denominator_for_the_new_phase() {
+        // Regression: after a phase reaches 100% of the run-wide total,
+        // switching phase without resetting would either pin the display at
+        // a misleading "100%" (reads as finished-but-hung) or keep counting
+        // past an exhausted denominator. `retotal` must reset the counter
+        // and give the new phase its own, honest denominator.
+        let p = Progress::new(Vec::new(), false);
+        p.set_total(10);
+        p.set_phase(Phase::Hashing);
+        for _ in 0..10 {
+            p.advance(1);
+        }
+        assert!(captured(&p).contains("hashing: 10 of 10 (100%)"));
+
+        p.retotal(4);
+        p.set_phase(Phase::Verifying);
+        p.advance(2);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("verifying: 0 of 4 (0%)"),
+            "phase transition must show the new, reset denominator immediately \
+             (not a stale 100%), got: {out:?}"
+        );
+        assert!(out.contains("verifying: 2 of 4 (50%)"), "got: {out:?}");
+        assert!(
+            !out.contains("verifying: 10 of 10"),
+            "must never show the old hashing-phase total under the new phase \
+             label, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn retotal_alone_does_not_trigger_a_repaint() {
+        // retotal() must not itself paint (see the trait doc) — only the
+        // set_phase/advance call that follows it should.
+        let p = Progress::new(Vec::new(), false);
+        p.set_total(10);
+        p.set_phase(Phase::Hashing);
+        p.advance(10);
+        let before = captured(&p);
+
+        p.retotal(4);
+        let after_retotal_only = captured(&p);
+        assert_eq!(
+            before, after_retotal_only,
+            "retotal() alone must not emit any new output"
         );
     }
 
