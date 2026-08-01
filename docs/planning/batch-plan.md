@@ -139,7 +139,7 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 
 | Session | Batch | Unit(s) | Tasks | Est. 5h % | Est. weekly | Cut line |
 |---|---|---|---|---|---|---|
-| 1 | re-plan + 4b | chore, then feature | this file, then TASK-0315 | 8–12 + 45–60 | ~9 | progress sink + `--no-progress` TDD core green on the branch; docs + review + PR slip to session 2 |
+| 1 | re-plan + 4b | chore, then feature | this file (PR #46), then TASK-0315 | 8–12 + 45–60 | ~9 | **done 2026-08-01** — both units landed in one session; see the actuals log |
 | 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 40–50 | ~8 | `feature/apply-delete` parked with trash-apply + re-validation core green |
 | 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 50–65 | ~8 | delete path green and reviewed; docs/PR next session |
 | 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | AC coverage green; scale work is session 5 |
