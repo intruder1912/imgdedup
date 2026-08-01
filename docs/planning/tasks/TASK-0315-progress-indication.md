@@ -2,7 +2,8 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** implementer
-- **Status:** todo
+- **Status:** done (batch 4b / session 1, 2026-08-01; see
+  [`../reviews/progress-indication.md`](../reviews/progress-indication.md))
 - **Depends on:** TASK-0308
 - **Parallel:** no (must coexist with the `--json` stdout-purity contract)
 

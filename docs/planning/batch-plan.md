@@ -100,6 +100,30 @@ consistently comes in under.
   owner reports both pools at 0% (5-hour window and both 7-day caps)** after
   an idle stretch since the batch-4 merge; the re-plan below schedules the
   remaining batches against a full fresh week.
+- **Session 1 (PR #46 re-plan + PR #47 batch 4b), 2026-08-01 — 100% of the
+  5-hour window against a 53–72 estimate, running into overage; the week
+  finished at just 10% (all models).** Two corrections fall out of this, both
+  reversing assumptions in the re-plan above:
+  1. **The 5-hour window is the binding constraint, not the weekly cap.** One
+     full window costs ~10 weekly points — the bottom of the 10–16 estimate —
+     so the week affords ~9 more full windows. Weekly capacity is not what
+     needs managing; per-session sizing is.
+  2. **A subagent-driven feature unit costs roughly 2× the same unit worked
+     inline.** Batch 4 was inline with a single architect dispatch: 51%.
+     Session 1 ran ~1.65M subagent tokens across eight dispatches and resumes
+     (implementer ×4, architect ×2, product-owner ×2, tester ×1) and hit 100%.
+     Model split of the spend was 56% Sonnet / 44% Opus with a 96% cache-hit
+     rate, so the cost is the number of agent round-trips, not the model tier.
+     This quantifies the "prefer inline work" rule that was already in this
+     file but was unpriced.
+
+  The quality return was real — the review rounds found 21 findings including
+  three user-visible defects a green suite had missed — so the lesson is not
+  "stop using subagents" but "budget them explicitly". **Revised sizing for the
+  remaining sessions: default to inline TDD plus one architect dispatch, and
+  spend extra dispatches only on concurrency- or safety-critical code.** S3
+  (destructive actions) is the one place that clearly warrants two, which is
+  why its estimate rises below.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -139,9 +163,9 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 
 | Session | Batch | Unit(s) | Tasks | Est. 5h % | Est. weekly | Cut line |
 |---|---|---|---|---|---|---|
-| 1 | re-plan + 4b | chore, then feature | this file, then TASK-0315 | 8–12 + 45–60 | ~9 | progress sink + `--no-progress` TDD core green on the branch; docs + review + PR slip to session 2 |
-| 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 40–50 | ~8 | `feature/apply-delete` parked with trash-apply + re-validation core green |
-| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 50–65 | ~8 | delete path green and reviewed; docs/PR next session |
+| 1 | re-plan + 4b | chore, then feature | this file (PR #46), then TASK-0315 | 8–12 + 45–60 | ~9 | **done 2026-08-01** — both units landed, but at **100%** of the window (subagent-driven; see the actuals log) |
+| 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 45–55 | ~7 | `feature/apply-delete` parked with trash-apply + re-validation core green |
+| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (raised: safety-critical, budget **two** architect dispatches) | ~8 | delete path green and reviewed; docs/PR next session — split to a session 3b if trending over |
 | 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | AC coverage green; scale work is session 5 |
 | 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | benchmark numbers recorded; field validation can slip (needs the owner's photo corpus) |
 | 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | ADR + `LICENSE` committed before touching the release workflow |
@@ -157,10 +181,12 @@ release so they document and automate final behavior.
 ### Checkpoints and the cut line for the week
 
 - Reconcile `/usage` after **every** session and append to the actuals log.
-- **Trigger:** if either pool passes **60% weekly before session 5 completes**,
-  push batches 7a/7b into week 2 and end week 1 after S4 (session 5). Shipping
-  S4 without the release is a coherent stopping point; a half-wired release
-  workflow is not.
+- **Trigger (revised after session 1):** the weekly cap is no longer the live
+  risk — one window costs ~10 weekly points, so the week comfortably holds the
+  remaining sessions. The real trigger is per-session: **if a session passes
+  60% of its window with the unit not yet reviewable, stop at the cut line**
+  rather than pushing into overage as session 1 did. Sessions 6a/6b and 7a/7b
+  keep their order regardless; the current week resets 2026-08-04.
 - **Trigger:** if a session passes 75% of its window mid-unit, stop at the cut
   line in its row above and resume in the next window — never run into the cap
   mid-review.

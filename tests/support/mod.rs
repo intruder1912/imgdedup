@@ -11,6 +11,17 @@
 //! - [`oracle`] — run the real `imgdedup --json` binary and diff its output
 //!   against a hand-derived expected manifest.
 
+// Each integration test file that does `mod support;` compiles this module
+// tree as part of its own separate test binary (Rust integration tests are
+// each their own crate). A given test binary typically only exercises a
+// subset of these helpers — e.g. `cli_integration.rs` uses `images`/`tree`
+// but not the `oracle` harness — so `dead_code` would otherwise fire
+// per-binary even though every item here is used by *some* consumer
+// (`golden_set.rs` uses the full surface). `#[allow(dead_code)]` on each
+// submodule keeps that a non-issue without disabling the lint crate-wide.
+#[allow(dead_code)]
 pub mod images;
+#[allow(dead_code)]
 pub mod oracle;
+#[allow(dead_code)]
 pub mod tree;

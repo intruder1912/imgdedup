@@ -11,12 +11,18 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing — batch 4 merged (PR #41); `main` green, no open PRs. The batch
-  plan was **re-planned 2026-08-01** against fresh limit pools (both the
-  5-hour window and the 7-day caps at 0%): the remaining path to v0.1.0 is
-  scheduled as sessions 1–7 within this week, with docs/AI-automation in
-  week 2. Batch 4b (progress indication, TASK-0315) is session 1 and starts
-  the fresh window per the owner decision._
+- **Batch 4b / TASK-0315 — progress indication (FR-19)** on
+  `feature/progress-indication`, session 1 of the 2026-08-01 re-plan. Live
+  stderr progress (phase, `x of y`, %), default-on, TTY-aware with a bounded
+  non-TTY fallback, `--no-progress` opt-out, stdout pure in all modes. Built
+  with no new dependency (`std::io::IsTerminal`). Product-owner accepted
+  FR-19/AC-20..AC-24; a field run on a mostly-unique tree caught the hashing
+  phase stalling at 0% and it was fixed in-unit (see
+  [`reviews/progress-indication.md`](reviews/progress-indication.md)).
+
+- _The batch plan was **re-planned 2026-08-01** (PR #46) against fresh limit
+  pools: the remaining path to v0.1.0 is scheduled as sessions 1–7 within this
+  week, with the docs pass and AI automation in week 2._
 
 ## Up next
 
@@ -35,10 +41,11 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 **Slice cadence is now in force (ADR-0013).** S1 (detect-report) is shipped. Remaining PRD-0001 work is delivered as **three remaining coherent shippable slices** (S2, S3, S4), each a single branch → granular commits → one squash PR/release. The full slice map (contained tasks, per-slice user value, and PR-open acceptance) lives in the "PRD-0001 delivery slices" subsection of
 [`backlog.md`](backlog.md).
 
-- **Next: batch 4b (progress indication, TASK-0315)** in its own fresh usage
-  window (owner decision), then the release-path slices below. TASK-0316
-  (hard-link surfacing-vs-wording decision from the batch-4 golden-set
-  finding) is product-owner work that can ride any upcoming unit.
+- **Next: session 2 — TASK-0316** (hard-link surfacing-vs-wording decision from
+  the batch-4 golden-set finding; product-owner work whose cost depends on the
+  outcome — a wording narrowing is docs-only, surfacing the sets touches the
+  engine, the JSON schema and the golden manifest) **then the S3 core**
+  (TASK-0309), per the release-path slices below.
 - **Then, in order:** **S3 — Destructive actions** (`apply-delete`; TASK-0309 + TASK-0310) → **S4 — E2E acceptance & scale** (`e2e-scale`; TASK-0312, tester-led, AC-1..AC-19 and NFR-4 cross-platform proof). Each slice rebases on `main` after previous merges. **The `--exit-code` binary-level E2E test (AC-19) is deferred to S4** per S1 architect review.
 - **New: Batch 4b — progress indication (FR-19, TASK-0315).** Owner field feedback (2026-07-19): the running tool shows no terminal output. Now spec'd as [PRD-0001 Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results): a live **stderr** progress indicator (phase, `x of y`, %), default-on, TTY-aware with a plain non-TTY fallback and `--no-progress` opt-out; stdout stays pure in all modes (incl. `--json`). Ships as its **own one-unit feature branch** after batch 3 (coexists with `--json`), independent of the S3/S4 release path but ideally before v0.1.0. Owner decision: **build in a fresh usage window** — do not start ahead of it. Stored results use **stdout redirection** (`--json > result.json`), no new flag; a `--output` flag was considered and deferred. The redirection **doc note ships now** (documents existing behavior).
 - **In-progress reviews (ADR-0013):** within a slice the implementer requests an

@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::io::IsTerminal;
 use std::process;
 
 mod cli;
@@ -7,6 +8,7 @@ mod enumerate;
 mod exit_code;
 mod json;
 mod keeper;
+mod progress;
 mod report;
 mod sniff;
 
@@ -29,6 +31,31 @@ fn run(args: cli::Cli) -> i32 {
         return exit_code::ERROR;
     }
 
+    // Progress sink (FR-19, TASK-0315). Default-on; --no-progress disables it
+    // completely (AC-23), in which case `NoProgress` writes nothing on any
+    // stream. Otherwise progress always targets stderr, and TTY-ness is
+    // probed exactly once here — never inside `progress::Progress` itself —
+    // so the renderer stays unit-testable with an injected boolean (AC-21 /
+    // AC-22). `Box<dyn ProgressSink>` lets both arms share one call site
+    // below regardless of which concrete sink was built.
+    //
+    // Wrapped in `SinkGuard` (architect finding N4): its `Drop` calls
+    // `finish()`, so progress is *always* terminated — a live TTY line
+    // always ends cleanly — no matter how this function returns, including
+    // an early `return` that later work (TASK-0309/TASK-0310's apply/delete
+    // diagnostics land in exactly this window) might add below. `finish()`
+    // is idempotent, so the explicit call further down (needed so progress
+    // is fully flushed *before* the stdout report — AC-20, which `Drop`
+    // alone cannot guarantee the ordering of) does not double-render the
+    // completion line when `Drop` runs afterwards.
+    let stderr_is_tty = std::io::stderr().is_terminal();
+    let sink: progress::SinkGuard = progress::SinkGuard::new(if args.no_progress {
+        Box::new(progress::NoProgress)
+    } else {
+        Box::new(progress::Progress::new(std::io::stderr(), stderr_is_tty))
+    });
+    sink.set_phase(progress::Phase::Scanning);
+
     // Build scope options from parsed CLI flags (FR-1, FR-2, FR-6).
     // Start from the documented defaults and apply user overrides.
     let scope = {
@@ -46,16 +73,6 @@ fn run(args: cli::Cli) -> i32 {
     // Stage 1 — Enumerate candidate files (ADR-0008, TASK-0302).
     let candidate_set = enumerate::enumerate(&args.paths, &scope);
 
-    // Run-level errors (an unscannable root) must be *visible*, not just
-    // reflected in the exit code (resilience review 2026-07, finding F1).
-    // Printed to stderr so they survive stdout redirection and stay out of
-    // the machine-readable stdout surface (--json, TASK-0308). The run still
-    // continues over the remaining roots and exits 1 at the end (partial
-    // results plus an explicit failure signal).
-    for err in &candidate_set.root_errors {
-        eprintln!("error: {}: {}", err.path.display(), err.reason);
-    }
-
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
     // Hand the enumerated candidates (path + size) to the sniff predicate.
     // Candidates that fail confirmation are dropped and recorded as
@@ -68,8 +85,41 @@ fn run(args: cli::Cli) -> i32 {
     // byte-for-byte verify against the keeper. Pure analysis: no filesystem
     // mutation. Keeper order comes from the real keeper rule (TASK-0305).
     // Hashing is parallelized via rayon (TASK-0306). The outcome is canonically
-    // sorted before returning (ADR-0010).
-    let dedup = engine::find_duplicates(confirmed, keeper::build_comparator(args.keep));
+    // sorted before returning (ADR-0010). The engine is the single source of
+    // truth for the progress denominator — it calls `sink.set_total` itself
+    // from `files.len()` (architect finding 11, so it can never desync from
+    // what it actually iterates) — and drives the Hashing → Verifying phase
+    // transitions, notifying `sink` as each candidate file reaches its final
+    // disposition (FR-19). `main` only ever drives the Scanning phase, above.
+    let dedup = engine::find_duplicates_with_progress(
+        confirmed,
+        keeper::build_comparator(args.keep),
+        &*sink,
+    );
+
+    // Progress must be finished — and therefore fully written to stderr —
+    // strictly before the stdout report/JSON is printed below, so progress
+    // output can never interleave with stdout in any mode (AC-20).
+    sink.finish();
+
+    // Run-level errors (an unscannable root) must be *visible*, not just
+    // reflected in the exit code (resilience review 2026-07, finding F1).
+    // Printed to stderr so they survive stdout redirection and stay out of
+    // the machine-readable stdout surface (--json, TASK-0308). The run still
+    // continues over the remaining roots and exits 1 at the end (partial
+    // results plus an explicit failure signal).
+    //
+    // Deliberately placed *after* `sink.finish()` above (architect finding
+    // 1): on a TTY the progress line is redrawn in place and left
+    // un-terminated between repaints, so writing anything else to stderr
+    // while it is live corrupts it mid-line (e.g.
+    // `scanning...error: /nonexistent: No such file or directory`).
+    // `finish()` always leaves the cursor on a fresh line, so nothing here
+    // (or any future stderr writer added during the run window — see the
+    // rule in `progress.rs`'s module doc) may run before it returns.
+    for err in &candidate_set.root_errors {
+        eprintln!("error: {}: {}", err.path.display(), err.reason);
+    }
 
     // Stage 4 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
     // the same canonical model; no filesystem mutation in either — --apply /

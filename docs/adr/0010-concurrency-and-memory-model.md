@@ -130,6 +130,22 @@ saturating all CPU threads with concurrent reads can cause **seek thrashing** an
   are seeded after this PR; an NFR-4 benchmarking task to set concurrency defaults
   and confirm memory/throughput targets is seeded alongside.
 
+### Consequence note — deferred verification pass (2026-08-01, TASK-0315)
+
+Progress indication (FR-19) restructured the engine into a full hashing pass
+followed by a single verification pass, so that the user-facing phase toggles at
+most once each way. The verify pass therefore accumulates every non-singleton
+hash group across **all** size cohorts before verifying any of them, where
+previously each cohort's groups were verified and freed before the next cohort
+was hashed. Peak metadata goes from *max over cohorts* to *sum over cohorts* —
+still `O(file count)`, so within the bound this ADR sets ("memory scales with
+file count, not data volume"), and small in absolute terms. Two consequences to
+keep in view: it widens the hash→verify TOCTOU window (apply-time re-validation
+in TASK-0309 is the mitigation), and NFR-4 memory profiling in S4 must measure
+this shape rather than the original streaming one. Recorded because a display
+concern changed the engine's execution shape, which TASK-0315 otherwise warned
+against.
+
 ## Pros and cons of the options
 
 ### Option 1 — `rayon` (chosen)
