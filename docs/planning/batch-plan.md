@@ -124,6 +124,17 @@ consistently comes in under.
   spend extra dispatches only on concurrency- or safety-critical code.** S3
   (destructive actions) is the one place that clearly warrants two, which is
   why its estimate rises below.
+- **Session 2 (PR #48 TASK-0316 + the parked S3 core), 2026-08-01 — 47% of the
+  window against a 55–75 estimate; the week moved 10% → 15%.** The inline
+  re-pricing is confirmed on both axes:
+  1. **Inline work costs roughly what batch 4 did.** Session 2 delivered a
+     complete merged unit *and* the S3 core on two subagent dispatches (one
+     product-owner ruling, one architect review) versus session 1's eight, for
+     less than half the window. Estimates for inline units can stay where they
+     are; it was the subagent multiplier that was priced wrong, not the units.
+  2. **~10 weekly points per full window holds.** 47% of a window cost 5
+     weekly points, matching session 1's 100% → ~10. Weekly capacity remains
+     ample (85% left ≈ 8 windows); the per-session window stays the constraint.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -164,8 +175,8 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 | Session | Batch | Unit(s) | Tasks | Est. 5h % | Est. weekly | Cut line |
 |---|---|---|---|---|---|---|
 | 1 | re-plan + 4b | chore, then feature | this file (PR #46), then TASK-0315 | 8–12 + 45–60 | ~9 | **done 2026-08-01** — both units landed, but at **100%** of the window (subagent-driven; see the actuals log) |
-| 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 45–55 | ~7 | `feature/apply-delete` parked with trash-apply + re-validation core green |
-| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (raised: safety-critical, budget **two** architect dispatches) | ~8 | delete path green and reviewed; docs/PR next session — split to a session 3b if trending over |
+| 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 45–55 | ~7 | **done 2026-08-01** — PR #48 merged, `feature/apply-delete` parked at the cut line; actual **47%** |
+| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (safety-critical: budget **two** architect dispatches) | ~8 | delete path green and reviewed; split to a session 3b if trending over |
 | 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | AC coverage green; scale work is session 5 |
 | 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | benchmark numbers recorded; field validation can slip (needs the owner's photo corpus) |
 | 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | ADR + `LICENSE` committed before touching the release workflow |
