@@ -255,8 +255,7 @@ fn ac3_apply_trashes_non_keeper_recoverably_and_keeper_survives() {
                     // Recycle Bin reports an item's display name, which hides
                     // known extensions, so "b.png" comes back as "b". The
                     // unique tempdir component is what keeps this specific.
-                    std::path::Path::new(it.name.as_str()).file_stem()
-                        == Some(std::ffi::OsStr::new("b"))
+                    std::path::Path::new(&it.name).file_stem() == Some(std::ffi::OsStr::new("b"))
                         && it.original_parent.file_name() == Some(unique.as_os_str())
                 });
                 assert!(
@@ -518,8 +517,7 @@ fn ac7_apply_delete_permanently_removes_non_keepers_not_via_trash() {
                 !items.iter().any(|it| {
                     // Stem, not full name — see AC-3: Windows reports display
                     // names with known extensions hidden.
-                    std::path::Path::new(it.name.as_str()).file_stem()
-                        == Some(std::ffi::OsStr::new("b"))
+                    std::path::Path::new(&it.name).file_stem() == Some(std::ffi::OsStr::new("b"))
                         && it.original_parent.file_name() == Some(unique.as_os_str())
                 }),
                 "a permanently deleted file must not appear in the trash listing"

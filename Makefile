@@ -42,6 +42,10 @@ test: ## Run all Rust tests
 deny: ## Audit dependencies (advisories/licenses/bans/sources; needs cargo-deny installed)
 	cargo deny check
 
+check-linux: ## Type-check the Linux target from any host (catches cfg-gated code the host never compiles)
+	rustup target add x86_64-unknown-linux-gnu
+	cargo check --all-targets --target x86_64-unknown-linux-gnu
+
 scale: ## Run the NFR-4 scale fixtures (slow: builds 100k files and ~700 MB; not part of validate)
 	cargo test --release --test scale -- --ignored --nocapture --test-threads=1
 

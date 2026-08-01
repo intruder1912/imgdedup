@@ -158,6 +158,20 @@ concentrated on assertions that could not fail. The reviewer ran their own bound
 | 15 | should-fix | The memory conclusion was the sound half but recorded only qualitatively, and the 3-file/100k comparison moved two variables at once. | Fixed — recorded as a linear model (~7.5 MB + ~350 B/file, ≈0.36 GB at 1M files) and a volume-only control added: 3 files at 3 MB and at 300 MB both peak at 7.5 MB. |
 | 16–22 | nit | AC-9's fixture had no unique-size file to exercise its own claim; AC-1 asserted count not membership; a hard-coded absolute path is drive-relative on Windows; the widths test could compare two empty documents; the Makefile overstated fixture size; `SCALE_FILES` should be env-overridable so CI can exercise the code path cheaply. | Addressed; `SCALE_FILES` override and the CI smoke run left for TASK-0314's session, noted here rather than silently dropped. |
 
+### Lesson from the CI round-trips
+
+Two CI failures on this slice were both in `#[cfg(any(target_os = "linux",
+target_os = "windows"))]` blocks — code the development host **never compiles**,
+so `make validate` passing locally said nothing about it. The first was a
+genuine behavioral difference (Windows hides known extensions in Recycle Bin
+display names, so `b.png` lists as `b`); the second was a plain compile error
+(`it.name` is an `OsString` on Linux, and `as_str()` does not exist on it).
+
+`make check-linux` now type-checks the Linux target from any host, which would
+have caught the second without a CI round-trip. Windows cannot be cross-checked
+the same way — `blake3`'s build script needs a real Windows toolchain — so that
+platform still depends on CI.
+
 **Confirmed sound by the reviewer:** AC-9's independence claim is true — the expected
 grouping is built by bucketing raw bytes in the test, with nothing from `src/`
 participating; AC-15 and AC-16 are honest (AC-16 is stronger than its criterion);
