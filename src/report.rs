@@ -51,6 +51,7 @@
 //! The renderer is kept separate from the JSON formatter (TASK-0308) so both
 //! can share the [`DedupOutcome`] model without coupling their output formats.
 
+use crate::apply::{ActionMode, ApplyOutcome};
 use crate::engine::{DedupOutcome, HardLinkNote};
 use crate::enumerate::EnumerateWarning;
 use crate::sniff::SniffWarning;
@@ -82,6 +83,8 @@ pub fn render(
     outcome: &DedupOutcome,
     enumerate_warnings: &[EnumerateWarning],
     sniff_warnings: &[SniffWarning],
+    mode: ActionMode,
+    applied: &ApplyOutcome,
 ) -> String {
     let mut out = String::new();
 
@@ -145,6 +148,10 @@ pub fn render(
     if total_groups == 0 && already_dedup_notes.is_empty() {
         // No duplicate groups and no all-anchor sets: the truly empty case.
         writeln!(out, "No duplicate groups found.").unwrap();
+        // A run that acted still reports what it did, even when that is
+        // nothing: "did the apply run?" must be answerable from the output
+        // without inferring it from the absence of a line.
+        write_performed_actions(&mut out, mode, applied);
         return out;
     }
 
@@ -277,13 +284,64 @@ pub fn render(
         .unwrap();
     }
 
+    write_performed_actions(&mut out, mode, applied);
+
     out
+}
+
+/// Appends what the run actually did.
+///
+/// Only rendered when the run acted: a dry run describes what *would* happen
+/// through the group listing and must never grow a section implying it touched
+/// anything (the reporting half of NFR-1 — the output never overstates).
+fn write_performed_actions(out: &mut String, mode: ActionMode, applied: &ApplyOutcome) {
+    if mode == ActionMode::DryRun {
+        return;
+    }
+
+    writeln!(out).unwrap();
+    writeln!(
+        out,
+        "{} {} file{}.",
+        capitalize(mode.past_tense()),
+        applied.removed.len(),
+        if applied.removed.len() == 1 { "" } else { "s" },
+    )
+    .unwrap();
+
+    if !applied.skipped.is_empty() {
+        writeln!(out, "Skipped (left in place):").unwrap();
+        for skip in &applied.skipped {
+            writeln!(out, "  {}: {}", skip.path.display(), skip.reason).unwrap();
+        }
+    }
+}
+
+/// Upper-cases the first character, so a past-tense verb can open a sentence.
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
+    /// Renders in dry-run mode with no performed actions — what every test
+    /// below except the apply-reporting ones is about.
+    fn render_dry(outcome: &DedupOutcome, ew: &[EnumerateWarning], sw: &[SniffWarning]) -> String {
+        super::render(
+            outcome,
+            ew,
+            sw,
+            ActionMode::DryRun,
+            &ApplyOutcome::default(),
+        )
+    }
+
     use super::*;
     use crate::cli::KeepRule;
     use crate::engine::{EngineWarning, find_duplicates};
@@ -321,7 +379,7 @@ mod tests {
 
     #[test]
     fn dry_run_does_not_modify_any_file() {
-        // AC-1 (FR-9, NFR-1): after render() the fixture files must be unchanged.
+        // AC-1 (FR-9, NFR-1): after render_dry() the fixture files must be unchanged.
         let dir = tempfile::tempdir().unwrap();
         let a = write_file(&dir, "a.jpg", b"DUP CONTENT");
         let b = write_file(&dir, "b.jpg", b"DUP CONTENT");
@@ -331,18 +389,18 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let _ = render(&outcome, &ew, &sw);
+        let _ = render_dry(&outcome, &ew, &sw);
 
         // Both files must still exist with their original content.
         assert_eq!(
             fs::read(&a).unwrap(),
             b"DUP CONTENT",
-            "a.jpg must be untouched after render()"
+            "a.jpg must be untouched after render_dry()"
         );
         assert_eq!(
             fs::read(&b).unwrap(),
             b"DUP CONTENT",
-            "b.jpg must be untouched after render()"
+            "b.jpg must be untouched after render_dry()"
         );
     }
 
@@ -361,7 +419,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("KEEP"),
@@ -393,7 +451,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // Summary must mention counts.
         assert!(
@@ -420,7 +478,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // 1 removable × 10 bytes = 10 bytes reclaimable.
         assert!(
@@ -443,7 +501,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("2 files"),
@@ -487,7 +545,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // Both group headers must say "2 files".
         let count = report.matches("2 files").count();
@@ -516,7 +574,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("3 files"),
@@ -553,7 +611,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("NOTE") && report.contains("hard-link"),
@@ -582,7 +640,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // The group has removable (c.jpg) → it renders as a group.
         assert!(
@@ -621,7 +679,7 @@ mod tests {
         }];
         let sw: Vec<SniffWarning> = vec![];
 
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("Warnings:"),
@@ -647,7 +705,7 @@ mod tests {
             reason: "content not recognized as a supported image format".to_owned(),
         }];
 
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("/fake.jpg"),
@@ -671,7 +729,7 @@ mod tests {
         };
         let (ew, sw) = no_warnings();
 
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("/bad.jpg"),
@@ -694,7 +752,7 @@ mod tests {
         }];
         let sw: Vec<SniffWarning> = vec![];
 
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("Warnings:"),
@@ -712,7 +770,7 @@ mod tests {
     fn no_duplicates_shows_appropriate_message() {
         let outcome = DedupOutcome::default();
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
         assert!(
             report.contains("No duplicate groups found."),
             "empty outcome should say no groups; got:\n{report}"
@@ -741,7 +799,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // aaa1 (group A) must appear before bbb1 (group B) in the text.
         let pos_a = report
@@ -777,7 +835,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("2 duplicate groups"),
@@ -814,7 +872,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // Must show Group heading (removal opportunity).
         assert!(
@@ -855,7 +913,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // No DuplicateGroup emitted.
         assert!(
@@ -908,7 +966,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // No DuplicateGroup emitted.
         assert!(
@@ -953,7 +1011,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // 3 files acted on (keeper h + removable c1, c2); protected h2 not counted.
         assert!(
@@ -1005,7 +1063,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // Engine: one group, keeper=anchor, removable=[standalone], protected=[sibling].
         assert_eq!(outcome.groups.len(), 1, "one group from engine");
@@ -1068,7 +1126,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // Summary must count 2 duplicate groups.
         assert!(
@@ -1130,7 +1188,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             outcome.groups.is_empty(),
@@ -1174,7 +1232,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("Already deduplicated (hard-linked)"),
@@ -1233,7 +1291,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // Summary must count 2 groups (both have removable).
         assert!(
@@ -1255,7 +1313,7 @@ mod tests {
         // "No duplicate groups found." must appear unchanged.
         let outcome = DedupOutcome::default();
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert_eq!(
             report.trim(),
@@ -1278,7 +1336,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("1 duplicate group,"),
@@ -1318,7 +1376,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         // All-anchor group: no DuplicateGroup emitted. 2 hard-link notes in already-dedup.
         assert!(
@@ -1359,7 +1417,7 @@ mod tests {
             build_comparator(KeepRule::Shortest),
         );
         let (ew, sw) = no_warnings();
-        let report = render(&outcome, &ew, &sw);
+        let report = render_dry(&outcome, &ew, &sw);
 
         assert!(
             report.contains("2 already-deduplicated hard-link sets"),

@@ -29,9 +29,6 @@ use crate::engine::{DuplicateGroup, files_equal};
 pub trait Remover {
     /// Remove `path`. Returning `Err` must leave the file in place.
     fn remove(&self, path: &Path) -> io::Result<()>;
-
-    /// Past-tense verb for reporting, e.g. `"trashed"`.
-    fn past_tense(&self) -> &'static str;
 }
 
 /// Moves files to the OS trash / recycle bin (ADR-0009, FR-10).
@@ -86,9 +83,19 @@ impl Remover for TrashRemover {
             .delete(path)
             .map_err(|e| io::Error::other(e.to_string()))
     }
+}
 
-    fn past_tense(&self) -> &'static str {
-        "trashed"
+/// Permanently removes files, with no trash indirection (FR-11, ADR-0009).
+///
+/// Reached only via `--apply --delete`; the CLI layer rejects `--delete` on its
+/// own before any filesystem call is made. Nothing else in the crate may
+/// construct this — a trash failure must never be retried as a deletion
+/// (NFR-1), which is why the escalation lives nowhere in the executor.
+pub struct DeleteRemover;
+
+impl Remover for DeleteRemover {
+    fn remove(&self, path: &Path) -> io::Result<()> {
+        fs::remove_file(path)
     }
 }
 
@@ -140,6 +147,41 @@ impl fmt::Display for SkipReason {
 pub struct SkipRecord {
     pub path: PathBuf,
     pub reason: SkipReason,
+}
+
+/// What the run did to the files — the `mode` the output reports (FR-14).
+///
+/// Kept separate from the CLI flags so the formatters describe what *happened*
+/// rather than re-deriving it from what was asked for: a run that refuses to
+/// act must not report itself as having acted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionMode {
+    /// Nothing was touched (the default).
+    DryRun,
+    /// Non-keepers were moved to the OS trash (`--apply`).
+    Trash,
+    /// Non-keepers were permanently removed (`--apply --delete`).
+    Delete,
+}
+
+impl ActionMode {
+    /// The stable string used in the JSON `mode` field.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActionMode::DryRun => "dry-run",
+            ActionMode::Trash => "trash",
+            ActionMode::Delete => "delete",
+        }
+    }
+
+    /// Past-tense verb for the human report, e.g. "trashed".
+    pub fn past_tense(self) -> &'static str {
+        match self {
+            ActionMode::DryRun => "would be removed",
+            ActionMode::Trash => "trashed",
+            ActionMode::Delete => "deleted",
+        }
+    }
 }
 
 /// What the apply stage did. Every candidate lands in exactly one of the two
@@ -279,10 +321,6 @@ mod tests {
                 return Err(io::Error::other("mock trash unavailable"));
             }
             fs::remove_file(path)
-        }
-
-        fn past_tense(&self) -> &'static str {
-            "removed"
         }
     }
 
@@ -465,6 +503,46 @@ mod tests {
         assert_eq!(out.removed.len() + out.skipped.len(), 3);
         assert_eq!(out.removed, vec![ok]);
         assert_eq!(out.skipped.len(), 2);
+    }
+
+    #[test]
+    fn delete_remover_removes_the_file_permanently() {
+        // AC-7 / FR-11: the file is gone from the filesystem, not relocated.
+        let dir = tempfile::tempdir().unwrap();
+        let victim = write(&dir, "victim.jpg", b"GONE");
+
+        DeleteRemover.remove(&victim).expect("delete succeeds");
+
+        assert!(!victim.exists(), "the file must be permanently gone");
+        assert_eq!(
+            ActionMode::Delete.past_tense(),
+            "deleted",
+            "the verb the report uses for this mechanism"
+        );
+    }
+
+    #[test]
+    fn the_delete_path_re_validates_exactly_like_the_trash_path() {
+        // AC-7 + FR-16: the irreversible path gets the same TOCTOU defense, by
+        // construction — it is the same executor with a different Remover.
+        // A file changed since the scan must survive even under --delete.
+        let dir = tempfile::tempdir().unwrap();
+        let keeper = write(&dir, "keep.jpg", b"DUPE");
+        let changed = write(&dir, "changed.jpg", b"DUPE");
+        let ok = write(&dir, "ok.jpg", b"DUPE");
+        let g = group(&keeper, &[&changed, &ok]);
+        write(&dir, "changed.jpg", b"TAMPERED");
+
+        let out = apply(&[g], &DeleteRemover);
+
+        assert_eq!(out.removed, vec![ok.clone()], "the valid duplicate goes");
+        assert!(!ok.exists(), "and it is really gone");
+        assert_eq!(out.skipped[0].reason, SkipReason::ContentChanged);
+        assert!(
+            changed.exists(),
+            "a file changed since the scan must never be deleted"
+        );
+        assert!(keeper.exists(), "the keeper survives (NFR-1)");
     }
 
     #[cfg(unix)]

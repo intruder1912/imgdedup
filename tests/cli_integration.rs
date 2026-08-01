@@ -7,6 +7,8 @@ mod support;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::fs;
+use std::path::PathBuf;
 use support::images::{ImageFormat, image_bytes};
 use support::tree::{FileSpec, materialize};
 
@@ -133,28 +135,215 @@ fn help_lists_all_flags() {
 
 // ── Valid flag combinations ───────────────────────────────────────────────
 
-/// `--apply --delete` parses as a valid combination, but permanent deletion is
-/// not implemented yet (TASK-0310), so the run refuses rather than silently
-/// trashing instead — a user who asked for permanent deletion must never be
-/// handed a different mechanism without being told (ADR-0009).
-///
-/// **This test scans a temporary directory, never `.`.** It used to run
-/// `imgdedup . --apply --delete` against the repository working directory,
-/// which was harmless only because both flags were inert; the moment TASK-0309
-/// wired `--apply` up, a test like that becomes a real removal of whatever
-/// images happen to sit in the checkout. No test may ever point a destructive
-/// flag at a directory it does not own.
-#[test]
-fn apply_delete_together_is_refused_until_implemented() {
+// ── Destructive actions (slice S3) ───────────────────────────────────────────
+//
+// **Every test in this section scans a temporary directory it created.** One of
+// these used to run `imgdedup . --apply --delete` against the repository
+// working directory; that was harmless only while both flags were inert, and
+// became a real removal the moment TASK-0309 wired `--apply` up. No test may
+// point a destructive flag at a directory it does not own.
+
+/// Builds a tree with one duplicate pair (`a.png` ≡ `b.png`) plus a unique
+/// file, and returns the temp dir with the three paths. `a.png` is the keeper
+/// under the default `shortest` rule (equal depth, equal length, lexicographic
+/// tie-break).
+fn duplicate_tree() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().expect("tempdir");
+    let dup_bytes = image_bytes(ImageFormat::Png, 21, 64);
+    let other = image_bytes(ImageFormat::Png, 22, 64);
+    let a = dir.path().join("a.png");
+    let b = dir.path().join("b.png");
+    let u = dir.path().join("u.png");
+    fs::write(&a, &dup_bytes).unwrap();
+    fs::write(&b, &dup_bytes).unwrap();
+    fs::write(&u, &other).unwrap();
+    (dir, a, b, u)
+}
+
+/// AC-7 (FR-11): `--apply --delete` permanently removes the non-keeper. Uses
+/// the delete path rather than the trash path because deletion is deterministic
+/// on every platform, so "it is really gone" can be asserted strictly.
+#[test]
+fn apply_delete_permanently_removes_non_keepers_and_keeps_the_keeper() {
+    let (dir, a, b, u) = duplicate_tree();
+
     cmd()
         .arg(dir.path())
         .arg("--apply")
         .arg("--delete")
+        .arg("--no-progress")
         .assert()
-        .failure()
-        .code(1)
-        .stderr(predicate::str::contains("not implemented yet"));
+        .code(0)
+        .stdout(predicate::str::contains("Deleted 1 file."));
+
+    assert!(a.exists(), "the keeper must survive (NFR-1)");
+    assert!(!b.exists(), "the non-keeper must be gone (AC-7)");
+    assert!(u.exists(), "an unrelated file must not be touched");
+}
+
+/// AC-3 (FR-10, NFR-1): `--apply` moves the non-keeper to the OS trash.
+///
+/// The safety invariants are asserted unconditionally; whether trashing
+/// *succeeds* is environment-dependent by design (ADR-0009 — a box with no
+/// usable trash reports a per-file skip and the run continues), so the
+/// non-keeper is allowed to be either trashed or reported as skipped. What is
+/// never allowed is the keeper disappearing, an unrelated file being touched,
+/// or a trash failure escalating into a deletion.
+#[test]
+fn apply_trashes_non_keepers_or_reports_why_not() {
+    let (dir, a, b, u) = duplicate_tree();
+
+    let out = cmd()
+        .arg(dir.path())
+        .arg("--apply")
+        .arg("--no-progress")
+        .output()
+        .expect("run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(a.exists(), "the keeper must survive (NFR-1)");
+    assert!(u.exists(), "an unrelated file must not be touched");
+
+    if b.exists() {
+        // Trash unavailable: it must have been reported, not silently ignored,
+        // and above all not deleted instead.
+        assert!(
+            stdout.contains("Trashed 0 files.") && stdout.contains("Skipped (left in place):"),
+            "an untrashed file must be reported as skipped; stdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+    } else {
+        assert!(
+            stdout.contains("Trashed 1 file."),
+            "a trashed file must be reported; stdout:\n{stdout}"
+        );
+    }
+}
+
+/// AC-5 (FR-12): re-running `--apply` on an already-deduplicated tree takes
+/// zero actions and changes nothing.
+#[test]
+fn a_second_apply_run_is_a_no_op() {
+    let (dir, a, b, u) = duplicate_tree();
+
+    cmd()
+        .arg(dir.path())
+        .arg("--apply")
+        .arg("--delete")
+        .arg("--no-progress")
+        .assert()
+        .code(0);
+    assert!(!b.exists());
+
+    // Second run: nothing left to group, so nothing to do.
+    cmd()
+        .arg(dir.path())
+        .arg("--apply")
+        .arg("--delete")
+        .arg("--no-progress")
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("No duplicate groups found."))
+        .stdout(predicate::str::contains("Deleted 0 files."));
+
+    assert!(a.exists(), "the keeper still stands after a second run");
+    assert!(u.exists());
+}
+
+/// AC-11 (FR-9 → FR-10 parity): for an unchanged tree, what the dry run says it
+/// would remove is exactly what the apply removes.
+#[test]
+fn the_dry_run_predicts_exactly_what_apply_removes() {
+    let (dir, _a, b, _u) = duplicate_tree();
+
+    let dry = cmd()
+        .arg(dir.path())
+        .arg("--json")
+        .arg("--no-progress")
+        .output()
+        .expect("run");
+    let dry: serde_json::Value = serde_json::from_slice(&dry.stdout).expect("valid JSON");
+    assert_eq!(dry["mode"], "dry-run", "a plain run must not claim to act");
+    let intended: Vec<String> = dry["groups"][0]["removable"]
+        .as_array()
+        .expect("removable array")
+        .iter()
+        .map(|f| f["path"].as_str().unwrap().to_owned())
+        .collect();
+
+    let applied = cmd()
+        .arg(dir.path())
+        .arg("--json")
+        .arg("--apply")
+        .arg("--delete")
+        .arg("--no-progress")
+        .output()
+        .expect("run");
+    let applied: serde_json::Value = serde_json::from_slice(&applied.stdout).expect("valid JSON");
+    assert_eq!(applied["mode"], "delete", "the mode reports what happened");
+    let removed: Vec<String> = applied["actions"]["removed"]
+        .as_array()
+        .expect("actions.removed array")
+        .iter()
+        .map(|p| p.as_str().unwrap().to_owned())
+        .collect();
+
+    assert_eq!(
+        intended, removed,
+        "the dry run's intended removals must match what apply actually removed"
+    );
+    assert!(!b.exists());
+}
+
+/// A removal that *fails* is reported and the file is left in place — and the
+/// run never falls back to a different mechanism (NFR-1, ADR-0009).
+///
+/// Genuine end-to-end coverage of the failure path: the duplicate lives in a
+/// sub-directory made read-only after the files are written, so the scan can
+/// still read it (read permission on the directory and the file) while
+/// `remove_file` cannot unlink it (that needs write permission on the parent).
+/// Unix-only because Windows permissions do not model this the same way.
+#[cfg(unix)]
+#[test]
+fn a_removal_that_fails_is_reported_and_the_file_survives() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bytes = image_bytes(ImageFormat::Png, 24, 64);
+    let keeper = dir.path().join("a.png");
+    let locked_dir = dir.path().join("sub");
+    fs::create_dir(&locked_dir).unwrap();
+    let victim = locked_dir.join("b.png");
+    fs::write(&keeper, &bytes).unwrap();
+    fs::write(&victim, &bytes).unwrap();
+
+    fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let out = cmd()
+        .arg(dir.path())
+        .arg("--apply")
+        .arg("--delete")
+        .arg("--no-progress")
+        .output()
+        .expect("run");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    // Restore permissions so the temp dir can be cleaned up.
+    fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(
+        victim.exists(),
+        "a file whose removal failed must still be there; stdout:\n{stdout}"
+    );
+    assert!(keeper.exists(), "the keeper is untouched");
+    assert!(
+        stdout.contains("Deleted 0 files.") && stdout.contains("Skipped (left in place):"),
+        "the failure must be reported, not swallowed; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("removal failed"),
+        "the reason must say the removal failed; stdout:\n{stdout}"
+    );
 }
 
 /// `--keep newest` is accepted.

@@ -1,4 +1,3 @@
-use apply::Remover;
 use clap::Parser;
 use std::io::IsTerminal;
 use std::process;
@@ -123,9 +122,40 @@ fn run(args: cli::Cli) -> i32 {
         eprintln!("error: {}: {}", err.path.display(), err.reason);
     }
 
-    // Stage 4 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
-    // the same canonical model; no filesystem mutation in either — --apply /
-    // --delete are TASK-0309/TASK-0310 and handled after this report.
+    // Stage 4 — Destructive actions (TASK-0309 trash / TASK-0310 delete).
+    //
+    // Runs *before* the report so the output can describe what actually
+    // happened rather than what was intended (FR-14). Progress and per-file
+    // skips have already gone to stderr, so a run that dies mid-apply still
+    // told the user something; stdout stays reserved for the one report/JSON
+    // document (the S2 purity contract).
+    //
+    // Every candidate is re-validated immediately before its own removal
+    // (FR-16) — the scan alone never authorizes anything — and a removal
+    // failure is a per-file skip that never escalates to a different mechanism
+    // (NFR-1, ADR-0009).
+    let (mode, applied) = if args.apply {
+        let remover: Box<dyn apply::Remover> = if args.delete {
+            Box::new(apply::DeleteRemover)
+        } else {
+            Box::new(apply::TrashRemover::new())
+        };
+        let mode = if args.delete {
+            apply::ActionMode::Delete
+        } else {
+            apply::ActionMode::Trash
+        };
+        let outcome = apply::apply(&dedup.groups, remover.as_ref());
+        for skip in &outcome.skipped {
+            eprintln!("warning: {}: {}", skip.path.display(), skip.reason);
+        }
+        (mode, outcome)
+    } else {
+        (apply::ActionMode::DryRun, apply::ApplyOutcome::default())
+    };
+
+    // Stage 5 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
+    // the same canonical model, now including the performed actions.
     // JSON carries the diagnostics too (resilience F3): warnings and
     // root_errors are part of the document, while root errors additionally
     // went to stderr above (F1) so stdout stays one valid JSON document.
@@ -135,46 +165,19 @@ fn run(args: cli::Cli) -> i32 {
             &candidate_set.warnings,
             &sniff_warnings,
             &candidate_set.root_errors,
+            mode,
+            &applied,
         )
     } else {
-        report::render(&dedup, &candidate_set.warnings, &sniff_warnings)
+        report::render(
+            &dedup,
+            &candidate_set.warnings,
+            &sniff_warnings,
+            mode,
+            &applied,
+        )
     };
     print!("{rendered}");
-
-    // Stage 4b — Destructive actions (TASK-0309; TASK-0310 adds --delete).
-    //
-    // Deliberately after the report: the report describes the intended actions,
-    // and printing it first means a run that dies mid-apply has still told the
-    // user what it was about to do. Every candidate is re-validated immediately
-    // before its removal (FR-16), so nothing is removed on the strength of the
-    // scan alone.
-    //
-    // Per-file skips go to stderr rather than stdout: stdout is the report/JSON
-    // document (the S2 purity contract), and a skip is a diagnostic. The
-    // performed-action rendering inside the report and `--json` is the rest of
-    // this slice (TASK-0310).
-    if args.apply {
-        if args.delete {
-            // TASK-0310 supplies the permanent-delete Remover. Until it lands,
-            // refuse rather than silently trashing: a user who asked for
-            // permanent deletion must never be given a different mechanism
-            // without being told (ADR-0009).
-            eprintln!("error: --delete is not implemented yet (TASK-0310)");
-            return exit_code::ERROR;
-        }
-
-        let remover = apply::TrashRemover::new();
-        let outcome = apply::apply(&dedup.groups, &remover);
-        for skip in &outcome.skipped {
-            eprintln!("warning: {}: {}", skip.path.display(), skip.reason);
-        }
-        println!(
-            "\n{} {} file(s); skipped {}.",
-            remover.past_tense(),
-            outcome.removed.len(),
-            outcome.skipped.len()
-        );
-    }
 
     // Stage 5 — Exit code (ADR-0008 §exit-code, TASK-0311).
     // A run-level error (non-empty root_errors) → 1. The --exit-code flag
