@@ -105,4 +105,38 @@ verifying: 2 of 2 (100%)
 
 ## Architect review — whole unit (2026-08-01)
 
-*Pending.*
+**Verdict: request-changes** → resolved in-unit (see the resolution column).
+Thirteen findings over the ~1500-line diff, two of them user-visible and
+empirically reproduced under a pty rather than reasoned about.
+
+| # | Severity | Finding | Resolution |
+|---|---|---|---|
+| 1 | should-fix | On a TTY the live progress line is corrupted by the run's own `error:` output — the user sees `scanning...error: /x: No such file…`. Invisible to the suite because every CLI test is non-TTY. Regression risk grows with `--apply`/`--delete` (S3), which add more stderr writers inside the run window. | Fixed — root errors print after the sink is finished, and the module doc states the rule that nothing else may write to stderr while a TTY line is live. |
+| 2 | should-fix + product ratification | The per-phase denominator is a genuine AC-21 deviation, not a defensible reading — and worse, on a TTY the in-place redraw *erases the candidate count*, so a 302-file run rests at `verifying: 2 of 2 (100%)`, losing FR-19(a) "overall problem size". A duplicate-free tree ends at the degenerate `verifying: 0 of 0 (100%)`. | Fixed + ratified — the verify line keeps the run total visible, the phase is skipped when its workload is zero, and a `done:` completion state renders the candidate total. Product-owner amended AC-21/AC-22. |
+| 3 | should-fix | `record()` takes two mutexes *before* the throttle check, and the repaint's `write` + `flush` happen while holding the lock against unbuffered stderr. A slow terminal or a pipe applying backpressure blocks every rayon worker. Steady-state cost is negligible (<0.1% at 100k files) — the blocking repaint is the real NFR-4 hazard. | Fixed — lock-free time pre-check before any lock, single `write_all` per repaint. |
+| 4 | should-fix | `total`/`total_known` are independent relaxed atomics written outside the lock (tearing window → spurious `0 of 0 (100%)`), and `phase` is a second mutex taken in the opposite order from `record()` — an AB/BA deadlock prevented only by a temporary guard's drop point. The `Relaxed` ordering on `current` was confirmed *correct*, as was the monotonicity fix. | Fixed — `total`, `total_known` and `phase` moved into the lock-protected state; `current` stays the sole atomic for the fast path. |
+| 5 | should-fix | `Instant::now() - TTY_REPAINT_INTERVAL` in `Progress::new` panics if the process starts within 100 ms of boot — the only line able to violate "progress must never fail a run that would otherwise succeed". | Fixed — `Option<Instant>` sentinel. |
+| 6 | should-fix | The retained `find_duplicates` wrapper is production-dead, and the test claiming to prove AC-24 compares a function against itself-with-two-extra-frames — incapable of failing for the reason it claims to guard. | Fixed — `#[cfg(test)]` so the compiler proves production never calls it; the tautological test now runs a real `Progress` sink against `NoProgress` and compares outcomes. |
+| 7 | should-fix | The throttle test pins only its negative half — an implementation that never repaints, or one with a one-hour interval, passes. The animation FR-19 exists for was not pinned by any test, and `\x1b[K` was never positively asserted despite the line legitimately shrinking. | Fixed — the interval is injectable, so both halves are deterministic; added the positive erase-to-EOL assertion. |
+| 8 | should-fix or defer | The `scanning` phase has the same defect just fixed in `hashing`: it is frozen while enumeration *and* magic-byte sniffing run (~200k syscalls at 100k files, 5–15 s static). Spec-conformant, but the intent argument that sent the build back applies. | Deferred by decision — tracked as **TASK-0317**. |
+| 9 | nit | Unchecked `usize` subtraction in progress accounting can panic in debug / wrap in release if cohort construction ever changes. | Fixed — `saturating_sub`. |
+| 10 | nit | The verify pass no longer streams per cohort: peak metadata goes from max-over-cohorts to sum-over-cohorts, and the hash→verify TOCTOU window widens. Within ADR-0010's bound, but it is the engine's execution shape changed by a *display* concern. | Accepted with a consequence note added to ADR-0010. |
+| 11 | nit | The denominator is derived independently in `main.rs` and `engine.rs`; a future caller filtering between them silently desyncs the display. | Fixed — the engine sets its own total. |
+| 12 | nit | Doc claims wider than the code: monotonicity is deliberately false across the `retotal` boundary, and the trait's "safe to call concurrently" overstates `set_total`/`retotal`. | Fixed — both qualified. |
+| 13 | nit | Task file still `Status: todo`; this review section was pending; the guide described `y` in AC-21's words, which the verify phase does not exhibit. | Fixed — all three. |
+
+**Security gate: clean.** No new dependency (`std::io::IsTerminal`; `Cargo.toml`
+and `Cargo.lock` unchanged in the diff). Nothing path-derived reaches the
+terminal through the progress path — lines are built from static phase labels
+and integers only — so a hostile filename cannot inject terminal escapes via
+progress. Buffering is bounded per repaint and non-TTY line count is capped by
+the bucket logic. **Informational, pre-existing:** `main.rs` prints
+`err.path.display()` raw, which *is* an escape-injection surface for a hostile
+path; FR-19 makes stderr a stream we actively draw on, which raises the value of
+sanitizing it — tracked as **TASK-0318**, not a change in this unit.
+
+**ADR adherence.** ADR-0008 semantics untouched. ADR-0010 determinism traced and
+preserved: reordering `process_hash_group` only permutes insertion order, and
+`sort_canonical` re-establishes canonical order with no reachable stable-sort
+tie. ADR-0005 TDD visibly followed — both in-unit defects landed with a
+regression test. No new ADR needed; finding 2 required a PRD amendment.
