@@ -302,12 +302,21 @@ fn write_performed_actions(out: &mut String, mode: ActionMode, applied: &ApplyOu
     writeln!(out).unwrap();
     writeln!(
         out,
-        "{} {} file{}.",
+        "{} {} file{}{}",
         capitalize(mode.past_tense()),
         applied.removed.len(),
         if applied.removed.len() == 1 { "" } else { "s" },
+        if applied.removed.is_empty() { "." } else { ":" },
     )
     .unwrap();
+
+    // List the removed paths, not just a count (product-owner acceptance,
+    // 2026-08-01): a count alone does not tell someone which files to fish out
+    // of the trash, which matters most when several share a basename across
+    // directories. Symmetric with the skip list below.
+    for path in &applied.removed {
+        writeln!(out, "  {}", path.display()).unwrap();
+    }
 
     if !applied.skipped.is_empty() {
         writeln!(out, "Skipped (left in place):").unwrap();

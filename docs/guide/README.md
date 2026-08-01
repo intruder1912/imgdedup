@@ -5,13 +5,11 @@ companion to the [top-level README](../../README.md): the README gives you the
 overview and a quick start, and the pages here go deep on each part of using the
 tool.
 
-> **Status: under active development (Phase 3).** The **read-only
-> detect-and-report** workflow is shipped: scanning, scope filtering, magic-byte
-> image confirmation, the content-hash deduplication engine, the human-readable
-> dry-run report, machine-readable `--json` output, and a live progress
-> indicator on stderr. The trash/delete actions (`--apply` / `--delete`) are on
-> the command line but **not functional yet** —
-> those pages mark what is not yet available. See
+> **Status: under active development (Phase 3).** Scanning, scope filtering,
+> magic-byte image confirmation, the content-hash deduplication engine, the
+> human-readable report, machine-readable `--json` output, a live progress
+> indicator on stderr, and the destructive actions (`--apply` trash /
+> `--apply --delete` permanent) are all shipped. See
 > [`docs/planning/status.md`](../planning/status.md) for the live state.
 
 ## Guide pages

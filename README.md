@@ -3,14 +3,13 @@
 A fast, cross-platform command-line tool for finding and safely removing
 duplicate images.
 
-> **Status: under active development (Phase 3 — implementation).** The
-> **read-only detect-and-report** workflow is shipped: `imgdedup` scans your
-> paths, finds exact duplicate groups, and prints a human-readable dry-run report
-> showing the keeper and the files that would be removed — or a machine-readable
-> document with `--json`. **The trash/delete actions (`--apply` / `--delete`) are
-> part of the command-line surface but are not functional yet** — they are coming
-> in a later release. So today the tool reports duplicates but never modifies any
-> files. See
+> **Status: under active development (Phase 3 — implementation).** `imgdedup`
+> scans your paths, finds exact duplicate groups, and prints a human-readable
+> dry-run report showing the keeper and the files that would be removed — or a
+> machine-readable document with `--json`. **The trash/delete actions are
+> shipped:** `--apply` moves duplicates to the OS trash, and `--apply --delete`
+> removes them permanently. A plain run is still always a dry run — nothing
+> changes on disk unless you pass `--apply`. See
 > [`docs/planning/status.md`](docs/planning/status.md) for the live state and
 > [`docs/planning/roadmap.md`](docs/planning/roadmap.md) for the path to v1.0.
 
@@ -34,18 +33,28 @@ the algorithm and safety model are in
 Safety is the product's first principle:
 
 - **Dry run by default.** A normal run only *reports* what it would remove.
-  Nothing on disk changes. (Today the tool is dry-run only; the acting flags
-  below are reserved for a later release.)
-- **Recoverable by default when acting.** `--apply` will move non-keepers to the
-  **OS trash / recycle bin**, not oblivion. *(Not functional yet.)*
-- **Permanent deletion is opt-in and guarded.** `--delete` will permanently
-  remove non-keepers and is only valid *together with* `--apply`; using
-  `--delete` alone is refused. *(Not functional yet.)*
-- **Never byte-blind.** A hash match alone never authorizes removal; files are
-  byte-for-byte verified first. Hard-linked copies (already deduplicated on disk)
-  are never proposed for removal: they are shown as `PROTECT` and excluded from
-  the reclaimable-space figure, and a set that is *only* hard links is reported as
-  already-deduplicated rather than as a duplicate group.
+  Nothing on disk changes unless you pass `--apply`.
+- **Recoverable by default when acting.** `--apply` moves non-keepers to the
+  **OS trash / recycle bin**, not oblivion.
+- **Permanent deletion is opt-in and guarded.** `--delete` permanently removes
+  non-keepers and is only valid *together with* `--apply`; using `--delete`
+  alone is refused with an error.
+- **Never byte-blind, twice.** A hash match alone never authorizes removal;
+  files are byte-for-byte verified first during the scan, **and re-verified
+  again immediately before each file is actually removed** — the keeper, the
+  match, and the file identity are all re-checked, so a file that changed (or
+  was swapped for a symlink, or became a hard link to its keeper) between the
+  scan and the apply is skipped and reported rather than removed.
+- **A removal failure never escalates.** If trashing a file fails (for example,
+  no trash is available), the file is left in place and reported — `--apply`
+  never falls back to permanently deleting it.
+- **Hard-linked copies (already deduplicated on disk) are never proposed for
+  removal:** they are shown as `PROTECT` and excluded from the reclaimable-space
+  figure, and a set that is *only* hard links is reported as already-deduplicated
+  rather than as a duplicate group.
+
+See [Removing duplicates safely](docs/guide/removing-duplicates-safely.md) for
+the full safety model, what a skipped file looks like, and recovery guidance.
 
 ## Installing
 
@@ -102,9 +111,38 @@ imgdedup --keep oldest ./photos
 imgdedup --exit-code ./photos
 ```
 
+### Removing duplicates
+
+Everything above is read-only. To actually reclaim space, add `--apply`, which
+moves every non-keeper to your OS's trash / recycle bin — recoverable if you
+change your mind — and reports what it did:
+
+```sh
+# Move duplicates to the trash (recoverable). The keeper is never touched.
+imgdedup --apply ./photos
+```
+
+For permanent removal instead of trashing, add `--delete` (only valid together
+with `--apply`; using it alone is refused):
+
+```sh
+# Permanently delete duplicates instead of trashing them.
+imgdedup --apply --delete ./photos
+```
+
+Immediately before removing each file, `imgdedup` re-checks it one more time —
+still exists, still a regular file, still byte-for-byte identical to its keeper,
+still not a hard link to it — so a file that changed since the scan is skipped
+and reported rather than removed, and re-running `--apply` on an already-clean
+tree is a no-op. See
+[Removing duplicates safely](docs/guide/removing-duplicates-safely.md) for the
+full safety model, including what a skipped file looks like and how to recover
+what was trashed.
+
 For scripting, `--json` emits the same results as a machine-readable JSON
-document on standard output (groups, keeper, the files that would be removed, and
-totals) instead of the human-readable report:
+document on standard output (groups, keeper, the files that would be or were
+removed, totals, and — on an acted run — exactly which paths were removed or
+skipped) instead of the human-readable report:
 
 ```sh
 # Machine-readable output for a script or CI pipeline.
@@ -146,10 +184,10 @@ for what it shows and how it behaves when redirected.
 
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
-`--json` (machine-readable output); `--exit-code` (signal duplicates via exit
-status); `--no-progress` (disable the live progress indicator). The `--apply`
-and `--delete` flags exist but are **not functional yet** (coming in a later
-release). Run `imgdedup --help` for the full list.
+`--apply` (move non-keepers to the OS trash); `--delete` (with `--apply`,
+permanently delete instead); `--json` (machine-readable output); `--exit-code`
+(signal duplicates via exit status); `--no-progress` (disable the live progress
+indicator). Run `imgdedup --help` for the full list.
 
 ## Detailed guide
 

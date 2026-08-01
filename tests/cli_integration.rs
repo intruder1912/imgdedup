@@ -174,7 +174,8 @@ fn apply_delete_permanently_removes_non_keepers_and_keeps_the_keeper() {
         .arg("--no-progress")
         .assert()
         .code(0)
-        .stdout(predicate::str::contains("Deleted 1 file."));
+        .stdout(predicate::str::contains("Deleted 1 file:"))
+        .stdout(predicate::str::contains("b.png"));
 
     assert!(a.exists(), "the keeper must survive (NFR-1)");
     assert!(!b.exists(), "the non-keeper must be gone (AC-7)");
@@ -214,7 +215,7 @@ fn apply_trashes_non_keepers_or_reports_why_not() {
         );
     } else {
         assert!(
-            stdout.contains("Trashed 1 file."),
+            stdout.contains("Trashed 1 file:") && stdout.contains("b.png"),
             "a trashed file must be reported; stdout:\n{stdout}"
         );
     }
