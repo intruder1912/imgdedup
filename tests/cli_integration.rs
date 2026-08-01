@@ -133,15 +133,28 @@ fn help_lists_all_flags() {
 
 // ── Valid flag combinations ───────────────────────────────────────────────
 
-/// `--apply --delete` is a valid combination and exits 0.
+/// `--apply --delete` parses as a valid combination, but permanent deletion is
+/// not implemented yet (TASK-0310), so the run refuses rather than silently
+/// trashing instead — a user who asked for permanent deletion must never be
+/// handed a different mechanism without being told (ADR-0009).
+///
+/// **This test scans a temporary directory, never `.`.** It used to run
+/// `imgdedup . --apply --delete` against the repository working directory,
+/// which was harmless only because both flags were inert; the moment TASK-0309
+/// wired `--apply` up, a test like that becomes a real removal of whatever
+/// images happen to sit in the checkout. No test may ever point a destructive
+/// flag at a directory it does not own.
 #[test]
-fn apply_delete_together_exits_0() {
+fn apply_delete_together_is_refused_until_implemented() {
+    let dir = tempfile::tempdir().expect("tempdir");
     cmd()
-        .arg(".")
+        .arg(dir.path())
         .arg("--apply")
         .arg("--delete")
         .assert()
-        .code(0);
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("not implemented yet"));
 }
 
 /// `--keep newest` is accepted.

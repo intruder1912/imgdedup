@@ -106,6 +106,30 @@ with no valid trash directory, a permission error, or a removable volume. Behavi
   this PR; the `trash` crate is added to the dependency set audited by TASK-0208's
   reframed gate.
 
+### Consequence note — the macOS default method hangs (2026-08-01, TASK-0309)
+
+Implementing the executor surfaced a defect in the crate's **default**
+configuration that this ADR's fail-safe design does not survive. On macOS,
+`trash` 5.x defaults to `DeleteMethod::Finder`, which runs `osascript` to ask
+Finder to perform the delete. That requires macOS **Automation permission**, and
+in any non-interactive context — a script, an SSH session, CI — the TCC prompt
+cannot be answered and **the call never returns**. Observed directly: runs
+blocked indefinitely and had to be killed after minutes.
+
+The "error handling when trash is unavailable" section above assumes a trash
+failure *returns an error* that can be turned into a per-file skip. A call that
+hangs defeats that: the run neither removes the file nor reports anything, and
+a CLI that hangs forever on `--apply` is worse than one that errors.
+
+**Decision:** `imgdedup` does not use the crate's free `trash::delete` function.
+It holds a `TrashContext` and, on macOS, selects `DeleteMethod::NsFileManager`
+(`trashItemAtURL`), which requires no additional permission and is faster. The
+documented trade-off is that Finder's "Put Back" entry may be missing on some
+systems — a macOS bug rather than a crate one; the file is still in the Trash and
+still recoverable by hand, satisfying FR-10/AC-3. Any future change of removal
+mechanism must preserve the property this ADR actually depends on: **a removal
+attempt always returns.**
+
 ## Pros and cons of the options
 
 ### Option 1 — `trash` crate + `remove_file` (chosen)

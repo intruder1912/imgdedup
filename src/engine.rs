@@ -799,7 +799,7 @@ fn hash_file(path: &Path) -> io::Result<[u8; 32]> {
 ///
 /// Streams both files through fixed buffers and short-circuits on the first
 /// differing byte or a length mismatch (ADR-0010). Never buffers a whole file.
-fn files_equal(a: &Path, b: &Path) -> io::Result<bool> {
+pub(crate) fn files_equal(a: &Path, b: &Path) -> io::Result<bool> {
     let mut fa = File::open(a)?;
     let mut fb = File::open(b)?;
     let mut ba = vec![0u8; STREAM_BUF_LEN];

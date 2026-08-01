@@ -1,7 +1,9 @@
+use apply::Remover;
 use clap::Parser;
 use std::io::IsTerminal;
 use std::process;
 
+mod apply;
 mod cli;
 mod engine;
 mod enumerate;
@@ -139,7 +141,40 @@ fn run(args: cli::Cli) -> i32 {
     };
     print!("{rendered}");
 
-    // TODO(TASK-0309/0310): act on `dedup.groups` under --apply / --delete.
+    // Stage 4b — Destructive actions (TASK-0309; TASK-0310 adds --delete).
+    //
+    // Deliberately after the report: the report describes the intended actions,
+    // and printing it first means a run that dies mid-apply has still told the
+    // user what it was about to do. Every candidate is re-validated immediately
+    // before its removal (FR-16), so nothing is removed on the strength of the
+    // scan alone.
+    //
+    // Per-file skips go to stderr rather than stdout: stdout is the report/JSON
+    // document (the S2 purity contract), and a skip is a diagnostic. The
+    // performed-action rendering inside the report and `--json` is the rest of
+    // this slice (TASK-0310).
+    if args.apply {
+        if args.delete {
+            // TASK-0310 supplies the permanent-delete Remover. Until it lands,
+            // refuse rather than silently trashing: a user who asked for
+            // permanent deletion must never be given a different mechanism
+            // without being told (ADR-0009).
+            eprintln!("error: --delete is not implemented yet (TASK-0310)");
+            return exit_code::ERROR;
+        }
+
+        let remover = apply::TrashRemover::new();
+        let outcome = apply::apply(&dedup.groups, &remover);
+        for skip in &outcome.skipped {
+            eprintln!("warning: {}: {}", skip.path.display(), skip.reason);
+        }
+        println!(
+            "\n{} {} file(s); skipped {}.",
+            remover.past_tense(),
+            outcome.removed.len(),
+            outcome.skipped.len()
+        );
+    }
 
     // Stage 5 — Exit code (ADR-0008 §exit-code, TASK-0311).
     // A run-level error (non-empty root_errors) → 1. The --exit-code flag

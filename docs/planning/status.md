@@ -11,11 +11,19 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **TASK-0316 — lone hard-link sets surfaced** on
-  `fix/lone-hard-link-sets-0316`, session 2 of the re-plan. A `fix:` unit, not
-  a slice: the product-owner ruled the gap a bug rather than a scope call.
-  Next in this session: the **S3 core** (TASK-0309, trash apply) on its own
-  branch.
+- **Slice S3 — destructive actions** on `feature/apply-delete`. TASK-0309
+  (trash apply + apply-time re-validation) is **parked at the session-2 cut
+  line**: `src/apply.rs` holds the injected-`Remover` executor and the TOCTOU
+  re-validation, 10 unit tests, `--apply` wired end-to-end, and `trash` added
+  (cargo-deny clean). `--apply --delete` deliberately refuses until TASK-0310
+  supplies the delete mechanism. Two findings recorded in
+  [`reviews/apply-delete.md`](reviews/apply-delete.md): the `trash` crate's
+  macOS default hangs forever (fixed; ADR-0009 consequence note), and a CLI
+  test pointed `--apply --delete` at the repository working directory (fixed).
+  **Session 3 finishes the slice:** TASK-0310, performed-action reporting in
+  the report and `--json`, acceptance, docs, whole-slice review, PR.
+
+- _TASK-0316 (lone hard-link sets) shipped earlier in session 2 as PR #48._
 
 - _Session 1 (2026-08-01) landed PR #46 (re-plan) and PR #47 (batch 4b /
   TASK-0315 progress indication) but consumed 100% of its 5-hour window; the
