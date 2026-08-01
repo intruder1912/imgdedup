@@ -1,11 +1,11 @@
-# Batch plan — housekeeping to first release (2026-07)
+# Batch plan — housekeeping to first release (2026-07 → 2026-08)
 
-Owner-approved execution schedule (2026-07-19) taking `imgdedup` from the
-post-S1 state to a first private release. It overlays the
-[roadmap](roadmap.md) phases and the [backlog](backlog.md) tasks with an
-explicit **batch order sized to Claude usage limits** (Pro tier: 5-hour
-rolling window + weekly caps, with a separate Fable 5 pool). This file is the
-schedule; the backlog stays the canonical task list.
+Owner-approved execution schedule (2026-07-19, **re-planned 2026-08-01**)
+taking `imgdedup` from the post-S1 state to a first private release. It
+overlays the [roadmap](roadmap.md) phases and the [backlog](backlog.md) tasks
+with an explicit **batch order sized to Claude usage limits** (Pro tier:
+5-hour rolling window + weekly caps, with a separate Fable 5 pool). This file
+is the schedule; the backlog stays the canonical task list.
 
 ## Owner decisions recorded here
 
@@ -39,16 +39,38 @@ schedule; the backlog stays the canonical task list.
 
 ## Limits governance (all batches)
 
-- Each batch ≈ one session, estimated as % of one Pro 5-hour window below;
-  realistic pace is **2–3 batches/week** under the weekly caps.
+- Each batch ≈ one session, estimated as % of one Pro 5-hour window below.
 - Start of batch: check the estimate against what remains in the window/week
   (both pools). End of batch: reconcile with `/usage` actuals and re-scope the
   remaining batches.
 - Every batch keeps a mid-point cut line (a commit leaving the branch
   coherent) in case usage trends over the estimate.
+- **Session fill target 60–70% of the 5-hour window, hard stop at 75%** —
+  keeps the ~25–30% margin the global rule requires while still paying the
+  fixed per-session re-entry cost (reload planning docs, rebase, first CI
+  round trip) only once per unit of progress.
 - Subagent fan-out is expensive; prefer inline work. Reserve Fable 5 for
   design- and review-heavy steps; use Sonnet for mechanical TDD/doc work.
-- **Actuals log:** Batch 0 — 26% of 5h window (est. 15–25; one extra CI
+- **At most one architect dispatch per feature unit** (review + confirm in the
+  same dispatch). Batch 4 landed at 51% against a 60–80 estimate largely
+  because it worked inline with a single review dispatch.
+
+### Measured cost model (from the batches 0–4 actuals)
+
+| Unit shape | 5h window | Weekly points | Evidence |
+|---|---|---|---|
+| Docs-only / small chore | ~10% | ~1 | batches 0–2 (four chores fit one window) |
+| Feature unit, inline, one review | ~50% | ~8 | batch 4 (TASK-0313) |
+| Feature slice (build + acceptance/docs/review) | ~70% | ~8–9 | batch 3 (S2, across two windows) |
+
+Derived rule of thumb: **one full 5-hour window ≈ 10–16 weekly points**, so a
+fresh week supports roughly **6 full windows**, i.e. **8–9 batches at the
+60–70% fill target**. Feature work tracks its estimate closely; chore work
+consistently comes in under.
+
+### Actuals log
+
+- Batch 0 — 26% of 5h window (est. 15–25; one extra CI
   round-trip for the cspell@10 Node-22 requirement). Week of 2026-07-19 after
   batch 0: 27% general / 23% Fable 5. Batch 1 part 1 (PR #31) — 11% (window
   at 37%, week 28/25). Both batch-1 halves ran in the same window as batch 0,
@@ -70,9 +92,36 @@ schedule; the backlog stays the canonical task list.
   47% general / 50% Fable 5 used. Re-scope: batch 4b (est. 45–60) does
   **not** fit the remaining 49% of this window with margin — per the
   owner decision it starts its own fresh window; the week supports it
-  (~10–12 weekly points at batch-4's observed burn rate).
+  (~10–12 weekly points at batch-4's observed burn rate). **2026-08-01 —
+  owner reports both pools at 0% (5-hour window and both 7-day caps)** after
+  an idle stretch since the batch-4 merge; the re-plan below schedules the
+  remaining batches against a full fresh week.
+
+## Re-plan 2026-08-01 — both limit pools fresh
+
+The owner reported **0% used on both the 5-hour window and the 7-day caps**
+(general and Fable 5) on 2026-08-01, after an idle stretch since the batch-4
+merge on 2026-07-19. `main` is green and no PRs are open, so the remaining
+plan starts from a clean slate. Two consequences:
+
+1. **The weekly cap is now the binding constraint, not the 5-hour window.** A
+   full week affords ~6 windows of work, and the whole remaining path to
+   v0.1.0 (batches 4b → 7b) costs ~4 windows ≈ **40–65 weekly points**. The
+   release is therefore reachable **within this week** with margin — provided
+   sessions stay at the fill target rather than sprawling.
+2. **Prefer fewer, fuller sessions.** Each session pays a fixed re-entry cost;
+   splitting the same work across more, thinner sessions raises the weekly
+   burn without buying window safety.
+
+The two remaining batches that were sized above one comfortable session
+(batch 5 at `2 × 60`, batch 6 at `70–90`) are **split into explicit halves**
+(5a/5b, 6a/6b), and the release batch is split into plumbing (7a) and the
+tagged release (7b), so that every scheduled session fits the 60–70% target.
 
 ## The batches
+
+Done history first, then the re-planned sessions in execution order. "Weekly"
+is the estimated cost in 7-day-cap points, per the measured cost model above.
 
 | # | Batch | Unit | Tasks | Est. 5h % | Status |
 |---|---|---|---|---|---|
@@ -81,12 +130,41 @@ schedule; the backlog stays the canonical task list.
 | 2 | Versions, stability & resilience | chore | TASK-0216 | 50–70 | done (PRs #35 + F1-fix PR; actual ~25 total; review found 1 defect, fixed) |
 | 3 | S2 — JSON output | feature slice | TASK-0308 | 60–80 | done (PR #38; actual ~70 across two windows) |
 | 4 | Test tooling & golden set | feature | TASK-0313 | 60–80 | done (PR #41; actual 51%) |
-| 4b | Progress indication (FR-19) | feature | TASK-0315 | 45–60 | todo |
-| 5 | S3 — Destructive actions | feature slice | TASK-0309, TASK-0310 | 2 × 60 | todo |
-| 6 | S4 — E2E, scale & field validation | feature slice | TASK-0312, TASK-0314 | 70–90 | todo |
-| 7 | Release flow → v0.1.0 (private) | chore/feature | TASK-0202, TASK-0203, TASK-0211 | 60–80 | todo |
-| 8 | Docs consistency pass | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | todo |
-| 9 | AI automation support | feature | TASK-0218 | 50–70 | todo |
+
+### Scheduled sessions (from 2026-08-01)
+
+| Session | Batch | Unit(s) | Tasks | Est. 5h % | Est. weekly | Cut line |
+|---|---|---|---|---|---|---|
+| 1 | re-plan + 4b | chore, then feature | this file, then TASK-0315 | 8–12 + 45–60 | ~9 | progress sink + `--no-progress` TDD core green on the branch; docs + review + PR slip to session 2 |
+| 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 40–50 | ~8 | `feature/apply-delete` parked with trash-apply + re-validation core green |
+| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 50–65 | ~8 | delete path green and reviewed; docs/PR next session |
+| 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | AC coverage green; scale work is session 5 |
+| 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | benchmark numbers recorded; field validation can slip (needs the owner's photo corpus) |
+| 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | ADR + `LICENSE` committed before touching the release workflow |
+| 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | binaries building locally before wiring the release job |
+| 8 | 8 | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | ~5 | next week |
+| 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | next week |
+
+**Week 1 target (2026-08-01 →): sessions 1–7, i.e. v0.1.0 shipped**, at an
+estimated 40–65 weekly points against a 100-point cap. **Week 2: sessions
+8–9** (docs consistency + AI automation), which deliberately sit after the
+release so they document and automate final behavior.
+
+### Checkpoints and the cut line for the week
+
+- Reconcile `/usage` after **every** session and append to the actuals log.
+- **Trigger:** if either pool passes **60% weekly before session 5 completes**,
+  push batches 7a/7b into week 2 and end week 1 after S4 (session 5). Shipping
+  S4 without the release is a coherent stopping point; a half-wired release
+  workflow is not.
+- **Trigger:** if a session passes 75% of its window mid-unit, stop at the cut
+  line in its row above and resume in the next window — never run into the cap
+  mid-review.
+- TASK-0316 (session 2) is sized 10–20% because the outcome is unknown until
+  the product-owner decides: a wording narrowing is a docs-only `fix`, while
+  surfacing lone hard-linked sets touches the engine, the JSON schema, and the
+  golden manifest. If it turns out to be the engine path, it is its own unit
+  and batch 5a slips to session 3, cascading the rest by one session.
 
 ## Ordering constraints
 
@@ -109,6 +187,11 @@ schedule; the backlog stays the canonical task list.
   build in a **fresh usage window as its own unit** (do not start ahead of that).
   The stored-results doc note (redirection) documents existing behavior and ships
   now, decoupled from this batch.
+
+- The 2026-08-01 splits inherit their parent's constraints: 5a → 5b and
+  6a → 6b are strictly sequential halves of one slice branch (one PR each for
+  S3 and S4, not one per half), and 7a precedes 7b because the release job
+  cannot be tagged before the licensing ADR and the publishing mechanism land.
 
 Slice mechanics (branching, in-progress reviews, PR-open gates) are unchanged
 from [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md); this plan only

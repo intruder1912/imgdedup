@@ -7,18 +7,26 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-07-19
+**Last updated:** 2026-08-01
 
 ## In progress
 
-- _Nothing — batch 4 merged (PR #41). Batch 4b (progress indication,
-  TASK-0315) starts a fresh usage window per the owner decision (see the
-  [batch plan](batch-plan.md) actuals log)._
+- _Nothing — batch 4 merged (PR #41); `main` green, no open PRs. The batch
+  plan was **re-planned 2026-08-01** against fresh limit pools (both the
+  5-hour window and the 7-day caps at 0%): the remaining path to v0.1.0 is
+  scheduled as sessions 1–7 within this week, with docs/AI-automation in
+  week 2. Batch 4b (progress indication, TASK-0315) is session 1 and starts
+  the fresh window per the owner decision._
 
 ## Up next
 
-Batch order per the [batch plan](batch-plan.md): Batch 4b (progress
-indication, fresh window) → then the remaining slices below. Owner decisions
+Session order per the [batch plan](batch-plan.md) — **1:** this re-plan +
+batch 4b (TASK-0315) · **2:** TASK-0316 + S3 core (TASK-0309) · **3:** S3
+finish (TASK-0310, acceptance, docs, review, PR) · **4:** S4 acceptance
+(TASK-0312) · **5:** S4 scale + field validation (TASK-0314) · **6:** release
+plumbing (TASK-0202, TASK-0203) · **7:** binaries + **v0.1.0** (TASK-0211) ·
+**8–9 (week 2):** docs consistency (TASK-0217/0205/0206), AI automation
+(TASK-0218). Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
