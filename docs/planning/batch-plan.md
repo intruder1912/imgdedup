@@ -92,7 +92,11 @@ consistently comes in under.
   47% general / 50% Fable 5 used. Re-scope: batch 4b (est. 45–60) does
   **not** fit the remaining 49% of this window with margin — per the
   owner decision it starts its own fresh window; the week supports it
-  (~10–12 weekly points at batch-4's observed burn rate). **2026-08-01 —
+  (~10–12 weekly points at batch-4's observed burn rate). **Addendum (missed
+  in the #42 sync):** the FR-19 specification units — PR #39 (planning flip,
+  ~0) and PR #40 (the PRD-0001 progress amendment, **~28%** against a ~15%
+  estimate) — say to budget **25–30% for spec/amendment units**, not 15%;
+  that window closed at 78% (week 42/42). **2026-08-01 —
   owner reports both pools at 0% (5-hour window and both 7-day caps)** after
   an idle stretch since the batch-4 merge; the re-plan below schedules the
   remaining batches against a full fresh week.
