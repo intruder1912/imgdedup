@@ -320,7 +320,10 @@ Behavior:
   `--json` lists it in `already_deduplicated` with
   `already_deduplicated_sets` counting it — while `duplicate_groups`,
   `removable_files` and `reclaimable_bytes` all stay `0`. A single file with no
-  hard-linked sibling is **not** such a set and is reported as before. This
+  hard-linked sibling is **not** such a set and is reported as before. As
+  always, a file excluded by an identity-lookup warning is out of scope for
+  this determination — it is reported as a warning and does not count as
+  "another file in scope with that content". This
   tightens AC-18 rather than extending scope: ADR-0008 edge case 1 already
   required it (one inode trivially satisfies "every distinct inode is
   multiply-linked in-scope"), and both output formatters already handled it —

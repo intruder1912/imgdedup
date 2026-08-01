@@ -629,7 +629,7 @@ where
         return;
     }
 
-    if standalones.len() < 2 && anchors.is_empty() {
+    if standalones.len() == 1 && anchors.is_empty() {
         // A single distinct physical file with no hard-linked siblings: not a
         // duplicate of anything and not already-deduplicated. Nothing to report.
         return;
