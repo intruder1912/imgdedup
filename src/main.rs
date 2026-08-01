@@ -63,16 +63,6 @@ fn run(args: cli::Cli) -> i32 {
     // Stage 1 — Enumerate candidate files (ADR-0008, TASK-0302).
     let candidate_set = enumerate::enumerate(&args.paths, &scope);
 
-    // Run-level errors (an unscannable root) must be *visible*, not just
-    // reflected in the exit code (resilience review 2026-07, finding F1).
-    // Printed to stderr so they survive stdout redirection and stay out of
-    // the machine-readable stdout surface (--json, TASK-0308). The run still
-    // continues over the remaining roots and exits 1 at the end (partial
-    // results plus an explicit failure signal).
-    for err in &candidate_set.root_errors {
-        eprintln!("error: {}: {}", err.path.display(), err.reason);
-    }
-
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
     // Hand the enumerated candidates (path + size) to the sniff predicate.
     // Candidates that fail confirmation are dropped and recorded as
@@ -80,18 +70,17 @@ fn run(args: cli::Cli) -> i32 {
     // enumeration stat'd is threaded through into each ConfirmedFile.
     let (confirmed, sniff_warnings) = sniff::filter_candidates(candidate_set.candidates);
 
-    // The denominator (y) is fixed the moment the confirmed set is known
-    // (FR-19, AC-21): the count of candidate files still to be checked.
-    sink.set_total(confirmed.len() as u64);
-
     // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304/0305/0306).
     // Size pre-group → BLAKE3 pre-filter → hash group → identity collapse →
     // byte-for-byte verify against the keeper. Pure analysis: no filesystem
     // mutation. Keeper order comes from the real keeper rule (TASK-0305).
     // Hashing is parallelized via rayon (TASK-0306). The outcome is canonically
-    // sorted before returning (ADR-0010). The engine drives the Hashing →
-    // Verifying phase transitions itself and notifies `sink` as each
-    // candidate file reaches its final disposition (FR-19).
+    // sorted before returning (ADR-0010). The engine is the single source of
+    // truth for the progress denominator — it calls `sink.set_total` itself
+    // from `files.len()` (architect finding 11, so it can never desync from
+    // what it actually iterates) — and drives the Hashing → Verifying phase
+    // transitions, notifying `sink` as each candidate file reaches its final
+    // disposition (FR-19). `main` only ever drives the Scanning phase, above.
     let dedup = engine::find_duplicates_with_progress(
         confirmed,
         keeper::build_comparator(args.keep),
@@ -102,6 +91,25 @@ fn run(args: cli::Cli) -> i32 {
     // strictly before the stdout report/JSON is printed below, so progress
     // output can never interleave with stdout in any mode (AC-20).
     sink.finish();
+
+    // Run-level errors (an unscannable root) must be *visible*, not just
+    // reflected in the exit code (resilience review 2026-07, finding F1).
+    // Printed to stderr so they survive stdout redirection and stay out of
+    // the machine-readable stdout surface (--json, TASK-0308). The run still
+    // continues over the remaining roots and exits 1 at the end (partial
+    // results plus an explicit failure signal).
+    //
+    // Deliberately placed *after* `sink.finish()` above (architect finding
+    // 1): on a TTY the progress line is redrawn in place and left
+    // un-terminated between repaints, so writing anything else to stderr
+    // while it is live corrupts it mid-line (e.g.
+    // `scanning...error: /nonexistent: No such file or directory`).
+    // `finish()` always leaves the cursor on a fresh line, so nothing here
+    // (or any future stderr writer added during the run window — see the
+    // rule in `progress.rs`'s module doc) may run before it returns.
+    for err in &candidate_set.root_errors {
+        eprintln!("error: {}: {}", err.path.display(), err.reason);
+    }
 
     // Stage 4 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
     // the same canonical model; no filesystem mutation in either — --apply /

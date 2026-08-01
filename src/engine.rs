@@ -29,7 +29,9 @@
 //!   are never proposed for removal (AC-18, FR-17).
 //! - **Pure analysis.** This stage performs **no filesystem mutation**.
 
-use crate::progress::{NoProgress, Phase, ProgressSink};
+#[cfg(test)]
+use crate::progress::NoProgress;
+use crate::progress::{Phase, ProgressSink};
 use crate::sniff::ConfirmedFile;
 use rayon::prelude::*;
 use same_file::Handle;
@@ -148,8 +150,8 @@ pub struct EngineWarning {
     pub reason: String,
 }
 
-/// The result of [`find_duplicates`]: verified groups (canonically sorted) plus
-/// any warnings.
+/// The result of [`find_duplicates_with_progress`]: verified groups
+/// (canonically sorted) plus any warnings.
 ///
 /// The `groups` and `warnings` are in **canonical order** (ADR-0010): groups
 /// by keeper path, files within each group by the TASK-0305 total order,
@@ -189,25 +191,43 @@ pub struct DedupOutcome {
 /// is used only as a pre-filter; byte-for-byte verification is the sole authority
 /// for placing a file in `removable` (FR-4, NFR-1).
 ///
-/// Kept as a public, progress-free entry point for backward compatibility
-/// (TASK-0315): production `main.rs` now calls
-/// [`find_duplicates_with_progress`] instead (with [`NoProgress`] when
-/// progress is disabled), so this function is only exercised by tests in a
-/// non-test build — hence the scoped `dead_code` allow below.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn find_duplicates<K>(files: Vec<ConfirmedFile>, keeper_order: K) -> DedupOutcome
+/// Progress-free variant of [`find_duplicates_with_progress`], kept
+/// `#[cfg(test)]`-only (architect finding 6): [`find_duplicates_with_progress`]
+/// is the crate's **sole production entry point** — the compiler proves it
+/// (no production code path can reach this function or [`dedup_core`] at
+/// all), rather than relying on a lint suppression. `pub(crate)` (rather
+/// than fully private) because it is also used as a test fixture builder by
+/// other modules' unit tests (`json.rs`, `keeper.rs`, `report.rs`), not just
+/// this module's own ~1800 lines of pre-existing tests — both keep
+/// compiling unchanged.
+#[cfg(test)]
+pub(crate) fn find_duplicates<K>(files: Vec<ConfirmedFile>, keeper_order: K) -> DedupOutcome
 where
     K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
     dedup_core(files, keeper_order, hash_file, true)
 }
 
-/// Progress-aware entry point (FR-19, TASK-0315): identical to
-/// [`find_duplicates`], but notifies `sink` as candidate files reach their
-/// final disposition (dropped as a size-singleton, dropped as a hash-unique
-/// file, or carried through byte-verification). Progress is strictly an
-/// output-only concern — passing [`NoProgress`] behaves exactly like
-/// [`find_duplicates`] (AC-24).
+/// Analyse `files` and return verified duplicate groups, notifying `sink` as
+/// candidate files reach their final disposition (TASK-0315, FR-19). This is
+/// the crate's sole production entry point into the engine (finding 6); pass
+/// [`NoProgress`] for callers that don't care about progress — it behaves
+/// identically to the pipeline having no progress-aware code at all (AC-24).
+///
+/// `keeper_order` is a total ordering over [`FileRec`]s; within each verified
+/// group the **minimum** under this ordering is chosen as the keeper and every
+/// other member is a removable non-keeper. Build the correct ordering with
+/// [`crate::keeper::build_comparator`] (TASK-0305).
+///
+/// `keeper_order` should be a **total** ordering. If it is not, the keeper among
+/// tie-comparing files is unspecified (it falls out of internal grouping order)
+/// but always **safe** — every non-keeper is still byte-verified, so removal
+/// correctness never depends on the ordering being total. Canonical-sort
+/// determinism is TASK-0306's concern.
+///
+/// This is a **pure analysis** stage: it performs no filesystem mutation. BLAKE3
+/// is used only as a pre-filter; byte-for-byte verification is the sole authority
+/// for placing a file in `removable` (FR-4, NFR-1).
 pub fn find_duplicates_with_progress<K>(
     files: Vec<ConfirmedFile>,
     keeper_order: K,
@@ -221,16 +241,13 @@ where
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-/// Core pipeline, parameterized over the hasher and whether size pre-grouping is
-/// applied so tests can (a) force hash collisions to prove byte-verify is the
-/// authority and (b) assert size pre-grouping is equivalent to hashing every file
-/// (AC-9). Production callers go through [`find_duplicates`].
-///
-/// A thin wrapper over [`dedup_core_with_sink`] with progress disabled
-/// ([`NoProgress`]), kept with this exact 4-argument signature so the
-/// existing internal tests that call it directly keep compiling unchanged.
-/// Like [`find_duplicates`], only reachable from tests in a non-test build.
-#[cfg_attr(not(test), allow(dead_code))]
+/// Progress-free variant of [`dedup_core_with_sink`] (see there for the
+/// pipeline description), `#[cfg(test)]`-only for the same reason as
+/// [`find_duplicates`] — kept with this exact 4-argument signature so tests
+/// that call it directly (to force hash collisions, or to assert size
+/// pre-grouping is equivalent to hashing every file, AC-9) keep compiling
+/// unchanged.
+#[cfg(test)]
 fn dedup_core<H, K>(
     files: Vec<ConfirmedFile>,
     keeper_order: K,
@@ -244,8 +261,8 @@ where
     dedup_core_with_sink(files, keeper_order, hasher, size_prefilter, &NoProgress)
 }
 
-/// Core pipeline (see [`dedup_core`]), additionally notifying `sink` as each
-/// candidate file reaches its final disposition (TASK-0315, FR-19).
+/// Core pipeline, additionally notifying `sink` as each candidate file
+/// reaches its final disposition (TASK-0315, FR-19).
 ///
 /// Hashing within each size cohort is executed with rayon parallel iterators
 /// (ADR-0010, TASK-0306). The `hasher` function must be `Send + Sync` so it can
@@ -253,9 +270,16 @@ where
 ///
 /// ## Progress accounting (FR-19)
 ///
-/// The pipeline is walked in two passes so the phase toggles **at most
-/// once** each way ([`Phase::Hashing`] then [`Phase::Verifying`]) regardless
-/// of how many size cohorts or hash groups exist, which keeps both the TTY
+/// `sink.set_total(files.len())` is called here, once, as the very first
+/// action — the engine is the single source of truth for the run-wide
+/// denominator (architect finding 11: previously `main.rs` computed it
+/// separately from `confirmed.len()`, which could desync from what the
+/// engine actually iterates if the two were ever refactored independently).
+///
+/// The pipeline is then walked in two passes so the phase toggles **at most
+/// once** each way ([`Phase::Hashing`] then, only if there is any
+/// byte-verification workload at all, [`Phase::Verifying`]) regardless of
+/// how many size cohorts or hash groups exist, which keeps both the TTY
 /// redraw cadence and the non-TTY milestone-line count bounded:
 ///
 /// 1. **Hashing pass** — every size-singleton dropped by the size
@@ -277,14 +301,19 @@ where
 ///    entering verification, then advanced by each group's size right after
 ///    [`process_hash_group`] returns (every member's disposition is decided
 ///    by then, regardless of which internal branch — all-anchor group,
-///    verify pass/fail, ... — was taken).
+///    verify pass/fail, ... — was taken). **If that count is zero, the phase
+///    is skipped entirely** — no `retotal`, no `set_phase` — rather than
+///    showing a degenerate `0 of 0` (architect finding 2; a duplicate-free
+///    tree now goes straight from Hashing to [`ProgressSink::finish`]'s
+///    terminal `Done`).
 ///
 /// This guarantees the **per-phase counting invariant**: every file is
 /// counted exactly once during the hashing pass (summing to `y`, the input
-/// length) and exactly once during the verify pass (summing to the number of
-/// files that entered it) — see the `find_duplicates_with_progress_*` tests
-/// below, including a regression test asserting hashing advances arrive
-/// incrementally rather than in one bulk jump.
+/// length) and, when the phase runs at all, exactly once during the verify
+/// pass (summing to the number of files that entered it) — see the
+/// `find_duplicates_with_progress_*` tests below, including a regression
+/// test asserting hashing advances arrive incrementally rather than in one
+/// bulk jump.
 ///
 /// Before returning, the outcome is **canonically sorted** (ADR-0010): groups
 /// by keeper path, files within each group by the keeper order, warnings by
@@ -304,13 +333,19 @@ where
 {
     let mut outcome = DedupOutcome::default();
 
+    // The engine is the single source of truth for the run-wide denominator
+    // (finding 11) — set once, here, before anything else.
+    sink.set_total(files.len() as u64);
     sink.set_phase(Phase::Hashing);
 
     // Stage 1 — size pre-grouping (FR-5, AC-9). Singleton sizes are dropped
     // without hashing — their disposition is final now, so they are counted
     // here. The non-prefilter path (one cohort of everything) exists only so
     // the equivalence with hashing-everything can be asserted (AC-9); it
-    // never drops a size-singleton.
+    // never drops a size-singleton. `saturating_sub` (finding 9): a future
+    // change to cohort construction that ever produced more cohort members
+    // than input files would be a logic bug, but progress accounting must
+    // not be where it panics (debug) or silently wraps (release).
     let total_files = files.len();
     let cohorts = if size_prefilter {
         group_by_size(files)
@@ -320,7 +355,7 @@ where
         vec![files]
     };
     let cohort_files: usize = cohorts.iter().map(Vec::len).sum();
-    let size_singletons = total_files - cohort_files;
+    let size_singletons = total_files.saturating_sub(cohort_files);
     if size_singletons > 0 {
         sink.advance(size_singletons as u64);
     }
@@ -378,17 +413,23 @@ where
     // display would either overrun `y` or sit at a misleading "100%" while
     // still working. `retotal` is paired immediately with `set_phase` so the
     // label and the new denominator change together in the rendered output.
+    // When there is nothing to verify, the phase is skipped entirely
+    // (finding 2) — `pending_hash_groups` is empty in that case by
+    // construction (every pushed group has length >= 2), so there is
+    // nothing left to iterate either way.
     let verify_total: u64 = pending_hash_groups.iter().map(|g| g.len() as u64).sum();
-    sink.retotal(verify_total);
-    sink.set_phase(Phase::Verifying);
-    for group in pending_hash_groups {
-        // Captured before the call because `process_hash_group` consumes
-        // `group`; every member's disposition is decided by the time it
-        // returns, regardless of which internal branch (all-anchor group,
-        // verify pass/fail, ...) was taken.
-        let group_len = group.len() as u64;
-        process_hash_group(group, &keeper_order, &mut outcome);
-        sink.advance(group_len);
+    if verify_total > 0 {
+        sink.retotal(verify_total);
+        sink.set_phase(Phase::Verifying);
+        for group in pending_hash_groups {
+            // Captured before the call because `process_hash_group` consumes
+            // `group`; every member's disposition is decided by the time it
+            // returns, regardless of which internal branch (all-anchor group,
+            // verify pass/fail, ...) was taken.
+            let group_len = group.len() as u64;
+            process_hash_group(group, &keeper_order, &mut outcome);
+            sink.advance(group_len);
+        }
     }
 
     // Canonical sort (ADR-0010, TASK-0306): sort before returning so two runs
@@ -1966,9 +2007,16 @@ mod tests {
     /// `progress.rs`.
     struct RecordingSink {
         total: std::sync::atomic::AtomicU64,
+        /// Number of times `set_total` was called — the engine must call it
+        /// exactly once, itself (finding 11), never relying on a caller to
+        /// have pre-set it.
+        set_total_calls: std::sync::atomic::AtomicU64,
         /// The denominator passed to the most recent `retotal` call (the
         /// verify phase's own workload — see `dedup_core_with_sink`).
         verify_total: std::sync::atomic::AtomicU64,
+        /// Number of times `retotal` was called — must be zero when the
+        /// verify phase is skipped (finding 2).
+        retotal_calls: std::sync::atomic::AtomicU64,
         hashing_advanced: std::sync::atomic::AtomicU64,
         /// Number of *separate* `advance` calls made while `Hashing` was the
         /// active phase — used to distinguish incremental progress from one
@@ -1983,7 +2031,9 @@ mod tests {
         fn default() -> Self {
             Self {
                 total: std::sync::atomic::AtomicU64::new(0),
+                set_total_calls: std::sync::atomic::AtomicU64::new(0),
                 verify_total: std::sync::atomic::AtomicU64::new(0),
+                retotal_calls: std::sync::atomic::AtomicU64::new(0),
                 hashing_advanced: std::sync::atomic::AtomicU64::new(0),
                 hashing_advance_calls: std::sync::atomic::AtomicU64::new(0),
                 verifying_advanced: std::sync::atomic::AtomicU64::new(0),
@@ -1996,6 +2046,8 @@ mod tests {
     impl crate::progress::ProgressSink for RecordingSink {
         fn set_total(&self, total: u64) {
             self.total.store(total, std::sync::atomic::Ordering::SeqCst);
+            self.set_total_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         fn set_phase(&self, phase: crate::progress::Phase) {
             *self.phase.lock().unwrap() = phase;
@@ -2013,12 +2065,14 @@ mod tests {
                     self.verifying_advanced
                         .fetch_add(n, std::sync::atomic::Ordering::SeqCst);
                 }
-                crate::progress::Phase::Scanning => {}
+                crate::progress::Phase::Scanning | crate::progress::Phase::Done => {}
             }
         }
         fn retotal(&self, total: u64) {
             self.verify_total
                 .store(total, std::sync::atomic::Ordering::SeqCst);
+            self.retotal_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         fn finish(&self) {}
     }
@@ -2042,7 +2096,6 @@ mod tests {
         let total = files.len() as u64;
 
         let sink = RecordingSink::default();
-        sink.set_total(total);
         let shortest_order = crate::keeper::build_comparator(crate::cli::KeepRule::Shortest);
         let outcome = find_duplicates_with_progress(files, shortest_order, &sink);
 
@@ -2072,6 +2125,35 @@ mod tests {
     }
 
     #[test]
+    fn find_duplicates_with_progress_sets_the_run_total_itself() {
+        // Architect finding 11: the engine, not the caller, is the single
+        // source of truth for the run-wide denominator — it must call
+        // `set_total` itself, exactly once, with `files.len()`, so it can
+        // never desync from a value some caller computed independently.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"same-content");
+        let b = write(&dir, "b.jpg", b"same-content");
+        let c = write(&dir, "c.jpg", b"solo-size-content!!");
+        let files = vec![cf(&a), cf(&b), cf(&c)];
+        let expected_total = files.len() as u64;
+
+        let sink = RecordingSink::default();
+        let _ = find_duplicates_with_progress(files, lex_order, &sink);
+
+        assert_eq!(
+            sink.set_total_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the engine must call set_total exactly once"
+        );
+        assert_eq!(
+            sink.total.load(std::sync::atomic::Ordering::SeqCst),
+            expected_total,
+            "the engine must set the total to files.len()"
+        );
+    }
+
+    #[test]
     fn find_duplicates_with_progress_hashing_advances_incrementally() {
         // Regression (coordinator-reported defect): hashing must animate as
         // files complete, not sit at 0% for the entire hashing pass and then
@@ -2088,7 +2170,6 @@ mod tests {
         }
 
         let sink = RecordingSink::default();
-        sink.set_total(files.len() as u64);
         let _ = find_duplicates_with_progress(files, lex_order, &sink);
 
         let calls = sink
@@ -2129,30 +2210,74 @@ mod tests {
     }
 
     #[test]
-    fn find_duplicates_with_progress_matches_find_duplicates_output() {
-        // AC-24: progress is output-only. The same inputs must yield the
-        // same DedupOutcome whether or not progress is threaded through.
+    fn find_duplicates_with_progress_skips_verifying_when_workload_is_zero() {
+        // Architect finding 2: when nothing needs byte-verification (every
+        // file is either a size-singleton or hash-unique within its
+        // cohort — no true duplicates), the engine must skip the Verifying
+        // phase entirely: no `retotal` call, no `set_phase(Verifying)`.
+        // Showing a degenerate "0 of 0 (100%)" would otherwise read as a
+        // second, pointless completion state.
+        let dir = tempfile::tempdir().unwrap();
+        let solo = write(&dir, "solo.jpg", b"unique-size-payload");
+        let u1 = write(&dir, "u1.jpg", b"AAAAAAAAAA");
+        let u2 = write(&dir, "u2.jpg", b"BBBBBBBBBB");
+        let files = vec![cf(&solo), cf(&u1), cf(&u2)];
+
+        let sink = RecordingSink::default();
+        let outcome = find_duplicates_with_progress(files, lex_order, &sink);
+
+        assert!(
+            outcome.groups.is_empty(),
+            "fixture must contain no genuine duplicates"
+        );
+        assert_eq!(
+            *sink.phases.lock().unwrap(),
+            vec![crate::progress::Phase::Hashing],
+            "Verifying must never be entered when its workload is zero"
+        );
+        assert_eq!(
+            sink.retotal_calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "retotal must never be called when the verify workload is zero"
+        );
+    }
+
+    #[test]
+    fn find_duplicates_with_progress_output_is_identical_with_real_sink_and_no_progress() {
+        // AC-24: progress is output-only. A prior version of this test
+        // compared `find_duplicates` (routed through `NoProgress`) against
+        // `find_duplicates_with_progress` with a bespoke, equally-inert mock
+        // sink — both paths converge on the same internal function with two
+        // sink implementations that never influence control flow, so it
+        // could not have caught a bug where the *real* renderer's locking
+        // or timing perturbed results (architect finding 6). This version
+        // instead runs the identical input through the sole production
+        // entry point twice: once with a real `Progress<Vec<u8>>` renderer
+        // (actual mutex locking, actual repaint decisions) and once with
+        // `NoProgress`, and asserts the outcomes are equal.
         let dir = tempfile::tempdir().unwrap();
         let a = write(&dir, "a.jpg", b"same-content");
         let b = write(&dir, "b.jpg", b"same-content");
         let c = write(&dir, "c.jpg", b"solo-size-content!!");
-
         let files = vec![cf(&a), cf(&b), cf(&c)];
 
-        let without_progress = find_duplicates(
+        let real_sink = crate::progress::Progress::new(Vec::new(), false);
+        let with_real_sink = find_duplicates_with_progress(
             files.clone(),
             crate::keeper::build_comparator(crate::cli::KeepRule::Shortest),
+            &real_sink,
         );
-        let sink = RecordingSink::default();
-        let with_progress = find_duplicates_with_progress(
+
+        let with_no_progress = find_duplicates_with_progress(
             files,
             crate::keeper::build_comparator(crate::cli::KeepRule::Shortest),
-            &sink,
+            &crate::progress::NoProgress,
         );
 
         assert_eq!(
-            without_progress, with_progress,
-            "progress must not change the dedup outcome"
+            with_real_sink, with_no_progress,
+            "progress must not change the dedup outcome, even with a real, \
+             locking renderer in the loop"
         );
     }
 }
