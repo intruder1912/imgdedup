@@ -29,6 +29,7 @@
 //!   are never proposed for removal (AC-18, FR-17).
 //! - **Pure analysis.** This stage performs **no filesystem mutation**.
 
+use crate::progress::{NoProgress, Phase, ProgressSink};
 use crate::sniff::ConfirmedFile;
 use rayon::prelude::*;
 use same_file::Handle;
@@ -187,11 +188,35 @@ pub struct DedupOutcome {
 /// This is a **pure analysis** stage: it performs no filesystem mutation. BLAKE3
 /// is used only as a pre-filter; byte-for-byte verification is the sole authority
 /// for placing a file in `removable` (FR-4, NFR-1).
+///
+/// Kept as a public, progress-free entry point for backward compatibility
+/// (TASK-0315): production `main.rs` now calls
+/// [`find_duplicates_with_progress`] instead (with [`NoProgress`] when
+/// progress is disabled), so this function is only exercised by tests in a
+/// non-test build — hence the scoped `dead_code` allow below.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn find_duplicates<K>(files: Vec<ConfirmedFile>, keeper_order: K) -> DedupOutcome
 where
     K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
     dedup_core(files, keeper_order, hash_file, true)
+}
+
+/// Progress-aware entry point (FR-19, TASK-0315): identical to
+/// [`find_duplicates`], but notifies `sink` as candidate files reach their
+/// final disposition (dropped as a size-singleton, dropped as a hash-unique
+/// file, or carried through byte-verification). Progress is strictly an
+/// output-only concern — passing [`NoProgress`] behaves exactly like
+/// [`find_duplicates`] (AC-24).
+pub fn find_duplicates_with_progress<K>(
+    files: Vec<ConfirmedFile>,
+    keeper_order: K,
+    sink: &dyn ProgressSink,
+) -> DedupOutcome
+where
+    K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
+{
+    dedup_core_with_sink(files, keeper_order, hash_file, true, sink)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -201,14 +226,11 @@ where
 /// authority and (b) assert size pre-grouping is equivalent to hashing every file
 /// (AC-9). Production callers go through [`find_duplicates`].
 ///
-/// Hashing within each size cohort is executed with rayon parallel iterators
-/// (ADR-0010, TASK-0306). The `hasher` function must be `Send + Sync` so it can
-/// be called from rayon worker threads.
-///
-/// Before returning, the outcome is **canonically sorted** (ADR-0010): groups
-/// by keeper path, files within each group by the keeper order, warnings by
-/// path, hard-link notes by representative path. This canonical sort is the
-/// single determinism mechanism — completion order never leaks into results.
+/// A thin wrapper over [`dedup_core_with_sink`] with progress disabled
+/// ([`NoProgress`]), kept with this exact 4-argument signature so the
+/// existing internal tests that call it directly keep compiling unchanged.
+/// Like [`find_duplicates`], only reachable from tests in a non-test build.
+#[cfg_attr(not(test), allow(dead_code))]
 fn dedup_core<H, K>(
     files: Vec<ConfirmedFile>,
     keeper_order: K,
@@ -219,11 +241,68 @@ where
     H: Fn(&Path) -> io::Result<[u8; 32]> + Sync,
     K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
+    dedup_core_with_sink(files, keeper_order, hasher, size_prefilter, &NoProgress)
+}
+
+/// Core pipeline (see [`dedup_core`]), additionally notifying `sink` as each
+/// candidate file reaches its final disposition (TASK-0315, FR-19).
+///
+/// Hashing within each size cohort is executed with rayon parallel iterators
+/// (ADR-0010, TASK-0306). The `hasher` function must be `Send + Sync` so it can
+/// be called from rayon worker threads.
+///
+/// ## Progress accounting (FR-19)
+///
+/// The pipeline is walked in two passes so the phase toggles **at most
+/// once** each way ([`Phase::Hashing`] then [`Phase::Verifying`]) regardless
+/// of how many size cohorts or hash groups exist, which keeps both the TTY
+/// redraw cadence and the non-TTY milestone-line count bounded:
+///
+/// 1. **Hashing pass** — for every size cohort, hash all members in parallel
+///    (advancing 1 per file that fails to hash, from inside the rayon
+///    closure — a terminal disposition reached right there), then group the
+///    successes by hash (advancing by the count of hash-unique singletons,
+///    also a terminal disposition — they are never verified) and defer every
+///    non-singleton hash group to the verify pass.
+/// 2. **Verify pass** — for every deferred hash group, advance by the
+///    group's size (its members' disposition is now fully decided —
+///    keeper, protected, verified-removable, or verify-rejected — regardless
+///    of which branch [`process_hash_group`] takes internally).
+///
+/// Every size-singleton dropped in stage 1's size pre-grouping is advanced
+/// up front, before the hashing pass, for the same reason.
+///
+/// This guarantees the **counting invariant**: every file is counted exactly
+/// once, at exactly one of these four disposition points, so the sum of all
+/// `advance` calls over a run equals the input length (`y`) — see the
+/// `find_duplicates_with_progress_*` tests below.
+///
+/// Before returning, the outcome is **canonically sorted** (ADR-0010): groups
+/// by keeper path, files within each group by the keeper order, warnings by
+/// path, hard-link notes by representative path. This canonical sort is the
+/// single determinism mechanism — completion order (including the two-pass
+/// restructuring above) never leaks into results.
+fn dedup_core_with_sink<H, K>(
+    files: Vec<ConfirmedFile>,
+    keeper_order: K,
+    hasher: H,
+    size_prefilter: bool,
+    sink: &dyn ProgressSink,
+) -> DedupOutcome
+where
+    H: Fn(&Path) -> io::Result<[u8; 32]> + Sync,
+    K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
+{
     let mut outcome = DedupOutcome::default();
 
+    sink.set_phase(Phase::Hashing);
+
     // Stage 1 — size pre-grouping (FR-5, AC-9). Singleton sizes are dropped
-    // without hashing. The non-prefilter path (one cohort of everything) exists
-    // only so the equivalence with hashing-everything can be asserted (AC-9).
+    // without hashing — their disposition is final now, so they are counted
+    // here. The non-prefilter path (one cohort of everything) exists only so
+    // the equivalence with hashing-everything can be asserted (AC-9); it
+    // never drops a size-singleton.
+    let total_files = files.len();
     let cohorts = if size_prefilter {
         group_by_size(files)
     } else if files.is_empty() {
@@ -231,16 +310,30 @@ where
     } else {
         vec![files]
     };
+    let cohort_files: usize = cohorts.iter().map(Vec::len).sum();
+    let size_singletons = total_files - cohort_files;
+    if size_singletons > 0 {
+        sink.advance(size_singletons as u64);
+    }
+
+    // Deferred hash groups (size > 1), collected across every cohort so the
+    // verify pass below runs once, after all hashing is done.
+    let mut pending_hash_groups: Vec<Vec<FileRec>> = Vec::new();
 
     for cohort in cohorts {
         // Stage 2 — hash each file in the cohort in parallel (ADR-0010, rayon).
         // par_iter produces (ConfirmedFile, Result<hash>) pairs preserving no
         // particular order; we collect all results and then split into recs and
-        // warnings so each per-file outcome is atomic.
+        // warnings so each per-file outcome is atomic. A hash failure is a
+        // terminal disposition reached right here, inside the parallel
+        // closure — advanced immediately (FR-19) via the thread-safe sink.
         let hash_results: Vec<(ConfirmedFile, io::Result<[u8; 32]>)> = cohort
             .into_par_iter()
             .map(|cf| {
                 let result = hasher(&cf.path);
+                if result.is_err() {
+                    sink.advance(1);
+                }
                 (cf, result)
             })
             .collect();
@@ -261,10 +354,29 @@ where
             }
         }
 
-        // Stage 3 — group by hash (drop singletons), then verify each group.
-        for group in group_by_hash(recs) {
-            process_hash_group(group, &keeper_order, &mut outcome);
+        // Stage 3 — group by hash (drop singletons). A hash-unique file's
+        // disposition is also final now (it is never byte-verified) — count
+        // it here. Non-singleton groups are deferred to the verify pass.
+        let hashed_files = recs.len();
+        let groups = group_by_hash(recs);
+        let grouped_files: usize = groups.iter().map(Vec::len).sum();
+        let hash_singletons = hashed_files - grouped_files;
+        if hash_singletons > 0 {
+            sink.advance(hash_singletons as u64);
         }
+        pending_hash_groups.extend(groups);
+    }
+
+    // Stage 4 — verify every deferred hash group (identity collapse + keeper
+    // selection + byte-verify). Each group's size is captured before the
+    // call because `process_hash_group` consumes it; every member's
+    // disposition is decided by the time it returns, regardless of which
+    // internal branch (all-anchor group, verify pass/fail, ...) was taken.
+    sink.set_phase(Phase::Verifying);
+    for group in pending_hash_groups {
+        let group_len = group.len() as u64;
+        process_hash_group(group, &keeper_order, &mut outcome);
+        sink.advance(group_len);
     }
 
     // Canonical sort (ADR-0010, TASK-0306): sort before returning so two runs
@@ -1829,6 +1941,120 @@ mod tests {
         assert_eq!(
             reclaimable, 0,
             "No standalones to remove, so reclaimable is 0"
+        );
+    }
+
+    // ── FR-19 / TASK-0315: progress sink plumbing ──────────────────────────────
+
+    /// A `ProgressSink` that just records what it was told, for assertions.
+    /// Used only to prove the engine notifies the sink correctly — the
+    /// rendering behavior itself is unit-tested in `progress.rs`.
+    #[derive(Default)]
+    struct RecordingSink {
+        total: std::sync::atomic::AtomicU64,
+        advanced: std::sync::atomic::AtomicU64,
+        phases: std::sync::Mutex<Vec<crate::progress::Phase>>,
+    }
+
+    impl crate::progress::ProgressSink for RecordingSink {
+        fn set_total(&self, total: u64) {
+            self.total.store(total, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn set_phase(&self, phase: crate::progress::Phase) {
+            self.phases.lock().unwrap().push(phase);
+        }
+        fn advance(&self, n: u64) {
+            self.advanced
+                .fetch_add(n, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn finish(&self) {}
+    }
+
+    #[test]
+    fn find_duplicates_with_progress_advances_sum_to_total_files() {
+        // FR-19 counting invariant: the sum of every `advance` call over a
+        // run must equal the total (y = confirmed.len()), across a mix of
+        // size-singletons, hash-unique files, and a genuine duplicate pair.
+        let dir = tempfile::tempdir().unwrap();
+        let solo = write(&dir, "solo.jpg", b"unique-size-payload"); // size-singleton
+        let u1 = write(&dir, "u1.jpg", b"AAAAAAAAAA"); // same size as u2, different content
+        let u2 = write(&dir, "u2.jpg", b"BBBBBBBBBB"); // hash-unique within its cohort
+        let d1 = write(&dir, "d1.jpg", b"DUPLICATE!"); // true duplicate pair
+        let d2 = write(&dir, "d2.jpg", b"DUPLICATE!");
+
+        let files = vec![cf(&solo), cf(&u1), cf(&u2), cf(&d1), cf(&d2)];
+        let total = files.len() as u64;
+
+        let sink = RecordingSink::default();
+        sink.set_total(total);
+        let shortest_order = crate::keeper::build_comparator(crate::cli::KeepRule::Shortest);
+        let outcome = find_duplicates_with_progress(files, shortest_order, &sink);
+
+        assert_eq!(
+            outcome.groups.len(),
+            1,
+            "exactly one genuine duplicate group expected"
+        );
+        assert_eq!(
+            sink.advanced.load(std::sync::atomic::Ordering::SeqCst),
+            total,
+            "sum of advances must equal the confirmed file count (y)"
+        );
+        assert_eq!(sink.total.load(std::sync::atomic::Ordering::SeqCst), total);
+    }
+
+    #[test]
+    fn find_duplicates_with_progress_sets_hashing_then_verifying() {
+        // The engine owns the Hashing → Verifying phase transitions (main.rs
+        // owns Scanning, before candidates are even known); exactly one of
+        // each, in order, regardless of how many size cohorts / hash groups
+        // exist (bounded phase toggling, FR-19).
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"same-content");
+        let b = write(&dir, "b.jpg", b"same-content");
+        let c = write(&dir, "c.jpg", b"different-content!!");
+        let d = write(&dir, "d.jpg", b"different-content!!");
+
+        let files = vec![cf(&a), cf(&b), cf(&c), cf(&d)];
+        let sink = RecordingSink::default();
+        let lex = lex_order;
+        let _ = find_duplicates_with_progress(files, lex, &sink);
+
+        assert_eq!(
+            *sink.phases.lock().unwrap(),
+            vec![
+                crate::progress::Phase::Hashing,
+                crate::progress::Phase::Verifying
+            ],
+            "expected exactly one Hashing→Verifying transition"
+        );
+    }
+
+    #[test]
+    fn find_duplicates_with_progress_matches_find_duplicates_output() {
+        // AC-24: progress is output-only. The same inputs must yield the
+        // same DedupOutcome whether or not progress is threaded through.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"same-content");
+        let b = write(&dir, "b.jpg", b"same-content");
+        let c = write(&dir, "c.jpg", b"solo-size-content!!");
+
+        let files = vec![cf(&a), cf(&b), cf(&c)];
+
+        let without_progress = find_duplicates(
+            files.clone(),
+            crate::keeper::build_comparator(crate::cli::KeepRule::Shortest),
+        );
+        let sink = RecordingSink::default();
+        let with_progress = find_duplicates_with_progress(
+            files,
+            crate::keeper::build_comparator(crate::cli::KeepRule::Shortest),
+            &sink,
+        );
+
+        assert_eq!(
+            without_progress, with_progress,
+            "progress must not change the dedup outcome"
         );
     }
 }
