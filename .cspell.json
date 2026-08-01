@@ -111,7 +111,8 @@
     "sandboxed",
     "recoverably",
     "untrashed",
-    "NTFS"
+    "NTFS",
+    "RAII"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",

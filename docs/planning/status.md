@@ -7,12 +7,12 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-01
+**Last updated:** 2026-08-02
 
 ## In progress
 
-- _Nothing in flight — slice S3 (destructive actions) is complete and open as a
-  PR. Session 3 of the 2026-08-01 re-plan._
+- _Nothing in flight — slice S4 (E2E acceptance & scale) is complete and open as
+  a PR. Sessions 3–4 of the 2026-08-01 re-plan._
 
 ## Up next
 
@@ -51,6 +51,24 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Slice S4 — E2E acceptance & scale (TASK-0312, session 4, 2026-08-02).**
+  `tests/acceptance.rs`: 21 tests, one per PRD criterion (AC-1..AC-19, AC-18a),
+  driving the compiled binary so coverage is traceable criterion by criterion.
+  AC-19's binary-level test lands here after being deferred out of S1.
+  `tests/scale.rs` + `make scale`: `#[ignore]`d NFR-4 fixtures. **Measured:**
+  peak RSS is ~7.5 MB + ~350 B/file and is independent of data volume (3 files
+  at 3 MB and at 300 MB both peak at 7.5 MB), confirming the streaming-read
+  design; ~0.36 GB projected at 1M files. **Not settled:** the concurrency
+  width — the benchmark could not see the knob, because `enumerate` and `sniff`
+  are serial and dominate small-file wall time, so rayon's default stands as
+  status quo rather than measured optimum. Architect review: 2 blockers (both
+  against claims in the measurement write-up, including a false statement about
+  BLAKE3 parallelism in an ADR note) + 13 should-fixes, all resolved; four
+  acceptance assertions could not have failed. Follow-ups: TASK-0321 (parallel
+  scan — also the lever behind TASK-0317), TASK-0322 (intra-file parallelism for
+  large files), TASK-0323 (exit-code doc divergence). See
+  [`reviews/e2e-scale.md`](reviews/e2e-scale.md).
 
 - **Slice S3 — Destructive actions (TASK-0309 + TASK-0310, sessions 2–3,
   2026-08-01).** `--apply` moves non-keepers to the OS trash and

@@ -150,6 +150,13 @@ fn ac2_three_byte_identical_copies_form_exactly_one_group_one_keeper() {
     // One keeper (a single object, not an array) + exactly two removable —
     // together the three copies, no more, no fewer.
     assert!(groups[0]["keeper"].is_object());
+    // The criterion quotes a *deterministic* rule, so pin which copy wins:
+    // default `--keep shortest`, equal depth and length, lexicographic
+    // tie-break. Set membership alone would pass under a random keeper.
+    assert_eq!(
+        groups[0]["keeper"]["path"], "one.bmp",
+        "the shortest-path rule must select one.bmp; got {doc:#}"
+    );
     assert_eq!(groups[0]["removable"].as_array().unwrap().len(), 2);
     let mut names: Vec<&str> = std::iter::once(groups[0]["keeper"]["path"].as_str().unwrap())
         .chain(
@@ -230,9 +237,22 @@ fn ac3_apply_trashes_non_keeper_recoverably_and_keeper_survives() {
     {
         match trash::os_limited::list() {
             Ok(items) => {
-                let found = items
-                    .iter()
-                    .any(|it| it.name == "b.png" && it.original_parent == dir.path());
+                // Match on the file name plus the tempdir's own unique
+                // directory component rather than comparing whole paths. The
+                // parent path here comes back from the platform's trash
+                // metadata, and on Windows that routinely differs textually
+                // from `tempdir()`'s path (8.3 short names like RUNNER~1, or a
+                // `\\?\` prefix) while pointing at the same directory. Whole-path
+                // equality would turn this into a red Windows job for a reason
+                // that has nothing to do with the tool.
+                let unique = dir
+                    .path()
+                    .file_name()
+                    .expect("tempdir has a final component")
+                    .to_owned();
+                let found = items.iter().any(|it| {
+                    it.name == "b.png" && it.original_parent.file_name() == Some(unique.as_os_str())
+                });
                 assert!(
                     found,
                     "b.png was trashed but not found via trash::os_limited::list(); items: {:?}",
@@ -243,12 +263,19 @@ fn ac3_apply_trashes_non_keeper_recoverably_and_keeper_survives() {
                 );
             }
             Err(e) => {
-                // The trash backend could not be enumerated in this
-                // environment (e.g. no usable XDG data dir under CI) — this
-                // is exactly the sort of variance ADR-0009 already expects,
-                // so it is not a test failure, but the recoverability
-                // assertion did not actually run; say so rather than pass
-                // silently.
+                // The trash backend could not be enumerated here. That is the
+                // environment variance ADR-0009 already expects, so it is not
+                // by itself a failure — but if *every* platform degrades to
+                // this branch, the "trash silently became a delete" defect
+                // class is covered nowhere, and nobody finds out. CI sets
+                // IMGDEDUP_REQUIRE_TRASH_CHECK so at least one matrix job is
+                // proven to have executed the assertion.
+                if std::env::var_os("IMGDEDUP_REQUIRE_TRASH_CHECK").is_some() {
+                    panic!(
+                        "AC-3 recoverability could not be verified and this job \
+                         requires it: trash::os_limited::list() failed: {e}"
+                    );
+                }
                 eprintln!(
                     "note: trash::os_limited::list() unavailable ({e}); \
                      AC-3 recoverability not verified in this run"
@@ -320,14 +347,24 @@ fn ac4_mislabeled_text_file_is_never_grouped_or_removed() {
         fake,
         "photo.jpg content changed"
     );
-    assert!(
-        !stdout.contains("photo.jpg") || stdout.contains("Warnings:"),
-        "photo.jpg must not appear as removed/grouped; stdout:\n{stdout}"
-    );
-    assert!(
-        !stdout.contains("REMOVE") || !predicate::str::contains("REMOVE photo.jpg").eval(&stdout),
-        "photo.jpg must never be listed as removable; stdout:\n{stdout}"
-    );
+    // Assert on the JSON document, not on report prose. The previous stdout
+    // checks here could not fail: the report always emits a "Warnings:" header
+    // when any warning exists, and it prints absolute paths, so a literal
+    // "REMOVE photo.jpg" was unsatisfiable regardless of behavior.
+    let doc = run_json(dir.path(), &["--no-progress"]);
+    for group in doc["groups"].as_array().expect("groups") {
+        let mut paths = vec![group["keeper"]["path"].as_str().unwrap_or_default()];
+        for f in group["removable"].as_array().expect("removable") {
+            paths.push(f["path"].as_str().unwrap_or_default());
+        }
+        for f in group["protected"].as_array().expect("protected") {
+            paths.push(f["path"].as_str().unwrap_or_default());
+        }
+        assert!(
+            !paths.iter().any(|p| p.ends_with("photo.jpg")),
+            "a mislabeled non-image must never appear in any group; group: {group:#}"
+        );
+    }
 
     // It is reported as a warning, not silently dropped (NFR-6/FR-3).
     let doc: Value = serde_json::from_slice(
@@ -462,10 +499,19 @@ fn ac7_apply_delete_permanently_removes_non_keepers_not_via_trash() {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         if let Ok(items) = trash::os_limited::list() {
+            // Same unique-component match as AC-3: whole-path equality against
+            // platform trash metadata is unreliable on Windows, and here a
+            // textual mismatch would silently turn a negative assertion into a
+            // vacuous one rather than failing loudly.
+            let unique = dir
+                .path()
+                .file_name()
+                .expect("tempdir has a final component")
+                .to_owned();
             assert!(
-                !items
-                    .iter()
-                    .any(|it| it.name == "b.tif" && it.original_parent == dir.path()),
+                !items.iter().any(|it| {
+                    it.name == "b.tif" && it.original_parent.file_name() == Some(unique.as_os_str())
+                }),
                 "a permanently deleted file must not appear in the trash listing"
             );
         }
@@ -780,8 +826,24 @@ fn ac13_summary_reports_keeper_removed_files_counts_and_reclaimable_space() {
         stdout.contains("REMOVE"),
         "removed files must be labeled; got:\n{stdout}"
     );
-    assert!(stdout.contains("keep-a.png") || stdout.contains("remove-a.png"));
-    assert!(stdout.contains("keep-b.jpg") || stdout.contains("remove-b.jpg"));
+    // Assert the *association*, not just that both labels appear somewhere:
+    // swapping the KEEP and REMOVE labels in the renderer would pass a check
+    // that only looked for the words. The keeper is deterministic here under
+    // the default `shortest` rule.
+    assert!(
+        stdout.contains(&format!(
+            "KEEP  {}",
+            dir.path().join("keep-a.png").display()
+        )),
+        "keep-a.png must be labeled KEEP; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!(
+            "REMOVE {}",
+            dir.path().join("remove-a.png").display()
+        )),
+        "remove-a.png must be labeled REMOVE; got:\n{stdout}"
+    );
     // Group + file counts.
     assert!(
         stdout.contains("Summary: 2 duplicate groups, 4 files"),
@@ -821,6 +883,21 @@ fn ac14_hidden_files_excluded_by_default_included_with_hidden_flag() {
     assert_eq!(
         default_doc["totals"]["duplicate_groups"], 1,
         "hidden pair excluded by default"
+    );
+    // Membership, not just the count: an inverted filter that included the
+    // hidden pair and excluded the visible one would also yield exactly 1.
+    let default_paths: Vec<&str> = default_doc["groups"][0]["removable"]
+        .as_array()
+        .expect("removable")
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .chain(std::iter::once(
+            default_doc["groups"][0]["keeper"]["path"].as_str().unwrap(),
+        ))
+        .collect();
+    assert!(
+        default_paths.iter().all(|p| p.starts_with("visible")),
+        "the default group must be the visible pair, not the hidden one; got {default_paths:?}"
     );
 
     let hidden_doc = run_json(dir.path(), &["--hidden", "--no-progress"]);

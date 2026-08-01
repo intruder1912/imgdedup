@@ -130,33 +130,55 @@ saturating all CPU threads with concurrent reads can cause **seek thrashing** an
   are seeded after this PR; an NFR-4 benchmarking task to set concurrency defaults
   and confirm memory/throughput targets is seeded alongside.
 
-### Consequence note — the empirical width, measured (2026-08-02, TASK-0312)
+### Consequence note — what the NFR-4 measurement actually showed (2026-08-02, TASK-0312)
 
 This ADR deferred the concurrency width to "Phase 3 benchmarking". That
-measurement has now been taken (full numbers and method in
-[`../planning/reviews/e2e-scale.md`](../planning/reviews/e2e-scale.md)), and the
-answer is that there is nothing to tune.
+measurement has now been taken (numbers and method in
+[`../planning/reviews/e2e-scale.md`](../planning/reviews/e2e-scale.md)). It
+settles the memory claim and — importantly — **does not** settle the width
+question, which stays open.
 
-On a 10k-file fixture, going from 1 worker to 8 moved wall time from 1.97 s to
-1.72 s — 13%. The reason is visible in the profile: a 100k-file run spends 2.45 s
-in user CPU and 33.7 s in system CPU, so it is bound by the syscalls of opening
-and reading many small files, not by hashing. Widening the pool cannot help
-with that. At the other end, large files are already parallelized *inside*
-BLAKE3, so the rayon width is not the lever there either.
+**Memory: confirmed, and now quantified.** Peak RSS tracks file *count*, not data
+*volume*: roughly **7.5 MB baseline plus ~350 B per file** (11.1 MB at 10k files,
+42.8 MB at 100k — linear above the baseline), which projects to about 0.36 GB at
+one million files. 300 MB spread over 3 files cost 7.5 MB, i.e. the baseline. The
+streaming-read design holds; nothing is buffered whole.
 
-**Decision: keep rayon's default (one worker per core) and add no `--jobs` /
-`--threads` flag.** The flag was already deferred in this ADR; the measurement
-turns that from a deferral into a positive finding — the surface area would buy
-an effect the data does not show.
+**Width: not decided by this measurement, because the experiment could not see
+the knob.** The 1-vs-8-worker comparison was taken on a warm 10k-file fixture and
+moved wall time 1.97 s → 1.72 s. That looks like "concurrency does not help", but
+the architect review showed why it proves nothing: in the small-file regime the
+rayon-parallel stage is a rounding error. A control fixture built so that **no
+file is hashed at all** costs the same wall time as one that hashes ~1,800 —
+because `enumerate` (walkdir) and `sniff` are **serial**, one open-and-read per
+file, and they dominate. Rayon's width governs only the hashing stage.
 
-Determinism across widths was verified rather than assumed: `--json` output is
-byte-identical at 1, 2, 8 and 16 threads, and a regression test
-(`results_are_identical_across_concurrency_widths`) now pins it, so a future
-change to the default cannot silently move results.
+So the honest conclusions are:
 
-Also confirmed here, against this ADR's memory claim: peak RSS tracks **file
-count**, not data volume — 300 MB spread over 3 files cost 7.5 MB of RSS, while
-397 MB spread over 100,000 files cost 42.8 MB. The streaming-read design holds.
+- **Keep rayon's default (one worker per core) for now, and add no `--jobs`
+  flag** — but as a status-quo choice, not as a measured optimum. Re-measure with
+  TASK-0314 on ordinary hardware, over a workload where the parallel stage is a
+  meaningful share.
+- **`RAYON_NUM_THREADS` is the de facto escape hatch.** No custom pool is built
+  anywhere, so the environment variable works; the scale suite relies on it.
+- The width axis this ADR originally worried about — needing to *lower*
+  concurrency to avoid seek thrashing on spinning disks — is untouched by these
+  measurements, which ran on flash.
+
+**Two throughput levers this measurement did surface, neither exploited:**
+
+1. **The scan stage is serial.** `sniff::filter_candidates` opens and reads a
+   header for every candidate in a plain loop, and it is ~100% of small-file wall
+   time. Parallelizing it is the lever for large libraries — and it is the same
+   serial stage behind the frozen `scanning...` indicator in TASK-0317.
+   Tracked as **TASK-0321**.
+2. **Large files have no intra-file parallelism.** An earlier draft of this note
+   claimed BLAKE3 parallelizes within a file; that is **false for this build** —
+   `blake3` is compiled without its `rayon` feature and `engine.rs` calls the
+   serial `update()`, so one file is hashed by one core. `update_rayon` above a
+   size threshold is compatible with this ADR (which rules out mmap, not
+   threaded hashing over the existing streaming buffer). Tracked as
+   **TASK-0322**.
 
 ### Consequence note — deferred verification pass (2026-08-01, TASK-0315)
 

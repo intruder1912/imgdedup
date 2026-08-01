@@ -23,7 +23,7 @@ mod support;
 
 use assert_cmd::Command;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use support::images::{ImageFormat, image_bytes};
 
 /// Files per scale fixture. NFR-4 says "100k+ images".
@@ -86,21 +86,32 @@ fn build_few_large(root: &Path, count: usize, size_mib: usize) {
     }
 }
 
-fn scale_root(name: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("imgdedup-scale-{name}"));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).expect("scale root");
-    root
+/// A unique, self-cleaning fixture root.
+///
+/// Deliberately *not* a fixed name under the shared temp dir: that collides
+/// between concurrent runs, means `remove_dir_all` on a predictable path in a
+/// world-writable `/tmp`, and leaks hundreds of megabytes whenever a test
+/// panics before its cleanup line. `TempDir` handles all three, and the path is
+/// printed so a failed run can still be inspected (`make scale` passes
+/// `--nocapture`).
+fn scale_root(name: &str) -> tempfile::TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("imgdedup-scale-{name}-"))
+        .tempdir()
+        .expect("scale root");
+    eprintln!("scale fixture: {}", dir.path().display());
+    dir
 }
 
 #[test]
 #[ignore = "scale fixture: builds 100k files, run via `make scale`"]
 fn scale_100k_files_completes() {
-    let root = scale_root("100k");
-    let duplicates = build_many_small(&root, SCALE_FILES);
+    let root_dir = scale_root("100k");
+    let root = root_dir.path();
+    let duplicates = build_many_small(root, SCALE_FILES);
 
     let out = cmd()
-        .arg(&root)
+        .arg(root)
         .arg("--json")
         .arg("--no-progress")
         .output()
@@ -109,12 +120,18 @@ fn scale_100k_files_completes() {
 
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("valid JSON");
     let groups = doc["groups"].as_array().expect("groups").len();
-    assert!(
-        groups > 0,
-        "the fixture is built with {duplicates} duplicates; the run found no groups"
+    // The fixture knows the exact answer, so assert it. `groups > 0` would pass
+    // on finding 1 of ~10,000 planted duplicates. Accidental collisions are
+    // impossible: two files share content only when their indices agree modulo
+    // both 251 and 4093, i.e. modulo 1,027,343 — larger than the fixture.
+    assert_eq!(
+        groups, duplicates,
+        "every planted duplicate must form exactly one group"
     );
-
-    let _ = fs::remove_dir_all(&root);
+    assert_eq!(
+        doc["totals"]["removable_files"], duplicates,
+        "and each group must contribute exactly one removable file"
+    );
 }
 
 #[test]
@@ -124,18 +141,19 @@ fn results_are_identical_across_concurrency_widths() {
     // results cannot depend on it. This is what keeps that true — if someone
     // changes the default width, or rayon changes its own, the output must not
     // move. Run at 1 thread and at the machine default.
-    let root = scale_root("widths");
-    build_many_small(&root, 20_000);
+    let root_dir = scale_root("widths");
+    let root = root_dir.path();
+    let duplicates = build_many_small(root, 20_000);
 
     let single = cmd()
-        .arg(&root)
+        .arg(root)
         .arg("--json")
         .arg("--no-progress")
         .env("RAYON_NUM_THREADS", "1")
         .output()
         .expect("run");
     let wide = cmd()
-        .arg(&root)
+        .arg(root)
         .arg("--json")
         .arg("--no-progress")
         .env("RAYON_NUM_THREADS", "16")
@@ -143,12 +161,41 @@ fn results_are_identical_across_concurrency_widths() {
         .expect("run");
 
     assert!(single.status.success() && wide.status.success());
+    // Guard against comparing two empty documents: the fixture must actually
+    // have produced groups for byte-identity to mean anything. RAYON_NUM_THREADS
+    // is genuinely honored because no custom thread pool is built anywhere in
+    // the binary.
+    let doc: serde_json::Value = serde_json::from_slice(&single.stdout).expect("valid JSON");
+    assert_eq!(
+        doc["groups"].as_array().expect("groups").len(),
+        duplicates,
+        "the widths fixture must produce its planted groups"
+    );
     assert_eq!(
         single.stdout, wide.stdout,
         "results must be byte-identical across concurrency widths (NFR-3, ADR-0010)"
     );
+}
 
-    let _ = fs::remove_dir_all(&root);
+#[test]
+#[ignore = "scale fixture: 3 small files, run via `make scale`"]
+fn memory_fixture_large_files_tiny_control() {
+    // The volume-independence control. The large-file fixture below varies two
+    // things at once against the 100k-file run — file count *and* data volume —
+    // so on its own it can only support an inference. This run holds the file
+    // count at 3 and drops the volume by 100x: if peak RSS is the same here as
+    // there, volume-independence is shown directly rather than deduced.
+    let root_dir = scale_root("tiny");
+    let root = root_dir.path();
+    build_few_large(root, 3, 1);
+
+    let out = cmd()
+        .arg(root)
+        .arg("--json")
+        .arg("--no-progress")
+        .output()
+        .expect("run");
+    assert!(out.status.success());
 }
 
 #[test]
@@ -160,16 +207,15 @@ fn memory_fixture_large_files() {
     // the comparison that matters: if memory scaled with data volume the two
     // would be similar. Measured, they are not — 7.5 MiB here against 43 MiB
     // there. Numbers and method are recorded in the review log.
-    let root = scale_root("large");
-    build_few_large(&root, 3, 100);
+    let root_dir = scale_root("large");
+    let root = root_dir.path();
+    build_few_large(root, 3, 100);
 
     let out = cmd()
-        .arg(&root)
+        .arg(root)
         .arg("--json")
         .arg("--no-progress")
         .output()
         .expect("run");
     assert!(out.status.success(), "a large-file run must succeed");
-
-    let _ = fs::remove_dir_all(&root);
 }

@@ -163,6 +163,16 @@ jobs:
 
       - name: cargo test
         run: cargo test
+        env:
+          # AC-3 proves a trashed file is recoverable via the platform trash
+          # listing, which the `trash` crate supports only on Linux and
+          # Windows. On macOS the check is skipped, and a mutation that turned
+          # trashing into permanent deletion was shown to pass there. On the
+          # platforms that *can* check, a failure to enumerate the trash must
+          # be fatal rather than a printed note — otherwise every job could
+          # silently degrade to no coverage at all and nobody would learn that
+          # the defect class is uncovered.
+          IMGDEDUP_REQUIRE_TRASH_CHECK: ${{ runner.os != 'macOS' && '1' || '' }}
 
   ci-gate:
     name: ci-gate
