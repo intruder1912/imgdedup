@@ -8,8 +8,9 @@ tool.
 > **Status: under active development (Phase 3).** The **read-only
 > detect-and-report** workflow is shipped: scanning, scope filtering, magic-byte
 > image confirmation, the content-hash deduplication engine, the human-readable
-> dry-run report, and machine-readable `--json` output. The trash/delete actions
-> (`--apply` / `--delete`) are on the command line but **not functional yet** —
+> dry-run report, machine-readable `--json` output, and a live progress
+> indicator on stderr. The trash/delete actions (`--apply` / `--delete`) are on
+> the command line but **not functional yet** —
 > those pages mark what is not yet available. See
 > [`docs/planning/status.md`](../planning/status.md) for the live state.
 
@@ -28,7 +29,8 @@ full tour.
    default, moving duplicates to the trash with `--apply`, and the guarded
    permanent `--delete`.
 5. [Output and exit codes](output-and-exit-codes.md) — the human-readable report,
-   `--json` for scripting, and what each exit code means.
+   `--json` for scripting, the live progress indicator on stderr, and what each
+   exit code means.
 
 ## How this guide is maintained
 

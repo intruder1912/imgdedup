@@ -231,6 +231,59 @@ written there. Diagnostics appear as follows:
 So a script can rely on stdout being pure JSON, while a human watching the
 terminal still sees run-level failures on stderr.
 
+## Progress while it runs
+
+While a scan runs, `imgdedup` shows a live progress indicator on **standard
+error**, enabled by default, so you can see it is working and how far along it
+is. It never writes to standard output — in the default report or with
+`--json` — so redirecting stdout (see
+[Saving results to a file](#saving-results-to-a-file) below) always captures a
+clean report or JSON document, with nothing progress-related mixed in.
+
+The indicator shows:
+
+- The current **phase**: `scanning` (enumerating and magic-byte-confirming
+  candidate files), `hashing` (content-hash pre-filtering), or `verifying`
+  (byte-for-byte confirmation against each group's keeper). These are
+  user-facing labels for where the run is, not a contract on the internal
+  pipeline.
+- Once the candidate count is known, **`x of y` files done and a
+  percentage**. `y` is the number of candidate files confirmed as images,
+  fixed once enumeration and magic-byte confirmation finish. Before that the
+  total is unknown, so the indicator shows a plain counting state (for
+  example `scanning...`) instead of `x of y`.
+
+### On a terminal vs. redirected or piped
+
+- When standard error is an interactive terminal, progress renders as a
+  **single line, redrawn in place** as counts advance. Repaints are
+  throttled so a fast run does not flood the terminal.
+- When standard error is **not** a terminal — redirected to a file, piped, or
+  captured by CI/log tooling — the in-place redraw is disabled automatically.
+  Instead `imgdedup` prints occasional **plain, newline-terminated lines** at
+  coarse milestones (phase changes and roughly every 10% of progress), with no
+  carriage returns or ANSI control codes, so a captured log stays readable and
+  bounded rather than growing one line per file.
+
+### `--no-progress`
+
+Pass `--no-progress` to disable the indicator entirely: nothing
+progress-related is written to standard error, whether it is a terminal or
+not. Standard output is unaffected either way.
+
+```sh
+imgdedup --no-progress ./photos
+```
+
+### Progress is output-only
+
+Progress never changes what is scanned, grouped, or removed, and it is
+excluded from the [determinism](#determinism) guarantee above: that guarantee
+covers standard-output content only (the report or `--json` document). The
+stderr progress stream — its exact timing and milestone lines — can
+legitimately vary between otherwise-identical runs without affecting the
+result.
+
 ## Saving results to a file
 
 There is **no dedicated output flag** — to keep a result for later, use your
@@ -246,8 +299,9 @@ its two output streams:
 
 - **Standard output** carries **only** the result — the human report, or exactly
   one JSON document with `--json`. Nothing else is ever written there.
-- **Standard error** carries diagnostics — run-level `root_errors`, and (in a
-  future release) the live progress indicator while a scan runs. Under the default
+- **Standard error** carries diagnostics — run-level `root_errors`, and the
+  live progress indicator while a scan runs (see
+  [Progress while it runs](#progress-while-it-runs) above). Under the default
   report the per-file `Warnings:` section prints on stdout as part of the report;
   under `--json` those per-file problems move into the JSON `warnings` array. To
   redirect only the result and let diagnostics stay on the terminal, capture stdout

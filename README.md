@@ -129,11 +129,27 @@ imgdedup --json ./photos > result.json # machine-readable results
 See [Saving results to a file](docs/guide/output-and-exit-codes.md#saving-results-to-a-file)
 for details.
 
+### Live progress
+
+While a scan runs, `imgdedup` shows a live progress indicator on **standard
+error** by default, so you can see it's working and how far along it is.
+Standard output is never touched, so `imgdedup ./photos > report.txt` and
+`imgdedup --json ./photos > result.json` still capture a clean report or JSON
+document. Pass `--no-progress` to turn it off:
+
+```sh
+imgdedup --no-progress ./photos
+```
+
+See [Progress while it runs](docs/guide/output-and-exit-codes.md#progress-while-it-runs)
+for what it shows and how it behaves when redirected.
+
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
 `--json` (machine-readable output); `--exit-code` (signal duplicates via exit
-status). The `--apply` and `--delete` flags exist but are **not functional yet**
-(coming in a later release). Run `imgdedup --help` for the full list.
+status); `--no-progress` (disable the live progress indicator). The `--apply`
+and `--delete` flags exist but are **not functional yet** (coming in a later
+release). Run `imgdedup --help` for the full list.
 
 ## Detailed guide
 
