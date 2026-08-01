@@ -11,23 +11,22 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Batch 4b / TASK-0315 — progress indication (FR-19)** on
-  `feature/progress-indication`, session 1 of the 2026-08-01 re-plan. Live
-  stderr progress (phase, `x of y`, %), default-on, TTY-aware with a bounded
-  non-TTY fallback, `--no-progress` opt-out, stdout pure in all modes. Built
-  with no new dependency (`std::io::IsTerminal`). Product-owner accepted
-  FR-19/AC-20..AC-24; a field run on a mostly-unique tree caught the hashing
-  phase stalling at 0% and it was fixed in-unit (see
-  [`reviews/progress-indication.md`](reviews/progress-indication.md)).
+- **TASK-0316 — lone hard-link sets surfaced** on
+  `fix/lone-hard-link-sets-0316`, session 2 of the re-plan. A `fix:` unit, not
+  a slice: the product-owner ruled the gap a bug rather than a scope call.
+  Next in this session: the **S3 core** (TASK-0309, trash apply) on its own
+  branch.
 
-- _The batch plan was **re-planned 2026-08-01** (PR #46) against fresh limit
-  pools: the remaining path to v0.1.0 is scheduled as sessions 1–7 within this
-  week, with the docs pass and AI automation in week 2._
+- _Session 1 (2026-08-01) landed PR #46 (re-plan) and PR #47 (batch 4b /
+  TASK-0315 progress indication) but consumed 100% of its 5-hour window; the
+  batch plan's actuals log carries the re-pricing (subagent-driven units cost
+  ~2× inline ones), so session 2 onward defaults to inline work with one
+  architect dispatch._
 
 ## Up next
 
-Session order per the [batch plan](batch-plan.md) — **1:** this re-plan +
-batch 4b (TASK-0315) · **2:** TASK-0316 + S3 core (TASK-0309) · **3:** S3
+Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
+(TASK-0315) — **done** · **2:** TASK-0316 + S3 core (TASK-0309) · **3:** S3
 finish (TASK-0310, acceptance, docs, review, PR) · **4:** S4 acceptance
 (TASK-0312) · **5:** S4 scale + field validation (TASK-0314) · **6:** release
 plumbing (TASK-0202, TASK-0203) · **7:** binaries + **v0.1.0** (TASK-0211) ·

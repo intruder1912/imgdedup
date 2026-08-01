@@ -1103,12 +1103,22 @@ mod tests {
             vec![confirmed(&a), confirmed(&a2)],
             build_comparator(KeepRule::Shortest),
         );
-        // Only one inode → no group from size pre-filter (only 1 physical file).
-        // Actually both are same size but same inode → collapse → 1 rep → < 2 reps
-        // → no group emitted. hard_link_notes should be empty too (note is only
-        // kept when the rep survives into a group). Let's use two separate inodes
-        // to get the all-anchor scenario.
-        drop(outcome);
+        // One inode with two links and nothing else of that content: no group,
+        // but the set is still already-deduplicated and carries its note
+        // (TASK-0316 — this used to be dropped, and this block used to assert
+        // the opposite). Pinned in full by
+        // `lone_hard_link_set_renders_already_deduplicated_block` below.
+        assert!(
+            outcome.groups.is_empty(),
+            "a lone hard-link set emits no group"
+        );
+        assert_eq!(
+            outcome.hard_link_notes.len(),
+            1,
+            "a lone hard-link set still surfaces its note"
+        );
+
+        // Now two distinct inodes, each multiply-linked, for the all-anchor case.
 
         // Two distinct inodes, each multiply-linked.
         let b = write_file(&dir, "beta.jpg", b"SAME");
@@ -1142,6 +1152,55 @@ mod tests {
             report.contains(&a2.to_string_lossy().to_string()),
             "alpha2.jpg must appear in block; got:\n{report}"
         );
+    }
+
+    #[test]
+    fn lone_hard_link_set_renders_already_deduplicated_block() {
+        // TASK-0316 / AC-18a at the report layer: the guide's worked example in
+        // `docs/guide/getting-started.md` shows exactly this tree — one inode,
+        // two links, nothing else of that content — producing the
+        // already-deduplicated block. Before the fix the engine dropped the
+        // note and this rendered "No duplicate groups found.", so the example
+        // documented behavior the tool could not produce. Pin it here: the
+        // engine tests stop at DedupOutcome and the golden set covers --json
+        // only, leaving this rendering path otherwise unasserted.
+        let dir = tempfile::tempdir().unwrap();
+        let beach = write_file(&dir, "beach.jpg", b"LONESET");
+        let link = dir.path().join("beach-hardlink.jpg");
+        fs::hard_link(&beach, &link).expect("hard link creatable");
+
+        let outcome = find_duplicates(
+            vec![confirmed(&beach), confirmed(&link)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+        let report = render(&outcome, &ew, &sw);
+
+        assert!(
+            report.contains("Already deduplicated (hard-linked)"),
+            "the lone set must render the already-deduplicated block; got:\n{report}"
+        );
+        assert!(
+            !report.contains("No duplicate groups found."),
+            "the pre-fix output must not come back; got:\n{report}"
+        );
+        assert!(
+            report.contains("1 already-deduplicated hard-link set"),
+            "summary must use the already-deduplicated variant; got:\n{report}"
+        );
+        // Representative is the shortest path: `beach.jpg` beats
+        // `beach-hardlink.jpg`. Note the two rules disagree here — `-` (0x2D)
+        // sorts before `.` (0x2E), so lexicographic order would pick the link.
+        assert!(
+            report.contains("hard-linked:"),
+            "the link set line must appear; got:\n{report}"
+        );
+        for path in [&beach, &link] {
+            assert!(
+                report.contains(&path.to_string_lossy().to_string()),
+                "every link must appear in the block; got:\n{report}"
+            );
+        }
     }
 
     // ── Combined summary clause ───────────────────────────────────────────────

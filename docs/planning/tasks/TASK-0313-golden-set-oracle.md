@@ -86,7 +86,8 @@ totals, warnings, root_errors) unless noted.
   `protected` (never removable, 0 reclaimable); an all-anchor content group
   (two hard-link sets sharing one content, no standalone copy) forms no group
   and surfaces both sets under `already_deduplicated`; a *lone* fully
-  hard-linked set is pinned at its current behavior (absent — see Findings).
+  hard-linked set does too (**resolved 2026-08-01 by TASK-0316 / AC-18a** —
+  originally pinned here as absent, see Findings).
 - **Determinism (NFR-3):** two runs over the same tree produce byte-identical
   stdout; the generator itself is byte-deterministic and seed-distinct
   (meta-tests).
@@ -103,9 +104,12 @@ totals, warnings, root_errors) unless noted.
   a single representative (`process_hash_group`, "fewer than two distinct
   physical files"). `already_deduplicated` is only populated by all-anchor
   groups with ≥2 inodes. FR-17 safety is unaffected (nothing is ever proposed
-  for removal). The golden manifest **pins current behavior** with a comment
-  marking the line that flips once the product-owner decides between
-  surfacing lone sets and narrowing the guide wording (backlog TASK-0316).
+  for removal). The golden manifest originally **pinned that behavior** with a
+  comment marking the line to flip. **Resolved 2026-08-01:** the product-owner
+  ruled it a bug against ratified design rather than a scope call — ADR-0008
+  edge case 1 already required it and both formatters already handled it — so
+  lone sets now surface, the golden line has flipped, and `AC-18a` records the
+  tightened criterion.
 
 ## Out of scope
 

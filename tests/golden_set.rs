@@ -300,14 +300,13 @@ fn keeper_rules_select_by_construction_unambiguous_keepers() {
 /// surfaces both sets as `already_deduplicated`. A normal pair in the same
 /// tree still reclaims.
 ///
-/// **Pinned current behavior (doc-vs-behavior gap, tracked as TASK-0316):**
-/// a *lone* fully-hard-linked set (`j/j1.png` ≡ `j/j2.png`, no other file
-/// with that content) appears **nowhere** in the output. The guide's
-/// `already_deduplicated` description reads as if it should be listed, but
-/// the engine discards the note when a hash group collapses to a single
-/// representative (`process_hash_group`: fewer than two physical files).
-/// This manifest asserts today's behavior; if the product-owner decides lone
-/// sets should surface, this golden line is the one that flips.
+/// A *lone* fully-hard-linked set (`j/j1.png` ≡ `j/j2.png`, no other file with
+/// that content) surfaces as `already_deduplicated` too. It did not until
+/// **TASK-0316**: the engine discarded the note when a hash group collapsed to
+/// a single representative, so the tree the guide documents as
+/// already-deduplicated printed "No duplicate groups found.". One inode is
+/// still an all-anchor case under ADR-0008 edge case 1, so this line is now
+/// asserted rather than pinned as a known gap.
 #[test]
 fn hard_link_sets_are_protected_or_already_deduplicated() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -362,13 +361,14 @@ fn hard_link_sets_are_protected_or_already_deduplicated() {
             }),
             plain_group(file("n1.png", 64, T), vec![file("n2.png", 64, T)], 64),
         ],
-        // The all-anchor {f1,f2} + {g1,g2} content group, sorted by
-        // representative path. The lone {j1,j2} set is absent (see above).
+        // The all-anchor {f1,f2} + {g1,g2} content group plus the lone {j1,j2}
+        // set (TASK-0316), sorted by representative path.
         vec![
             json!({ "representative": "g/f1.png", "siblings": ["g/f2.png"] }),
             json!({ "representative": "g/g1.png", "siblings": ["g/g2.png"] }),
+            json!({ "representative": "j/j1.png", "siblings": ["j/j2.png"] }),
         ],
-        totals(2, 1, 64, 2),
+        totals(2, 1, 64, 3),
     );
 
     let actual = run_json(dir.path(), &[]);
