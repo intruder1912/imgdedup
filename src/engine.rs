@@ -799,14 +799,24 @@ fn hash_file(path: &Path) -> io::Result<[u8; 32]> {
 ///
 /// Streams both files through fixed buffers and short-circuits on the first
 /// differing byte or a length mismatch (ADR-0010). Never buffers a whole file.
-fn files_equal(a: &Path, b: &Path) -> io::Result<bool> {
+pub(crate) fn files_equal(a: &Path, b: &Path) -> io::Result<bool> {
     let mut fa = File::open(a)?;
     let mut fb = File::open(b)?;
+    files_equal_handles(&mut fa, &mut fb)
+}
+
+/// Byte-compare two files that are **already open**.
+///
+/// The apply stage needs this (TASK-0309): re-opening by path there would mean
+/// the bytes it compares and the metadata/identity it checked could belong to
+/// different files, since a path can be re-pointed between the two. Comparing
+/// through handles it already holds keeps every check about one file.
+pub(crate) fn files_equal_handles(fa: &mut File, fb: &mut File) -> io::Result<bool> {
     let mut ba = vec![0u8; STREAM_BUF_LEN];
     let mut bb = vec![0u8; STREAM_BUF_LEN];
     loop {
-        let na = fill(&mut fa, &mut ba)?;
-        let nb = fill(&mut fb, &mut bb)?;
+        let na = fill(fa, &mut ba)?;
+        let nb = fill(fb, &mut bb)?;
         if na != nb {
             // Length mismatch — short-circuit (cannot be equal).
             return Ok(false);

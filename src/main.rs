@@ -2,6 +2,7 @@ use clap::Parser;
 use std::io::IsTerminal;
 use std::process;
 
+mod apply;
 mod cli;
 mod engine;
 mod enumerate;
@@ -121,9 +122,61 @@ fn run(args: cli::Cli) -> i32 {
         eprintln!("error: {}: {}", err.path.display(), err.reason);
     }
 
-    // Stage 4 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
-    // the same canonical model; no filesystem mutation in either — --apply /
-    // --delete are TASK-0309/TASK-0310 and handled after this report.
+    // Stage 4 — Destructive actions (TASK-0309 trash / TASK-0310 delete).
+    //
+    // Runs *before* the report so the output can describe what actually
+    // happened rather than what was intended (FR-14). Progress and per-file
+    // skips have already gone to stderr, so a run that dies mid-apply still
+    // told the user something; stdout stays reserved for the one report/JSON
+    // document (the S2 purity contract).
+    //
+    // Every candidate is re-validated immediately before its own removal
+    // (FR-16) — the scan alone never authorizes anything — and a removal
+    // failure is a per-file skip that never escalates to a different mechanism
+    // (NFR-1, ADR-0009).
+    let (mode, applied) = if args.apply {
+        if !candidate_set.root_errors.is_empty() {
+            // A root that could not be scanned means the scan the user asked
+            // for did not happen. That is a poor basis for an irreversible
+            // action — most often it is a typo in one of several paths — so the
+            // run reports and exits rather than acting on a partial view.
+            eprintln!(
+                "error: not applying: {} scan root(s) could not be read; \
+                 re-run once the paths are correct",
+                candidate_set.root_errors.len()
+            );
+            return exit_code::ERROR;
+        }
+
+        // Mechanism and reported mode are chosen together, so the report can
+        // never claim an action the tool did not perform.
+        let (mode, remover): (apply::ActionMode, Box<dyn apply::Remover>) = if args.delete {
+            (apply::ActionMode::Delete, Box::new(apply::DeleteRemover))
+        } else {
+            (
+                apply::ActionMode::Trash,
+                Box::new(apply::TrashRemover::new()),
+            )
+        };
+
+        // Stream both outcomes as they happen. Removals matter most: if the
+        // process is killed partway through a permanent delete, the report
+        // below never prints, and without this the user would have no record of
+        // what was destroyed.
+        let verb = mode.past_tense();
+        let outcome = apply::apply(&dedup.groups, remover.as_ref(), &mut |event| match event {
+            apply::Event::Removed(path) => eprintln!("{verb}: {}", path.display()),
+            apply::Event::Skipped(path, reason) => {
+                eprintln!("warning: {}: {reason}", path.display())
+            }
+        });
+        (mode, outcome)
+    } else {
+        (apply::ActionMode::DryRun, apply::ApplyOutcome::default())
+    };
+
+    // Stage 5 — Output (TASK-0307 human / TASK-0308 JSON). Two formatters over
+    // the same canonical model, now including the performed actions.
     // JSON carries the diagnostics too (resilience F3): warnings and
     // root_errors are part of the document, while root errors additionally
     // went to stderr above (F1) so stdout stays one valid JSON document.
@@ -133,13 +186,19 @@ fn run(args: cli::Cli) -> i32 {
             &candidate_set.warnings,
             &sniff_warnings,
             &candidate_set.root_errors,
+            mode,
+            &applied,
         )
     } else {
-        report::render(&dedup, &candidate_set.warnings, &sniff_warnings)
+        report::render(
+            &dedup,
+            &candidate_set.warnings,
+            &sniff_warnings,
+            mode,
+            &applied,
+        )
     };
     print!("{rendered}");
-
-    // TODO(TASK-0309/0310): act on `dedup.groups` under --apply / --delete.
 
     // Stage 5 — Exit code (ADR-0008 §exit-code, TASK-0311).
     // A run-level error (non-empty root_errors) → 1. The --exit-code flag

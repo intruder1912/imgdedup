@@ -7,8 +7,8 @@ through its exit code.
 
 ## Human-readable report (default)
 
-`imgdedup` prints a human-readable report to standard output. It has three parts,
-in this order:
+`imgdedup` prints a human-readable report to standard output. It has up to five
+parts, in this order:
 
 1. An optional `Warnings:` section listing each file that was skipped and why
    (only present when something was skipped).
@@ -20,6 +20,14 @@ in this order:
    that have nothing to reclaim (only present when such sets exist).
 4. A `Summary:` line with the totals — or `No duplicate groups found.` when there
    is nothing to report.
+5. On a run that acted (`--apply` or `--apply --delete`), a **performed-actions**
+   section: how many files were trashed or deleted, and — when at least one file
+   was skipped — a `Skipped (left in place):` list of each skipped file and why.
+   This section never appears on a dry run (there is nothing performed to
+   report), but it always appears on an acted run, even when zero files were
+   removed, so "did the apply run?" never has to be inferred from silence. See
+   [Removing duplicates safely](removing-duplicates-safely.md#what-a-skip-looks-like)
+   for what each skip reason means.
 
 ```text
 Warnings:
@@ -30,6 +38,28 @@ Group 1/1 (2 files, 1024 bytes reclaimable):
   REMOVE /photos/b.jpg
 
 Summary: 1 duplicate group, 2 files, 1024 bytes reclaimable.
+```
+
+The same run with `--apply` adds the performed-actions section:
+
+```text
+Group 1/1 (2 files, 1024 bytes reclaimable):
+  KEEP  /photos/a.jpg
+  REMOVE /photos/b.jpg
+
+Summary: 1 duplicate group, 2 files, 1024 bytes reclaimable.
+
+Trashed 1 file:
+  /photos/b.jpg
+```
+
+And if a file could not be removed:
+
+```text
+Deleted 1 file:
+  /photos/b.png
+Skipped (left in place):
+  /photos/c.png: content changed since the scan
 ```
 
 For a fuller walkthrough of each line, see
@@ -75,6 +105,10 @@ mislabeled non-image produces:
     "reclaimable_bytes": 48,
     "already_deduplicated_sets": 0
   },
+  "actions": {
+    "removed": [],
+    "skipped": []
+  },
   "warnings": [
     {
       "stage": "sniff",
@@ -95,10 +129,11 @@ The document is pretty-printed and ends with a trailing newline.
 | Field | Type | Meaning |
 |---|---|---|
 | `schema_version` | integer | Version of this schema. `1` today. See the stability contract below. |
-| `mode` | string | The run mode. Currently always `"dry-run"` (see [`mode` semantics](#mode-semantics)). |
+| `mode` | string | What the run actually did: `"dry-run"`, `"trash"`, or `"delete"` (see [`mode` and `actions`](#mode-and-actions-what-actually-happened)). |
 | `groups` | array of Group | The duplicate groups. Each has a `keeper` and may list `removable` and/or `protected` files. A group whose only extra members are hard-linked anchors has an empty `removable` (nothing to reclaim) but still appears here, mirroring the human report's `Group i/N`. |
 | `already_deduplicated` | array of HardLinkSet | Identity sets where *every* copy is a hard link to the same inode, so no duplicate group is formed and nothing can be reclaimed. Excluded from `totals` counts. |
 | `totals` | Totals object | Run-wide counts. |
+| `actions` | Actions object | What the run actually removed and skipped (see [`mode` and `actions`](#mode-and-actions-what-actually-happened)). Always present; both arrays are empty on a dry run. |
 | `warnings` | array of Warning | Per-file problems that were reported and skipped (the run continued). |
 | `root_errors` | array of RootError | Run-level failures — an input path that could not be scanned. Non-empty means exit code `1`. |
 
@@ -137,6 +172,20 @@ The document is pretty-printed and ends with a trailing newline.
 | `reclaimable_bytes` | integer | Total reclaimable bytes across all groups. |
 | `already_deduplicated_sets` | integer | Number of entries in `already_deduplicated`. |
 
+**Actions object** (the top-level `actions` field):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `removed` | array of string | Paths actually trashed (`mode: "trash"`) or permanently deleted (`mode: "delete"`). Empty on a dry run. |
+| `skipped` | array of Skip | Candidates that were **not** removed, and why. Empty on a dry run. |
+
+**Skip object** (entries of `actions.skipped`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `path` | string | The candidate that was left in place. |
+| `reason` | string | Why it was skipped — the same wording the human report uses (see [Removing duplicates safely](removing-duplicates-safely.md#what-a-skip-looks-like) for the full list of reasons). |
+
 **Warning object** (entries of `warnings`):
 
 | Field | Type | Meaning |
@@ -172,14 +221,39 @@ hard-link sets come from an already canonically sorted result; on top of that th
 sorted by path within each stage**, the `root_errors` array is **sorted by
 path**, and field order is fixed. This makes the output safe to diff or snapshot in CI.
 
-### `mode` semantics
+### `mode` and `actions`: what actually happened
 
-`mode` reports what the run did to the files. Today it is always `"dry-run"`: the
-run only reports what it *would* remove and changes nothing on disk, so
-`removable` lists intended removals. The acting flags (`--apply`, `--delete`) are
-not functional yet; when they ship, `mode` will take additional values to
-distinguish a dry run from a run that trashed or deleted files, and the per-group
-lists will report the actions actually performed.
+`mode` reports what the run *did* to the files, not what flags were passed — a
+run that refused to act (for example `--delete` without `--apply`, which exits
+before anything runs) is never reported as having acted:
+
+| `mode` | When | What `removable` means |
+|---|---|---|
+| `"dry-run"` | No action flag. | The files that *would* be removed. Nothing on disk changed. |
+| `"trash"` | `--apply`. | The files that *were* moved to the OS trash — see `actions.removed` for exactly which ones. |
+| `"delete"` | `--apply --delete`. | The files that *were* permanently deleted — see `actions.removed`. |
+
+The `groups[].removable` lists are unchanged by mode — they always reflect the
+scan's grouping decision. What actually happened to those files is the separate
+top-level `actions` object:
+
+```json
+"actions": {
+  "removed": ["/photos/b.png"],
+  "skipped": [
+    { "path": "/photos/c.png", "reason": "content changed since the scan" }
+  ]
+}
+```
+
+`actions` is always present, with both arrays empty on a dry run — the document
+shape does not change with `mode`, only its contents. `actions.removed` is the
+authoritative list of paths that were actually trashed or deleted; a group's
+`removable` array may list files that ended up in `actions.skipped` instead, if
+[re-validation](removing-duplicates-safely.md#re-validated-at-apply-time) at
+apply time found a reason not to remove them. See
+[Removing duplicates safely](removing-duplicates-safely.md) for the full safety
+model and what each skip reason means.
 
 ### `protected`, `hard_link_sets`, and `already_deduplicated`
 
@@ -227,9 +301,17 @@ written there. Diagnostics appear as follows:
   additionally written to standard error, so an unreadable input path is visible
   even when you pipe stdout straight into a JSON parser. A non-empty `root_errors`
   also drives the exit code to `1`.
+- **Apply-stage removals and skips** (`--apply`, with or without `--delete`) are
+  written to standard error **as they happen**, in addition to appearing in the
+  `actions` object at the end. This is deliberate: if a run is interrupted
+  partway through, the final document never gets printed, and without the live
+  stream you would have no record of what was already removed. In the default
+  report mode the same skips therefore appear twice — once live on stderr, once
+  in the report's `Skipped (left in place):` list.
 
 So a script can rely on stdout being pure JSON, while a human watching the
-terminal still sees run-level failures on stderr.
+terminal still sees run-level failures, and a running record of anything that was
+removed, on stderr.
 
 ## Progress while it runs
 

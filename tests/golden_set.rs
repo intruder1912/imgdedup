@@ -46,6 +46,11 @@ fn manifest(groups: Vec<Value>, already_deduplicated: Vec<Value>, totals: Value)
         "groups": groups,
         "already_deduplicated": already_deduplicated,
         "totals": totals,
+        // Every golden scenario is a dry run, so nothing was ever acted on.
+        // The field is still asserted rather than ignored: a run that reported
+        // actions it did not take would be a serious defect, and the oracle
+        // should catch it (TASK-0309/0310).
+        "actions": { "removed": [], "skipped": [] },
         "warnings": [],
         "root_errors": [],
     })
@@ -207,6 +212,7 @@ fn mislabeled_and_empty_files_warn_and_never_group() {
         )],
         "already_deduplicated": [],
         "totals": totals(1, 1, 80, 0),
+        "actions": { "removed": [], "skipped": [] },
         "warnings": [
             { "stage": "sniff", "path": "empty.jpg", "reason": "file is empty" },
             {

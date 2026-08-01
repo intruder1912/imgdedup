@@ -45,9 +45,16 @@
 //! - **Paths** are serialized with `to_string_lossy` — invalid-UTF-8 path
 //!   bytes are replaced (U+FFFD) rather than failing serialization; `mtime`
 //!   is `null` when the platform did not provide it.
-//! - `"mode"` is `"dry-run"` until the destructive slice (TASK-0309/0310)
+//! - `"mode"` reports what the run did to the files: `"dry-run"` (nothing was
+//!   touched), `"trash"` (`--apply`), or `"delete"` (`--apply --delete`).
+//! - `"actions"` carries what actually happened — `removed` paths and `skipped`
+//!   entries with their reasons. Always present so the document shape is fixed;
+//!   both arrays are empty in a dry run. Added in slice S3 without a
+//!   `schema_version` bump, since additive fields do not break consumers.
+//! - (superseded note) `"mode"` was `"dry-run"` until the destructive slice
 //!   extends it (`"trash"`, `"delete"`) and adds performed-action reporting.
 
+use crate::apply::{ActionMode, ApplyOutcome};
 use crate::engine::{DedupOutcome, DuplicateGroup, FileRec, HardLinkNote};
 use crate::enumerate::EnumerateWarning;
 use crate::sniff::SniffWarning;
@@ -129,8 +136,23 @@ struct JsonReport {
     groups: Vec<JsonGroup>,
     already_deduplicated: Vec<JsonHardLinkSet>,
     totals: JsonTotals,
+    actions: JsonActions,
     warnings: Vec<JsonWarning>,
     root_errors: Vec<JsonRootError>,
+}
+
+/// What actually happened to the files. Always present so the document shape is
+/// fixed regardless of mode (NFR-3); both arrays are empty in a dry run.
+#[derive(Debug, Serialize)]
+struct JsonActions {
+    removed: Vec<String>,
+    skipped: Vec<JsonSkip>,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonSkip {
+    path: String,
+    reason: String,
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -148,6 +170,8 @@ pub fn render(
     enumerate_warnings: &[EnumerateWarning],
     sniff_warnings: &[SniffWarning],
     root_errors: &[EnumerateWarning],
+    mode: ActionMode,
+    applied: &ApplyOutcome,
 ) -> String {
     let mut attached: HashSet<usize> = HashSet::new();
 
@@ -200,12 +224,28 @@ pub fn render(
             .collect()
     };
 
+    // Performed actions (FR-14). Paths use the same lossy serialization as
+    // everywhere else in the document; skip reasons are the user-facing strings
+    // the human report shows, so the two surfaces cannot drift.
+    let actions = JsonActions {
+        removed: applied.removed.iter().map(|p| lossy(p)).collect(),
+        skipped: applied
+            .skipped
+            .iter()
+            .map(|s| JsonSkip {
+                path: lossy(&s.path),
+                reason: s.reason.to_string(),
+            })
+            .collect(),
+    };
+
     let report = JsonReport {
         schema_version: SCHEMA_VERSION,
-        mode: "dry-run",
+        mode: mode.as_str(),
         groups,
         already_deduplicated,
         totals,
+        actions,
         warnings,
         root_errors,
     };
@@ -273,6 +313,23 @@ fn lossy(p: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Renders in dry-run mode with no performed actions.
+    fn render_dry(
+        outcome: &DedupOutcome,
+        ew: &[EnumerateWarning],
+        sw: &[SniffWarning],
+        re: &[EnumerateWarning],
+    ) -> String {
+        super::render(
+            outcome,
+            ew,
+            sw,
+            re,
+            ActionMode::DryRun,
+            &ApplyOutcome::default(),
+        )
+    }
+
     use super::*;
     use crate::cli::KeepRule;
     use crate::engine::find_duplicates;
@@ -307,7 +364,7 @@ mod tests {
     fn output_is_valid_json_with_schema_version_and_mode() {
         let dir = TempDir::new().unwrap();
         let outcome = outcome_from(&dir, &[("a.jpg", b"same"), ("b.jpg", b"same")]);
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         assert_eq!(v["schema_version"], 1);
         assert_eq!(v["mode"], "dry-run");
     }
@@ -316,7 +373,7 @@ mod tests {
     fn groups_carry_keeper_removable_and_reclaimable() {
         let dir = TempDir::new().unwrap();
         let outcome = outcome_from(&dir, &[("a.jpg", b"same"), ("bb.jpg", b"same")]);
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         let groups = v["groups"].as_array().unwrap();
         assert_eq!(groups.len(), 1);
         let g = &groups[0];
@@ -340,7 +397,7 @@ mod tests {
                 ("b2.jpg", b"beta-x"),
             ],
         );
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         let groups = v["groups"].as_array().unwrap();
         assert_eq!(groups.len(), outcome.groups.len());
         for (jg, mg) in groups.iter().zip(outcome.groups.iter()) {
@@ -366,8 +423,8 @@ mod tests {
             path: PathBuf::from("z.txt"),
             reason: "not an image".into(),
         }];
-        let one = render(&outcome, &[], &warns, &[]);
-        let two = render(&outcome, &[], &warns, &[]);
+        let one = render_dry(&outcome, &[], &warns, &[]);
+        let two = render_dry(&outcome, &[], &warns, &[]);
         assert_eq!(one, two);
     }
 
@@ -387,7 +444,7 @@ mod tests {
             path: PathBuf::from("/no/such/root"),
             reason: "not found".into(),
         }];
-        let v = parse(&render(&outcome, &enum_warns, &sniff_warns, &roots));
+        let v = parse(&render_dry(&outcome, &enum_warns, &sniff_warns, &roots));
         let warnings = v["warnings"].as_array().unwrap();
         assert_eq!(warnings.len(), 2);
         assert_eq!(warnings[0]["stage"], "enumerate");
@@ -403,7 +460,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut outcome = outcome_from(&dir, &[("a.jpg", b"same"), ("b.jpg", b"same")]);
         outcome.groups[0].keeper.mtime = None;
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         assert!(v["groups"][0]["keeper"]["mtime"].is_null());
     }
 
@@ -411,7 +468,7 @@ mod tests {
     fn no_hash_field_leaks_into_schema() {
         let dir = TempDir::new().unwrap();
         let outcome = outcome_from(&dir, &[("a.jpg", b"same"), ("b.jpg", b"same")]);
-        let rendered = render(&outcome, &[], &[], &[]);
+        let rendered = render_dry(&outcome, &[], &[], &[]);
         assert!(!rendered.contains("\"hash\""));
     }
 
@@ -423,7 +480,7 @@ mod tests {
             path: PathBuf::from("gone.jpg"),
             reason: "read failed during verify".into(),
         });
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         let warnings = v["warnings"].as_array().unwrap();
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0]["stage"], "engine");
@@ -454,7 +511,7 @@ mod tests {
             }
         }
         let outcome = find_duplicates(confirmed, build_comparator(KeepRule::Shortest));
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         assert_eq!(v["groups"].as_array().unwrap().len(), 0);
         let already = v["already_deduplicated"].as_array().unwrap();
         assert_eq!(already.len(), 2);
@@ -493,7 +550,7 @@ mod tests {
             })
             .collect();
         let outcome = find_duplicates(confirmed, build_comparator(KeepRule::Shortest));
-        let v = parse(&render(&outcome, &[], &[], &[]));
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
         let groups = v["groups"].as_array().unwrap();
         assert_eq!(groups.len(), 1);
         let g = &groups[0];
@@ -537,12 +594,58 @@ mod tests {
                 },
             ];
             let outcome = find_duplicates(confirmed, build_comparator(KeepRule::Shortest));
-            let v = parse(&render(&outcome, &[], &[], &[]));
+            let v = parse(&render_dry(&outcome, &[], &[], &[]));
             let groups = v["groups"].as_array().unwrap();
             assert_eq!(groups.len(), 1);
             assert_eq!(groups[0]["hard_link_sets"].as_array().unwrap().len(), 1);
             assert_eq!(v["already_deduplicated"].as_array().unwrap().len(), 0);
             assert_eq!(v["totals"]["already_deduplicated_sets"], 0);
         }
+    }
+
+    // ── Performed actions (slice S3) ─────────────────────────────────────────
+
+    #[test]
+    fn dry_run_reports_no_actions() {
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = outcome_from(&dir, &[("a.jpg", b"DUPE"), ("b.jpg", b"DUPE")]);
+
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
+
+        assert_eq!(v["mode"], "dry-run");
+        assert_eq!(v["actions"]["removed"].as_array().unwrap().len(), 0);
+        assert_eq!(v["actions"]["skipped"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn applied_actions_carry_paths_reasons_and_the_mode() {
+        // `mode: "trash"` is asserted nowhere else, and the skip shape
+        // {path, reason} is the contract the guide documents.
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = outcome_from(&dir, &[("a.jpg", b"DUPE"), ("b.jpg", b"DUPE")]);
+        let applied = ApplyOutcome {
+            removed: vec![std::path::PathBuf::from("/photos/b.jpg")],
+            skipped: vec![crate::apply::SkipRecord {
+                path: std::path::PathBuf::from("/photos/c.jpg"),
+                reason: crate::apply::SkipReason::ContentChanged,
+            }],
+        };
+
+        let v = parse(&super::render(
+            &outcome,
+            &[],
+            &[],
+            &[],
+            ActionMode::Trash,
+            &applied,
+        ));
+
+        assert_eq!(v["mode"], "trash");
+        assert_eq!(v["actions"]["removed"][0], "/photos/b.jpg");
+        assert_eq!(v["actions"]["skipped"][0]["path"], "/photos/c.jpg");
+        assert_eq!(
+            v["actions"]["skipped"][0]["reason"], "content changed since the scan",
+            "the reason string must match what the human report shows"
+        );
     }
 }

@@ -137,6 +137,31 @@ the rest of the run proceeds (NFR-6, AC-17). This re-validation, combined with t
 fact that the keeper is *never* in the removal set, guarantees NFR-1: no run can
 leave a group with zero surviving copies.
 
+#### Consequence note — a fourth check, and the residual window (2026-08-01, S3)
+
+Implementing the apply stage (TASK-0309) added a **fourth** check the list above
+does not mention, and the architect review of the slice asked for it to be
+recorded here rather than living only in the code:
+
+**Check 4 —** the non-keeper and the keeper are **not the same physical file**. A
+hard link created between the scan and the apply would pass check 3 while meaning
+the candidate *is* the keeper under another name. FR-17 promises hard-linked
+siblings are never removal candidates, and that promise has to hold at apply
+time, not just at scan time. In practice this is also the check that makes
+overlapping or repeated scan roots (`imgdedup ./d ./d/sub`) safe.
+
+**The residual window.** The claim above that a file changing between scan and
+apply "cannot cause data loss" needs one qualification. All four checks are
+driven from handles the apply stage opens itself, so they are mutually consistent
+— but the removal call is necessarily **by path**, because that is the only
+interface the OS trash offers. Between the last check and that call the path can
+still be re-pointed. The window is a single system-call gap rather than the span of a
+byte-for-byte comparison, and nothing in it can remove the keeper (its path is
+never handed to the remover), but it is not zero and should not be described as
+though it were. What re-validation buys is protection against the realistic
+threat — a tree that drifted during a long scan — not a guarantee against a
+deliberate adversary racing the process.
+
 ### Hard-link / file-identity detection (FR-17, AC-18)
 
 Files that are hard links to the same underlying content share storage, so
