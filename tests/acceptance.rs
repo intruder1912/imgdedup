@@ -251,7 +251,13 @@ fn ac3_apply_trashes_non_keeper_recoverably_and_keeper_survives() {
                     .expect("tempdir has a final component")
                     .to_owned();
                 let found = items.iter().any(|it| {
-                    it.name == "b.png" && it.original_parent.file_name() == Some(unique.as_os_str())
+                    // Compare the *stem*, not the full name: the Windows
+                    // Recycle Bin reports an item's display name, which hides
+                    // known extensions, so "b.png" comes back as "b". The
+                    // unique tempdir component is what keeps this specific.
+                    std::path::Path::new(it.name.as_str()).file_stem()
+                        == Some(std::ffi::OsStr::new("b"))
+                        && it.original_parent.file_name() == Some(unique.as_os_str())
                 });
                 assert!(
                     found,
@@ -510,7 +516,11 @@ fn ac7_apply_delete_permanently_removes_non_keepers_not_via_trash() {
                 .to_owned();
             assert!(
                 !items.iter().any(|it| {
-                    it.name == "b.tif" && it.original_parent.file_name() == Some(unique.as_os_str())
+                    // Stem, not full name — see AC-3: Windows reports display
+                    // names with known extensions hidden.
+                    std::path::Path::new(it.name.as_str()).file_stem()
+                        == Some(std::ffi::OsStr::new("b"))
+                        && it.original_parent.file_name() == Some(unique.as_os_str())
                 }),
                 "a permanently deleted file must not appear in the trash listing"
             );
