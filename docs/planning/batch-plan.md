@@ -135,6 +135,23 @@ consistently comes in under.
   2. **~10 weekly points per full window holds.** 47% of a window cost 5
      weekly points, matching session 1's 100% → ~10. Weekly capacity remains
      ample (85% left ≈ 8 windows); the per-session window stays the constraint.
+- **Session 3 (PR #49, slice S3 finish), 2026-08-01 — 55% of the window against
+  a 60–75 estimate; the week moved 15% → 20%.** Third session in a row under
+  estimate on the inline model, and the ~10-weekly-points-per-window ratio holds
+  for a third data point. Two things worth carrying forward:
+  1. **A review of safety-critical code generates more rework than the estimate
+     assumes.** The whole-slice architect review returned 17 findings over ~1000
+     lines of destructive code, and working them was the larger half of the
+     session — more than the build itself. It was worth it (three of the
+     findings were user-visible defects, one a panic that would have aborted
+     mid-delete), but "review + fix round" should be budgeted as one unit, not
+     as a review with a tail.
+  2. **The estimate was raised for two architect dispatches and only one was
+     spent.** The single whole-slice review, run after the product-owner had
+     accepted and the docs were written, found everything an in-progress review
+     would have — because it could exercise the finished binary. For a slice
+     whose risk is behavioral rather than architectural, one late review beats
+     two early ones.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -176,7 +193,7 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 |---|---|---|---|---|---|---|
 | 1 | re-plan + 4b | chore, then feature | this file (PR #46), then TASK-0315 | 8–12 + 45–60 | ~9 | **done 2026-08-01** — both units landed, but at **100%** of the window (subagent-driven; see the actuals log) |
 | 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 45–55 | ~7 | **done 2026-08-01** — PR #48 merged, `feature/apply-delete` parked at the cut line; actual **47%** |
-| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (safety-critical: budget **two** architect dispatches) | ~8 | delete path green and reviewed; split to a session 3b if trending over |
+| 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (safety-critical: budget **two** architect dispatches) | ~8 | **done 2026-08-01** — PR #49; actual **55%** |
 | 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | AC coverage green; scale work is session 5 |
 | 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | benchmark numbers recorded; field validation can slip (needs the owner's photo corpus) |
 | 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | ADR + `LICENSE` committed before touching the release workflow |
