@@ -130,6 +130,34 @@ saturating all CPU threads with concurrent reads can cause **seek thrashing** an
   are seeded after this PR; an NFR-4 benchmarking task to set concurrency defaults
   and confirm memory/throughput targets is seeded alongside.
 
+### Consequence note — the empirical width, measured (2026-08-02, TASK-0312)
+
+This ADR deferred the concurrency width to "Phase 3 benchmarking". That
+measurement has now been taken (full numbers and method in
+[`../planning/reviews/e2e-scale.md`](../planning/reviews/e2e-scale.md)), and the
+answer is that there is nothing to tune.
+
+On a 10k-file fixture, going from 1 worker to 8 moved wall time from 1.97 s to
+1.72 s — 13%. The reason is visible in the profile: a 100k-file run spends 2.45 s
+in user CPU and 33.7 s in system CPU, so it is bound by the syscalls of opening
+and reading many small files, not by hashing. Widening the pool cannot help
+with that. At the other end, large files are already parallelized *inside*
+BLAKE3, so the rayon width is not the lever there either.
+
+**Decision: keep rayon's default (one worker per core) and add no `--jobs` /
+`--threads` flag.** The flag was already deferred in this ADR; the measurement
+turns that from a deferral into a positive finding — the surface area would buy
+an effect the data does not show.
+
+Determinism across widths was verified rather than assumed: `--json` output is
+byte-identical at 1, 2, 8 and 16 threads, and a regression test
+(`results_are_identical_across_concurrency_widths`) now pins it, so a future
+change to the default cannot silently move results.
+
+Also confirmed here, against this ADR's memory claim: peak RSS tracks **file
+count**, not data volume — 300 MB spread over 3 files cost 7.5 MB of RSS, while
+397 MB spread over 100,000 files cost 42.8 MB. The streaming-read design holds.
+
 ### Consequence note — deferred verification pass (2026-08-01, TASK-0315)
 
 Progress indication (FR-19) restructured the engine into a full hashing pass

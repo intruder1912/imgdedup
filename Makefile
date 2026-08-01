@@ -42,6 +42,9 @@ test: ## Run all Rust tests
 deny: ## Audit dependencies (advisories/licenses/bans/sources; needs cargo-deny installed)
 	cargo deny check
 
+scale: ## Run the NFR-4 scale fixtures (slow: builds 100k files and ~2 GiB; not part of validate)
+	cargo test --release --test scale -- --ignored --nocapture --test-threads=1
+
 fmt: ## Check Rust formatting (use `cargo fmt` to auto-fix)
 	cargo fmt --check
 
