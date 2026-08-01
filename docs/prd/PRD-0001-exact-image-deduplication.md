@@ -143,17 +143,18 @@ User stories:
   can detect duplicates without parsing output. Without the flag, a successful run
   exits `0` regardless of findings (see FR-15). The flag changes only the exit
   status — never what is scanned, grouped, or removed.
-- **FR-19 (Amendment 2026-07-19):** While a scan runs, show **live progress on
-  standard error** so the user can see the tool is working and how far along it
-  is. The indicator conveys both (a) the **overall problem size** — the number of
-  candidate files to be checked, known once enumeration completes — and (b)
-  **ongoing progress** as `x of y` files done plus a **percentage**, labeled with
-  the current phase (e.g. scanning → hashing → verifying; user-facing phase names,
-  not an implementation contract). Progress is **output-only**: it never changes
-  what is scanned, grouped, or removed (like `--json`), and it is written **only
-  to stderr — never to stdout, in any mode (including `--json`)**, so redirected
-  stdout stays a pure report/JSON document (the S2 stdout-purity contract). It is
-  **enabled by default** and **auto-adapts to the terminal**:
+- **FR-19 (Amendment 2026-07-19; refined 2026-08-01):** While a scan runs, show
+  **live progress on standard error** so the user can see the tool is working and
+  how far along it is. The indicator conveys both (a) the **overall problem
+  size** — the number of candidate files to be checked, known once enumeration
+  completes — and (b) **ongoing progress** as `x of y` files done plus a
+  **percentage**, labeled with the current phase (e.g. scanning → hashing →
+  verifying; user-facing phase names, not an implementation contract). Progress
+  is **output-only**: it never changes what is scanned, grouped, or removed
+  (like `--json`), and it is written **only to stderr — never to stdout, in any
+  mode (including `--json`)**, so redirected stdout stays a pure report/JSON
+  document (the S2 stdout-purity contract). It is **enabled by default** and
+  **auto-adapts to the terminal**:
   - When stderr is an **interactive terminal (TTY)**, it renders as a **single line
     updated in place** (redrawn as counts advance).
   - When stderr is **not a TTY** (piped, redirected, or captured by CI/logs), the
@@ -166,8 +167,28 @@ User stories:
 
   Before enumeration finishes the total `y` is not yet known, so the indicator may
   show a counting/indeterminate state and switch to `x of y` + percentage once the
-  denominator is fixed. Progress output is **excluded from the determinism/parity
-  guarantees** (NFR-3 governs stdout content only; see §7).
+  denominator is fixed.
+
+  **Denominator across phases (Amendment 2026-08-01).** Scanning and hashing
+  report `x of y` against the full candidate count `y`. A later phase whose
+  workload is a **strict subset** of the candidates (verifying, since only
+  candidates that collided in a duplicate group are byte-verified) reports its
+  own subset progress while **keeping the run's candidate total `y` visible in
+  the same line**, e.g. `verifying: 1 of 2 (50%) — 302 candidates`. A single
+  run-wide denominator shared by every phase is not used: a candidate file
+  legitimately passes through more than one phase (hashing, then — only if it
+  collided — verifying), so forcing one denominator across phases would either
+  double-count a file's progress past `y` or reintroduce an indeterminate
+  0%-then-jump stall. A phase with **zero workload** (nothing collided, so there
+  is nothing to verify) is **skipped entirely** rather than rendered as a
+  degenerate `0 of 0`. Every run **ends on a terminal completion state rendered
+  against the full candidate total**, e.g. `done: 302 of 302 (100%)` — on a TTY
+  this is the state left on screen once the run finishes, so the overall problem
+  size (a) stays visible at the point the run completes even when an
+  intermediate phase's own denominator was smaller.
+
+  Progress output is **excluded from the determinism/parity guarantees** (NFR-3
+  governs stdout content only; see §7).
 
 ## 7. Non-functional requirements
 
@@ -298,16 +319,28 @@ Behavior:
   **stdout contains exactly the report/JSON document and no progress text**; all
   progress output appears on stderr only. Redirecting stdout to a file therefore
   yields a clean report/JSON.
-- **AC-21 (FR-19, TTY):** Given stderr is an interactive terminal, when a scan
-  runs, then a **live single-line** progress indicator is shown on stderr
-  reporting the current phase, `x of y` files, and a percentage, where `y` is the
-  count of candidate files to check (known after enumeration).
-- **AC-22 (FR-19, non-TTY fallback):** Given stderr is **not** a TTY (redirected
-  or piped), when a scan runs, then **no in-place redraw / carriage-return / ANSI
-  control sequences** are emitted; progress instead appears as occasional plain,
-  newline-terminated lines (log-friendly and bounded) — at minimum a
-  problem-size line once enumeration completes and a completion line, so a
-  captured log always evidences the run's scale and finish.
+- **AC-21 (FR-19, TTY; amended 2026-08-01):** Given stderr is an interactive
+  terminal, when a scan runs, then a **live single-line** progress indicator is
+  shown on stderr reporting the current phase and its progress, where: scanning
+  and hashing report `x of y` and a percentage against `y` = the count of
+  candidate files to check (known after enumeration); a phase whose workload is
+  a strict subset of the candidates (verifying) reports its own subset `x of
+  <subset-total>` and percentage while keeping the candidate total `y` visible in
+  the same line, e.g. `verifying: 1 of 2 (50%) — 302 candidates`; a phase with
+  zero workload is skipped entirely rather than shown as `0 of 0`; and the run
+  always ends on a terminal completion line rendered against the full candidate
+  total, e.g. `done: 302 of 302 (100%)` — the state left on screen once the run
+  finishes, so the overall problem size stays visible at completion regardless of
+  a smaller intermediate-phase denominator.
+- **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01):** Given stderr is
+  **not** a TTY (redirected or piped), when a scan runs, then **no in-place
+  redraw / carriage-return / ANSI control sequences** are emitted; progress
+  instead appears as occasional plain, newline-terminated lines (log-friendly and
+  bounded), following the same per-phase-subset-with-total-visible convention as
+  AC-21 (and skipping any zero-workload phase) — at minimum a problem-size line
+  once enumeration completes and a completion line rendered against the full
+  candidate total (e.g. `done: 302 of 302 (100%)`), so a captured log always
+  evidences the run's scale and finish.
 - **AC-23 (FR-19, opt-out):** Given `--no-progress`, when a scan runs, then **no
   progress output is written to stderr at all**, and stdout is unchanged.
 - **AC-24 (FR-19, output-only):** Given identical inputs and flags, the groups,
@@ -414,3 +447,60 @@ usage window as its own unit** (implementer, TDD) — see
 the [batch plan](../planning/batch-plan.md). Implementation must not start ahead of
 that window. The stored-results guidance documents **existing** behavior and ships
 immediately in the README and user guide.
+
+## Amendment 2026-08-01 — progress denominator refinement (architect review, TASK-0315)
+
+During the architect's whole-unit review of the TASK-0315 progress-indication
+build, a genuine deviation from AC-21 as originally written surfaced: AC-21
+pinned `y` to "the count of candidate files to check (known after
+enumeration)" for the entire run, but the shipped build gives the verifying
+phase its own, smaller denominator (e.g. `verifying: 2 of 2 (100%)` on a
+302-candidate run). The architect's verdict, accepted by the product owner, is
+two-fold:
+
+1. This is a **genuine spec deviation**, not a defensible reading of the
+   original AC-21 text.
+2. The **strict original reading is unimplementable as written**. A candidate
+   file legitimately passes through more than one phase — hashing always, then
+   verifying if (and only if) it collided with another file. A single
+   run-wide denominator shared across every phase therefore forces one of two
+   bad outcomes: either a file's second pass (through verifying) pushes the
+   numerator **past `y`** — double-counting — or the display must hold `x` at
+   whatever hashing left it at while verifying runs, producing the
+   0%-then-jump stall that an earlier iteration of this same build had already
+   been fixed to avoid. AC-21 was therefore **under-specified**, not merely
+   under-implemented.
+
+The deviation also had a real, owner-relevant consequence, verified under a
+pty: on a TTY the progress line is redrawn **in place**, so once the run
+enters verifying, the earlier candidate total is erased from the screen. On a
+302-file library with two duplicates, the run would rest at `verifying: 2 of 2
+(100%)`, no longer conveying the **overall problem size** (FR-19(a)) — the
+owner's original 2026-07-19 complaint (no sense of how big the job is)
+reappearing at the very moment the run ends, when the resting line matters
+most. On a duplicate-free tree the closing line was the degenerate `verifying:
+0 of 0 (100%)`, evidencing a scale of zero rather than the library actually
+scanned.
+
+**Ratified resolution**, reflected in FR-19 and AC-21/AC-22 above:
+
+- Scanning and hashing continue to report `x of y` against `y` = the candidate
+  count, unchanged from the original amendment.
+- A phase whose workload is a strict subset of the candidates (verifying)
+  reports its own subset progress **while keeping the run's candidate total
+  visible in the same line**: `verifying: 1 of 2 (50%) — 302 candidates`.
+- A phase with zero workload is **skipped entirely** — no more degenerate
+  `verifying: 0 of 0 (100%)` lines.
+- Every run **ends on a terminal completion state rendered against the full
+  candidate total**: `done: 302 of 302 (100%)`. On a TTY this is the resting
+  state left on screen, so the overall problem size is visible whenever the run
+  finishes, regardless of which phase's own denominator was smaller along the
+  way.
+
+This satisfies FR-19(a) (overall problem size) at the point it matters most —
+the state left on screen at completion — without forcing a shared denominator
+across phases whose workloads are genuinely different in kind. It does not
+reintroduce a single run-wide `x of y` for the whole run; readers of FR-19
+should not expect the verifying phase's own counter to match `y` — only the
+closing `done:` line and the `— <n> candidates` suffix carry that total once
+verifying is in progress.

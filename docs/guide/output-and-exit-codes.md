@@ -248,10 +248,30 @@ The indicator shows:
   user-facing labels for where the run is, not a contract on the internal
   pipeline.
 - Once the candidate count is known, **`x of y` files done and a
-  percentage**. `y` is the number of candidate files confirmed as images,
-  fixed once enumeration and magic-byte confirmation finish. Before that the
-  total is unknown, so the indicator shows a plain counting state (for
-  example `scanning...`) instead of `x of y`.
+  percentage**, where `y` is the number of candidate files confirmed as
+  images, fixed once enumeration and magic-byte confirmation finish. Before
+  that the total is unknown, so the indicator shows a plain counting state
+  (for example `scanning...`) instead of `x of y`.
+
+### What the denominator means per phase
+
+Not every phase works on all `y` candidates — only files that turn out to
+collide with another file ever reach verifying — so the indicator does not
+force one shared denominator across every phase:
+
+- **Scanning** and **hashing** report `x of y` against the full candidate
+  total `y`, as above.
+- **Verifying** works on a smaller set (only the files involved in a
+  collision), so it reports its own subset progress while keeping the run's
+  candidate total visible in the same line, for example
+  `verifying: 1 of 2 (50%) — 302 candidates`. If nothing collided, verifying
+  has zero work to do and is skipped entirely — you will not see a degenerate
+  `verifying: 0 of 0 (100%)`.
+- Every run **ends on a completion line rendered against the full candidate
+  total**, for example `done: 302 of 302 (100%)`. On a TTY this is the state
+  left on screen once the run finishes, so the overall size of the job you
+  just scanned stays visible at the end — even though the verifying phase
+  along the way was reporting progress against a smaller number.
 
 ### On a terminal vs. redirected or piped
 
