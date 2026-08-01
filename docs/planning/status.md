@@ -11,25 +11,8 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- **Slice S3 — destructive actions** on `feature/apply-delete`. TASK-0309
-  (trash apply + apply-time re-validation) is **parked at the session-2 cut
-  line**: `src/apply.rs` holds the injected-`Remover` executor and the TOCTOU
-  re-validation, 10 unit tests, `--apply` wired end-to-end, and `trash` added
-  (cargo-deny clean). `--apply --delete` deliberately refuses until TASK-0310
-  supplies the delete mechanism. Two findings recorded in
-  [`reviews/apply-delete.md`](reviews/apply-delete.md): the `trash` crate's
-  macOS default hangs forever (fixed; ADR-0009 consequence note), and a CLI
-  test pointed `--apply --delete` at the repository working directory (fixed).
-  **Session 3 finishes the slice:** TASK-0310, performed-action reporting in
-  the report and `--json`, acceptance, docs, whole-slice review, PR.
-
-- _TASK-0316 (lone hard-link sets) shipped earlier in session 2 as PR #48._
-
-- _Session 1 (2026-08-01) landed PR #46 (re-plan) and PR #47 (batch 4b /
-  TASK-0315 progress indication) but consumed 100% of its 5-hour window; the
-  batch plan's actuals log carries the re-pricing (subagent-driven units cost
-  ~2× inline ones), so session 2 onward defaults to inline work with one
-  architect dispatch._
+- _Nothing in flight — slice S3 (destructive actions) is complete and open as a
+  PR. Session 3 of the 2026-08-01 re-plan._
 
 ## Up next
 
@@ -68,6 +51,28 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
 
 ## Done
+
+- **Slice S3 — Destructive actions (TASK-0309 + TASK-0310, sessions 2–3,
+  2026-08-01).** `--apply` moves non-keepers to the OS trash and
+  `--apply --delete` removes them permanently, both through one executor with
+  the removal mechanism injected, so the irreversible path gets exactly the
+  same treatment as the recoverable one. Apply-time re-validation (FR-16) runs
+  immediately before each removal and refuses on anything it cannot prove —
+  including a fourth check beyond ADR-0008's list, that the candidate is not the
+  same physical file as the keeper. A failure never escalates: there is no path
+  anywhere from a trash failure to a deletion. Output now reports what happened
+  (`mode` = `dry-run`/`trash`/`delete`, plus an additive `actions` object and a
+  report section listing every removed path and every skip with its reason).
+  **Three defects found by running the tool rather than reading it:** the
+  `trash` crate's macOS default hangs forever (it drives Finder via `osascript`,
+  needing Automation permission that a non-interactive shell cannot grant); a
+  CLI test pointed `--apply --delete` at the repository working directory; and
+  re-validation proved metadata of one file and content of possibly another.
+  Architect whole-slice review: 1 blocker + 10 should-fixes, all resolved;
+  reviewer found no way to destroy a keeper or empty a group. Follow-ups:
+  TASK-0319 (repeated scan roots report a tree as clean when it is not),
+  TASK-0320 (`--follow-symlinks` candidacy). See
+  [`reviews/apply-delete.md`](reviews/apply-delete.md).
 
 - **Batch 4 / TASK-0313 — test-data generator & golden-set oracle (PR #41,
   merged 2026-07-19).** Deterministic tiny-image generator for all 8

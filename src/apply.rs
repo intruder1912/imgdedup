@@ -12,6 +12,19 @@
 //! this logic, and so the safety rules can be unit-tested without touching a
 //! real trash can.
 //!
+//! **Removal is by path, and that has two consequences.** It is the only
+//! interface the OS trash offers, so a single unavoidable gap remains between
+//! the last check and the removal itself (see `revalidate`). It also means the
+//! trash path is the looser of the two: `fs::remove_file` refuses a directory,
+//! while the OS trash would happily accept one if a directory were swapped in
+//! during that gap.
+//!
+//! **Re-validation re-reads the keeper once per candidate.** A group of ten
+//! duplicates of a 50 MB file therefore reads about a gigabyte at apply time.
+//! That is a deliberate trade: byte-exactness on the irreversible path is worth
+//! more than the I/O, and hashing instead would reintroduce the
+//! trust-the-hash-alone problem FR-4 exists to avoid.
+//!
 //! **A failure never escalates.** If a removal fails, the file is reported and
 //! skipped and the run continues; the tool never falls back from trashing to
 //! permanent deletion (ADR-0009). Permanent removal happens only when the user
@@ -19,10 +32,11 @@
 
 use std::fmt;
 use std::fs;
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::engine::{DuplicateGroup, files_equal};
+use crate::engine::{DuplicateGroup, files_equal_handles};
 
 /// How a file is removed. Injected so the apply logic is shared between
 /// `--apply` (trash) and `--apply --delete` (permanent), and mockable in tests.
@@ -110,6 +124,19 @@ pub enum SkipReason {
     /// The candidate is no longer a regular file — most importantly, it may
     /// have been swapped for a symlink since the scan (ADR-0008).
     NotARegularFile,
+    /// The candidate is a symlink. Reachable when the scan ran with
+    /// `--follow-symlinks`, which enumerates the link path itself: the tool
+    /// never unlinks a symlink standing in for a scanned file, because the user
+    /// asked about the target, not the link.
+    IsASymlink,
+    /// The file being kept is itself a symlink (reachable under
+    /// `--follow-symlinks`). Its target is a real file somewhere, but this
+    /// candidate was matched against a link, so nothing is removed for it.
+    KeeperIsASymlink,
+    /// The engine handed the keeper's own path back as a removal candidate.
+    /// Impossible by construction, so this means an invariant broke — recorded
+    /// rather than silently skipped so it is visible in the output.
+    KeeperInRemovableSet,
     /// The keeper this candidate was verified against is gone or is no longer a
     /// regular file. Removing the candidate could destroy the last copy.
     KeeperUnusable,
@@ -131,6 +158,18 @@ impl fmt::Display for SkipReason {
         match self {
             SkipReason::Vanished => write!(f, "no longer exists"),
             SkipReason::NotARegularFile => write!(f, "no longer a regular file"),
+            SkipReason::IsASymlink => write!(
+                f,
+                "is a symbolic link; symlinks are never removed, only their targets are compared"
+            ),
+            SkipReason::KeeperIsASymlink => write!(
+                f,
+                "the file being kept is a symbolic link; symlinks are never removed"
+            ),
+            SkipReason::KeeperInRemovableSet => write!(
+                f,
+                "internal invariant violated: the file to keep was also listed for removal"
+            ),
             SkipReason::KeeperUnusable => write!(f, "the file to keep is missing or unusable"),
             SkipReason::ContentChanged => write!(f, "content changed since the scan"),
             SkipReason::SameFileAsKeeper => {
@@ -177,7 +216,9 @@ impl ActionMode {
     /// Past-tense verb for the human report, e.g. "trashed".
     pub fn past_tense(self) -> &'static str {
         match self {
-            ActionMode::DryRun => "would be removed",
+            // Unreachable: the report suppresses the whole section in a dry
+            // run, and a dry run never produces removals to describe.
+            ActionMode::DryRun => "would have removed",
             ActionMode::Trash => "trashed",
             ActionMode::Delete => "deleted",
         }
@@ -199,43 +240,90 @@ pub struct ApplyOutcome {
 /// are still byte-for-byte identical, and they are not the same physical file.
 /// Anything else — including an I/O error during the check — is a skip.
 fn revalidate(keeper: &Path, candidate: &Path) -> Result<(), SkipReason> {
+    // Every check below is driven from handles this function opened, not from
+    // repeated path lookups. A path can be re-pointed between two lookups, so
+    // checking metadata by path and then comparing bytes by path would prove
+    // two things about possibly-different files. Opening once and asking the
+    // open file its metadata and identity keeps all four checks consistent.
+    //
+    // A residual window remains and cannot be closed: between the last check
+    // and the `remove` call — which is by path, because that is the only
+    // interface the OS trash offers — the path can still be re-pointed. What
+    // this narrows it to is that single gap, rather than spanning a whole
+    // byte-for-byte comparison of a possibly multi-gigabyte file.
+
     // symlink_metadata, not metadata: a symlink swapped in since the scan must
-    // be detected, not followed (ADR-0008).
-    let cand_meta = match fs::symlink_metadata(candidate) {
+    // be detected, not followed (ADR-0008). This is also the only check that
+    // must be by path — an open handle has already resolved the link.
+    let cand_link_meta = match fs::symlink_metadata(candidate) {
         Ok(m) => m,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(SkipReason::Vanished),
         Err(e) => return Err(SkipReason::Unverifiable(e.to_string())),
     };
-    if !cand_meta.is_file() {
+    if cand_link_meta.is_symlink() {
+        // Reachable under --follow-symlinks, where enumeration yields the link
+        // path itself. Removing it would unlink the link, not the duplicate the
+        // user was shown.
+        return Err(SkipReason::IsASymlink);
+    }
+    if !cand_link_meta.is_file() {
         return Err(SkipReason::NotARegularFile);
     }
 
-    let keeper_meta = match fs::symlink_metadata(keeper) {
+    let keeper_link_meta = match fs::symlink_metadata(keeper) {
         Ok(m) => m,
         Err(_) => return Err(SkipReason::KeeperUnusable),
     };
-    if !keeper_meta.is_file() {
+    if keeper_link_meta.is_symlink() {
+        return Err(SkipReason::KeeperIsASymlink);
+    }
+    if !keeper_link_meta.is_file() {
         return Err(SkipReason::KeeperUnusable);
     }
 
-    // A hard link created between scan and apply would pass the byte compare
-    // while meaning something entirely different: the candidate is the keeper.
-    // The engine never proposes hard-linked siblings for removal (FR-17), and
-    // that promise has to hold at apply time too.
+    let mut cand_file = match File::open(candidate) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(SkipReason::Vanished),
+        Err(e) => return Err(SkipReason::Unverifiable(e.to_string())),
+    };
+    let mut keeper_file = match File::open(keeper) {
+        Ok(f) => f,
+        Err(_) => return Err(SkipReason::KeeperUnusable),
+    };
+
+    // Identity from the open handles: a hard link created between scan and
+    // apply would pass the byte comparison while meaning the candidate *is* the
+    // keeper. The engine never proposes hard-linked siblings for removal
+    // (FR-17), and that promise has to hold at apply time too — this is also
+    // what makes overlapping or repeated scan roots safe.
     match (
-        same_file::Handle::from_path(keeper),
-        same_file::Handle::from_path(candidate),
+        same_file::Handle::from_file(keeper_file.try_clone().map_err(unverifiable)?),
+        same_file::Handle::from_file(cand_file.try_clone().map_err(unverifiable)?),
     ) {
         (Ok(k), Ok(c)) if k == c => return Err(SkipReason::SameFileAsKeeper),
         (Err(e), _) | (_, Err(e)) => return Err(SkipReason::Unverifiable(e.to_string())),
         _ => {}
     }
 
-    match files_equal(keeper, candidate) {
+    match files_equal_handles(&mut keeper_file, &mut cand_file) {
         Ok(true) => Ok(()),
         Ok(false) => Err(SkipReason::ContentChanged),
         Err(e) => Err(SkipReason::Unverifiable(e.to_string())),
     }
+}
+
+fn unverifiable(e: io::Error) -> SkipReason {
+    SkipReason::Unverifiable(e.to_string())
+}
+
+/// What the executor did to one candidate, reported the moment it happens.
+///
+/// Streamed rather than only returned because a process killed partway through
+/// an irreversible run would otherwise leave the user with no record of what
+/// was destroyed — the final report never gets printed.
+pub enum Event<'a> {
+    Removed(&'a Path),
+    Skipped(&'a Path, &'a SkipReason),
 }
 
 /// Remove the non-keepers of every group, re-validating each one first.
@@ -243,7 +331,11 @@ fn revalidate(keeper: &Path, candidate: &Path) -> Result<(), SkipReason> {
 /// The keeper is never passed to the remover, so a group can never be emptied
 /// (NFR-1). Groups are walked in the canonical order the engine produced, so an
 /// apply visits files in the same order the dry run reported them.
-pub fn apply(groups: &[DuplicateGroup], remover: &dyn Remover) -> ApplyOutcome {
+pub fn apply(
+    groups: &[DuplicateGroup],
+    remover: &dyn Remover,
+    on_event: &mut dyn FnMut(Event<'_>),
+) -> ApplyOutcome {
     let mut outcome = ApplyOutcome::default();
 
     for group in groups {
@@ -252,11 +344,23 @@ pub fn apply(groups: &[DuplicateGroup], remover: &dyn Remover) -> ApplyOutcome {
             // `removable`, but this is the last code before an irreversible
             // action, so it does not take that on trust.
             if candidate.path == group.keeper.path {
-                debug_assert!(false, "keeper must never appear in removable");
+                // Impossible by construction. Recorded rather than skipped
+                // silently — and deliberately *not* a panic: aborting here
+                // would leave a half-applied tree with no report at all, which
+                // is the worst outcome on an irreversible path.
+                on_event(Event::Skipped(
+                    &candidate.path,
+                    &SkipReason::KeeperInRemovableSet,
+                ));
+                outcome.skipped.push(SkipRecord {
+                    path: candidate.path.clone(),
+                    reason: SkipReason::KeeperInRemovableSet,
+                });
                 continue;
             }
 
             if let Err(reason) = revalidate(&group.keeper.path, &candidate.path) {
+                on_event(Event::Skipped(&candidate.path, &reason));
                 outcome.skipped.push(SkipRecord {
                     path: candidate.path.clone(),
                     reason,
@@ -265,11 +369,18 @@ pub fn apply(groups: &[DuplicateGroup], remover: &dyn Remover) -> ApplyOutcome {
             }
 
             match remover.remove(&candidate.path) {
-                Ok(()) => outcome.removed.push(candidate.path.clone()),
-                Err(e) => outcome.skipped.push(SkipRecord {
-                    path: candidate.path.clone(),
-                    reason: SkipReason::RemovalFailed(e.to_string()),
-                }),
+                Ok(()) => {
+                    on_event(Event::Removed(&candidate.path));
+                    outcome.removed.push(candidate.path.clone());
+                }
+                Err(e) => {
+                    let reason = SkipReason::RemovalFailed(e.to_string());
+                    on_event(Event::Skipped(&candidate.path, &reason));
+                    outcome.skipped.push(SkipRecord {
+                        path: candidate.path.clone(),
+                        reason,
+                    });
+                }
             }
         }
     }
@@ -354,7 +465,7 @@ mod tests {
         let dup2 = write(&dir, "dup2.jpg", b"DUPE");
 
         let mock = MockRemover::new();
-        let out = apply(&[group(&keeper, &[&dup1, &dup2])], &mock);
+        let out = apply(&[group(&keeper, &[&dup1, &dup2])], &mock, &mut |_| {});
 
         assert_eq!(out.removed, vec![dup1.clone(), dup2.clone()]);
         assert!(
@@ -380,7 +491,7 @@ mod tests {
         fs::remove_file(&dup).unwrap();
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock);
+        let out = apply(&[g], &mock, &mut |_| {});
 
         assert!(out.removed.is_empty());
         assert_eq!(out.skipped.len(), 1);
@@ -399,7 +510,7 @@ mod tests {
         write(&dir, "dup.jpg", b"CHANGED!");
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock);
+        let out = apply(&[g], &mock, &mut |_| {});
 
         assert!(out.removed.is_empty());
         assert_eq!(out.skipped[0].reason, SkipReason::ContentChanged);
@@ -418,7 +529,7 @@ mod tests {
         fs::remove_file(&keeper).unwrap();
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock);
+        let out = apply(&[g], &mock, &mut |_| {});
 
         assert_eq!(out.skipped[0].reason, SkipReason::KeeperUnusable);
         assert!(dup.exists(), "the last copy must survive");
@@ -436,7 +547,11 @@ mod tests {
         let ordinary = write(&dir, "ordinary.jpg", b"DUPE");
 
         let mock = MockRemover::failing_on(vec![stubborn.clone()]);
-        let out = apply(&[group(&keeper, &[&stubborn, &ordinary])], &mock);
+        let out = apply(
+            &[group(&keeper, &[&stubborn, &ordinary])],
+            &mock,
+            &mut |_| {},
+        );
 
         assert_eq!(out.removed, vec![ordinary.clone()], "the run continues");
         assert_eq!(out.skipped.len(), 1);
@@ -460,11 +575,11 @@ mod tests {
         let dup = write(&dir, "dup.jpg", b"DUPE");
         let groups = vec![group(&keeper, &[&dup])];
 
-        let first = apply(&groups, &MockRemover::new());
+        let first = apply(&groups, &MockRemover::new(), &mut |_| {});
         assert_eq!(first.removed.len(), 1);
 
         let mock = MockRemover::new();
-        let second = apply(&groups, &mock);
+        let second = apply(&groups, &mock, &mut |_| {});
 
         assert!(second.removed.is_empty(), "nothing left to remove");
         assert_eq!(second.skipped[0].reason, SkipReason::Vanished);
@@ -478,7 +593,7 @@ mod tests {
         let keeper = write(&dir, "keep.jpg", b"ALONE");
 
         let mock = MockRemover::new();
-        let out = apply(&[group(&keeper, &[])], &mock);
+        let out = apply(&[group(&keeper, &[])], &mock, &mut |_| {});
 
         assert_eq!(out, ApplyOutcome::default());
         assert!(mock.calls().is_empty());
@@ -498,7 +613,7 @@ mod tests {
         write(&dir, "changed.jpg", b"NOT THE SAME");
         fs::remove_file(&gone).unwrap();
 
-        let out = apply(&[g], &MockRemover::new());
+        let out = apply(&[g], &MockRemover::new(), &mut |_| {});
 
         assert_eq!(out.removed.len() + out.skipped.len(), 3);
         assert_eq!(out.removed, vec![ok]);
@@ -533,7 +648,7 @@ mod tests {
         let g = group(&keeper, &[&changed, &ok]);
         write(&dir, "changed.jpg", b"TAMPERED");
 
-        let out = apply(&[g], &DeleteRemover);
+        let out = apply(&[g], &DeleteRemover, &mut |_| {});
 
         assert_eq!(out.removed, vec![ok.clone()], "the valid duplicate goes");
         assert!(!ok.exists(), "and it is really gone");
@@ -561,11 +676,67 @@ mod tests {
         symlink(&keeper, &dup).expect("symlink creatable");
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock);
+        let out = apply(&[g], &mock, &mut |_| {});
 
-        assert_eq!(out.skipped[0].reason, SkipReason::NotARegularFile);
+        assert_eq!(
+            out.skipped[0].reason,
+            SkipReason::IsASymlink,
+            "the reason must say what is actually true: it is a symlink"
+        );
         assert!(mock.calls().is_empty());
         assert!(keeper.exists(), "the symlink target must be untouched");
+    }
+
+    #[test]
+    fn a_keeper_listed_as_removable_is_recorded_not_silently_dropped() {
+        // The engine cannot produce this, so it means an invariant broke. It
+        // must be visible in the output rather than skipped silently, and it
+        // must not panic: aborting mid-loop would leave a half-applied tree
+        // with no report at all.
+        let dir = tempfile::tempdir().unwrap();
+        let keeper = write(&dir, "keep.jpg", b"DUPE");
+        let dup = write(&dir, "dup.jpg", b"DUPE");
+        let mut g = group(&keeper, &[&dup]);
+        g.removable.push(rec(&keeper));
+
+        let mock = MockRemover::new();
+        let out = apply(&[g], &mock, &mut |_| {});
+
+        assert_eq!(out.removed, vec![dup], "the genuine duplicate still goes");
+        assert_eq!(
+            out.skipped.len(),
+            1,
+            "the violation is accounted for, not dropped"
+        );
+        assert_eq!(out.skipped[0].reason, SkipReason::KeeperInRemovableSet);
+        assert!(keeper.exists(), "and the keeper is still never removed");
+        assert!(
+            !mock.calls().contains(&keeper),
+            "the keeper is never offered to the remover"
+        );
+    }
+
+    #[test]
+    fn events_are_emitted_as_each_candidate_is_decided() {
+        // The stream is what a killed run leaves behind, so it must carry every
+        // decision — not just the ones that succeeded.
+        let dir = tempfile::tempdir().unwrap();
+        let keeper = write(&dir, "keep.jpg", b"DUPE");
+        let ok = write(&dir, "ok.jpg", b"DUPE");
+        let gone = write(&dir, "gone.jpg", b"DUPE");
+        let g = group(&keeper, &[&gone, &ok]);
+        fs::remove_file(&gone).unwrap();
+
+        let mut seen: Vec<String> = Vec::new();
+        let out = apply(&[g], &MockRemover::new(), &mut |event| match event {
+            Event::Removed(p) => seen.push(format!("removed {}", p.display())),
+            Event::Skipped(p, r) => seen.push(format!("skipped {} ({r})", p.display())),
+        });
+
+        assert_eq!(seen.len(), 2, "one event per candidate; got {seen:?}");
+        assert!(seen[0].starts_with("skipped"), "in iteration order");
+        assert!(seen[1].starts_with("removed"));
+        assert_eq!(out.removed.len() + out.skipped.len(), 2);
     }
 
     #[cfg(unix)]
@@ -583,7 +754,7 @@ mod tests {
         fs::hard_link(&keeper, &dup).expect("hard link creatable");
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock);
+        let out = apply(&[g], &mock, &mut |_| {});
 
         assert_eq!(out.skipped[0].reason, SkipReason::SameFileAsKeeper);
         assert!(mock.calls().is_empty());

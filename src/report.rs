@@ -341,6 +341,8 @@ fn capitalize(s: &str) -> String {
 mod tests {
     /// Renders in dry-run mode with no performed actions — what every test
     /// below except the apply-reporting ones is about.
+    use crate::apply::SkipReason;
+
     fn render_dry(outcome: &DedupOutcome, ew: &[EnumerateWarning], sw: &[SniffWarning]) -> String {
         super::render(
             outcome,
@@ -1268,6 +1270,122 @@ mod tests {
                 "every link must appear in the block; got:\n{report}"
             );
         }
+    }
+
+    // ── Performed actions (slice S3) ──────────────────────────────────────────
+
+    fn applied(removed: &[&str], skipped: &[(&str, SkipReason)]) -> ApplyOutcome {
+        ApplyOutcome {
+            removed: removed.iter().map(PathBuf::from).collect(),
+            skipped: skipped
+                .iter()
+                .map(|(p, r)| crate::apply::SkipRecord {
+                    path: PathBuf::from(p),
+                    reason: r.clone(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_dry_run_never_claims_to_have_acted() {
+        // The guard this pins is the one that keeps the output from
+        // overstating: even handed a non-empty outcome, a dry run must not
+        // render a performed-actions section.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"DUPE");
+        let b = write_file(&dir, "b.jpg", b"DUPE");
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+
+        let report = super::render(
+            &outcome,
+            &ew,
+            &sw,
+            ActionMode::DryRun,
+            &applied(&["/photos/b.jpg"], &[]),
+        );
+
+        assert!(
+            !report.contains("Trashed") && !report.contains("Deleted"),
+            "a dry run must not report actions; got:\n{report}"
+        );
+        assert!(!report.contains("Skipped (left in place)"));
+    }
+
+    #[test]
+    fn performed_actions_list_every_removed_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"DUPE");
+        let b = write_file(&dir, "b.jpg", b"DUPE");
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+
+        let report = super::render(
+            &outcome,
+            &ew,
+            &sw,
+            ActionMode::Trash,
+            &applied(&["/photos/b.jpg", "/photos/c.jpg"], &[]),
+        );
+
+        assert!(
+            report.contains("Trashed 2 files:"),
+            "plural and a colon when paths follow; got:\n{report}"
+        );
+        assert!(report.contains("  /photos/b.jpg"));
+        assert!(report.contains("  /photos/c.jpg"));
+    }
+
+    #[test]
+    fn a_run_that_removed_nothing_still_says_so() {
+        // "Did the apply run?" must be answerable from the output rather than
+        // inferred from a missing line — including when there was nothing to do.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "lonely.jpg", b"ALONE");
+        let outcome = find_duplicates(vec![confirmed(&a)], build_comparator(KeepRule::Shortest));
+        let (ew, sw) = no_warnings();
+
+        let report = super::render(&outcome, &ew, &sw, ActionMode::Delete, &applied(&[], &[]));
+
+        assert!(report.contains("No duplicate groups found."));
+        assert!(
+            report.contains("Deleted 0 files."),
+            "singular/plural and a full stop when no paths follow; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn skipped_files_are_listed_with_their_reasons() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = write_file(&dir, "a.jpg", b"DUPE");
+        let b = write_file(&dir, "b.jpg", b"DUPE");
+        let outcome = find_duplicates(
+            vec![confirmed(&a), confirmed(&b)],
+            build_comparator(KeepRule::Shortest),
+        );
+        let (ew, sw) = no_warnings();
+
+        let report = super::render(
+            &outcome,
+            &ew,
+            &sw,
+            ActionMode::Delete,
+            &applied(&[], &[("/photos/b.jpg", SkipReason::ContentChanged)]),
+        );
+
+        assert!(report.contains("Deleted 0 files."));
+        assert!(report.contains("Skipped (left in place):"));
+        assert!(
+            report.contains("/photos/b.jpg: content changed since the scan"),
+            "the reason must be shown, not just the path; got:\n{report}"
+        );
     }
 
     // ── Combined summary clause ───────────────────────────────────────────────

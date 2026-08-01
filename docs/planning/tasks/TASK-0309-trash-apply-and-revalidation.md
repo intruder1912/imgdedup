@@ -2,7 +2,8 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** implementer
-- **Status:** todo
+- **Status:** done (slice S3, 2026-08-01; see
+  [`../reviews/apply-delete.md`](../reviews/apply-delete.md))
 - **Depends on:** TASK-0305
 
 ## Goal

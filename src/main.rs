@@ -135,20 +135,41 @@ fn run(args: cli::Cli) -> i32 {
     // failure is a per-file skip that never escalates to a different mechanism
     // (NFR-1, ADR-0009).
     let (mode, applied) = if args.apply {
-        let remover: Box<dyn apply::Remover> = if args.delete {
-            Box::new(apply::DeleteRemover)
-        } else {
-            Box::new(apply::TrashRemover::new())
-        };
-        let mode = if args.delete {
-            apply::ActionMode::Delete
-        } else {
-            apply::ActionMode::Trash
-        };
-        let outcome = apply::apply(&dedup.groups, remover.as_ref());
-        for skip in &outcome.skipped {
-            eprintln!("warning: {}: {}", skip.path.display(), skip.reason);
+        if !candidate_set.root_errors.is_empty() {
+            // A root that could not be scanned means the scan the user asked
+            // for did not happen. That is a poor basis for an irreversible
+            // action — most often it is a typo in one of several paths — so the
+            // run reports and exits rather than acting on a partial view.
+            eprintln!(
+                "error: not applying: {} scan root(s) could not be read; \
+                 re-run once the paths are correct",
+                candidate_set.root_errors.len()
+            );
+            return exit_code::ERROR;
         }
+
+        // Mechanism and reported mode are chosen together, so the report can
+        // never claim an action the tool did not perform.
+        let (mode, remover): (apply::ActionMode, Box<dyn apply::Remover>) = if args.delete {
+            (apply::ActionMode::Delete, Box::new(apply::DeleteRemover))
+        } else {
+            (
+                apply::ActionMode::Trash,
+                Box::new(apply::TrashRemover::new()),
+            )
+        };
+
+        // Stream both outcomes as they happen. Removals matter most: if the
+        // process is killed partway through a permanent delete, the report
+        // below never prints, and without this the user would have no record of
+        // what was destroyed.
+        let verb = mode.past_tense();
+        let outcome = apply::apply(&dedup.groups, remover.as_ref(), &mut |event| match event {
+            apply::Event::Removed(path) => eprintln!("{verb}: {}", path.display()),
+            apply::Event::Skipped(path, reason) => {
+                eprintln!("warning: {}: {reason}", path.display())
+            }
+        });
         (mode, outcome)
     } else {
         (apply::ActionMode::DryRun, apply::ApplyOutcome::default())

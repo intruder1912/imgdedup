@@ -113,10 +113,22 @@ before touching it:
 
 If any of that cannot be proven — including if it cannot even be checked, for
 example because of a read error — the file is **left untouched** rather than
-removed. This is what makes the tool safe to re-run even if something else is
-touching the same files concurrently, and it is why `--apply --delete` gets
-exactly the same protection as `--apply`: both go through this check before every
-single removal, no exceptions.
+removed. `--apply --delete` gets exactly the same protection as `--apply`: both
+go through this check before every single removal, no exceptions.
+
+What this protects against is a tree that **drifted** between the scan and the
+apply — a long scan over a large library, a sync client writing in the
+background, an editor saving over a file. That is the realistic case, and it is
+handled: the file is skipped and reported rather than removed.
+
+It is not a guarantee against something deliberately racing the tool. The checks
+all happen on files `imgdedup` has open, but the removal itself has to name the
+file by path, because that is the only thing the operating system's trash
+accepts. In the moment between the last check and that call, a path can in
+principle be re-pointed at something else. The window is a single step rather
+than the whole comparison, and nothing in it can cost you the file being
+kept — its path is never handed to the removal step at all — but it is honest to
+say it exists rather than to claim concurrency safety the tool cannot offer.
 
 ### What a skip looks like
 
@@ -204,6 +216,19 @@ For a tree that does not change between the two runs, a dry run's `removable`
 list and what `--apply` (or `--apply --delete`) actually removes are exactly the
 same set of files, in the same order. This is why "dry-run first" is a genuinely
 reliable way to preview an apply — not an approximation of it.
+
+**One exception, with `--follow-symlinks`.** That flag makes the scan follow
+links, so a symlink can appear in a group as though it were a duplicate. Nothing
+will be removed for it: `imgdedup` never unlinks a symlink standing in for a
+scanned file, because you asked about the file it points at, not the link. Such
+entries are reported as skips —
+
+```text
+warning: /photos/a.png: the file being kept is a symbolic link; symlinks are never removed
+```
+
+— so under `--follow-symlinks` a dry run may list removals that the apply then
+declines. Everything it does remove is still exactly what the dry run showed.
 
 ## Next
 

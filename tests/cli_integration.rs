@@ -221,6 +221,52 @@ fn apply_trashes_non_keepers_or_reports_why_not() {
     }
 }
 
+/// A run whose scan was incomplete must not act. A root that could not be read
+/// means the tool did not see what it was asked to see, which is a poor basis
+/// for an irreversible action — and the most likely cause is a typo in one of
+/// several paths.
+#[test]
+fn a_scan_root_that_cannot_be_read_blocks_the_apply() {
+    let (dir, a, b, u) = duplicate_tree();
+
+    cmd()
+        .arg(dir.path())
+        .arg("/definitely/not/a/real/path-imgdedup")
+        .arg("--apply")
+        .arg("--delete")
+        .arg("--no-progress")
+        .assert()
+        .failure()
+        .code(1)
+        .stderr(predicate::str::contains("not applying"));
+
+    assert!(a.exists(), "nothing may be removed from a partial scan");
+    assert!(b.exists(), "including the otherwise-removable duplicate");
+    assert!(u.exists());
+}
+
+/// Removals are streamed to stderr as they happen, so a run killed partway
+/// through a permanent delete still leaves the user a record of what went.
+#[test]
+fn removals_are_streamed_as_they_happen() {
+    let (dir, _a, b, _u) = duplicate_tree();
+
+    let out = cmd()
+        .arg(dir.path())
+        .arg("--apply")
+        .arg("--delete")
+        .arg("--no-progress")
+        .output()
+        .expect("run");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        stderr.contains("deleted: ") && stderr.contains("b.png"),
+        "each removal must appear on stderr as it happens; stderr:\n{stderr}"
+    );
+    assert!(!b.exists());
+}
+
 /// AC-5 (FR-12): re-running `--apply` on an already-deduplicated tree takes
 /// zero actions and changes nothing.
 #[test]

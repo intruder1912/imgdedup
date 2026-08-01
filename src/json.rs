@@ -45,7 +45,13 @@
 //! - **Paths** are serialized with `to_string_lossy` — invalid-UTF-8 path
 //!   bytes are replaced (U+FFFD) rather than failing serialization; `mtime`
 //!   is `null` when the platform did not provide it.
-//! - `"mode"` is `"dry-run"` until the destructive slice (TASK-0309/0310)
+//! - `"mode"` reports what the run did to the files: `"dry-run"` (nothing was
+//!   touched), `"trash"` (`--apply`), or `"delete"` (`--apply --delete`).
+//! - `"actions"` carries what actually happened — `removed` paths and `skipped`
+//!   entries with their reasons. Always present so the document shape is fixed;
+//!   both arrays are empty in a dry run. Added in slice S3 without a
+//!   `schema_version` bump, since additive fields do not break consumers.
+//! - (superseded note) `"mode"` was `"dry-run"` until the destructive slice
 //!   extends it (`"trash"`, `"delete"`) and adds performed-action reporting.
 
 use crate::apply::{ActionMode, ApplyOutcome};
@@ -595,5 +601,51 @@ mod tests {
             assert_eq!(v["already_deduplicated"].as_array().unwrap().len(), 0);
             assert_eq!(v["totals"]["already_deduplicated_sets"], 0);
         }
+    }
+
+    // ── Performed actions (slice S3) ─────────────────────────────────────────
+
+    #[test]
+    fn dry_run_reports_no_actions() {
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = outcome_from(&dir, &[("a.jpg", b"DUPE"), ("b.jpg", b"DUPE")]);
+
+        let v = parse(&render_dry(&outcome, &[], &[], &[]));
+
+        assert_eq!(v["mode"], "dry-run");
+        assert_eq!(v["actions"]["removed"].as_array().unwrap().len(), 0);
+        assert_eq!(v["actions"]["skipped"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn applied_actions_carry_paths_reasons_and_the_mode() {
+        // `mode: "trash"` is asserted nowhere else, and the skip shape
+        // {path, reason} is the contract the guide documents.
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = outcome_from(&dir, &[("a.jpg", b"DUPE"), ("b.jpg", b"DUPE")]);
+        let applied = ApplyOutcome {
+            removed: vec![std::path::PathBuf::from("/photos/b.jpg")],
+            skipped: vec![crate::apply::SkipRecord {
+                path: std::path::PathBuf::from("/photos/c.jpg"),
+                reason: crate::apply::SkipReason::ContentChanged,
+            }],
+        };
+
+        let v = parse(&super::render(
+            &outcome,
+            &[],
+            &[],
+            &[],
+            ActionMode::Trash,
+            &applied,
+        ));
+
+        assert_eq!(v["mode"], "trash");
+        assert_eq!(v["actions"]["removed"][0], "/photos/b.jpg");
+        assert_eq!(v["actions"]["skipped"][0]["path"], "/photos/c.jpg");
+        assert_eq!(
+            v["actions"]["skipped"][0]["reason"], "content changed since the scan",
+            "the reason string must match what the human report shows"
+        );
     }
 }

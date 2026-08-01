@@ -301,9 +301,17 @@ written there. Diagnostics appear as follows:
   additionally written to standard error, so an unreadable input path is visible
   even when you pipe stdout straight into a JSON parser. A non-empty `root_errors`
   also drives the exit code to `1`.
+- **Apply-stage removals and skips** (`--apply`, with or without `--delete`) are
+  written to standard error **as they happen**, in addition to appearing in the
+  `actions` object at the end. This is deliberate: if a run is interrupted
+  partway through, the final document never gets printed, and without the live
+  stream you would have no record of what was already removed. In the default
+  report mode the same skips therefore appear twice — once live on stderr, once
+  in the report's `Skipped (left in place):` list.
 
 So a script can rely on stdout being pure JSON, while a human watching the
-terminal still sees run-level failures on stderr.
+terminal still sees run-level failures, and a running record of anything that was
+removed, on stderr.
 
 ## Progress while it runs
 
