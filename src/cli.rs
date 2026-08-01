@@ -60,6 +60,13 @@ pub struct Cli {
     /// Without this flag, a successful run always exits 0.
     #[arg(long, action = ArgAction::SetTrue)]
     pub exit_code: bool,
+
+    /// Disable the live progress indicator (FR-19). Progress is shown on
+    /// stderr by default (auto-adapting to whether stderr is a terminal);
+    /// this flag turns it off completely — nothing progress-related is
+    /// written to any stream, and stdout is unaffected either way (AC-23).
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_progress: bool,
 }
 
 impl Cli {
@@ -310,6 +317,21 @@ mod tests {
     fn exit_code_parses() {
         let cli = try_parse(&["imgdedup", ".", "--exit-code"]).unwrap();
         assert!(cli.exit_code);
+    }
+
+    // ── Progress (FR-19) ──────────────────────────────────────────────────
+
+    #[test]
+    fn no_progress_defaults_false() {
+        // Progress is default-on (AC-21/AC-22); the flag is an opt-out.
+        let cli = try_parse(&["imgdedup", "."]).unwrap();
+        assert!(!cli.no_progress);
+    }
+
+    #[test]
+    fn no_progress_parses() {
+        let cli = try_parse(&["imgdedup", ".", "--no-progress"]).unwrap();
+        assert!(cli.no_progress);
     }
 
     // ── Unknown flag ──────────────────────────────────────────────────────
