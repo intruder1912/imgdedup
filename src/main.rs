@@ -38,12 +38,22 @@ fn run(args: cli::Cli) -> i32 {
     // so the renderer stays unit-testable with an injected boolean (AC-21 /
     // AC-22). `Box<dyn ProgressSink>` lets both arms share one call site
     // below regardless of which concrete sink was built.
+    //
+    // Wrapped in `SinkGuard` (architect finding N4): its `Drop` calls
+    // `finish()`, so progress is *always* terminated — a live TTY line
+    // always ends cleanly — no matter how this function returns, including
+    // an early `return` that later work (TASK-0309/TASK-0310's apply/delete
+    // diagnostics land in exactly this window) might add below. `finish()`
+    // is idempotent, so the explicit call further down (needed so progress
+    // is fully flushed *before* the stdout report — AC-20, which `Drop`
+    // alone cannot guarantee the ordering of) does not double-render the
+    // completion line when `Drop` runs afterwards.
     let stderr_is_tty = std::io::stderr().is_terminal();
-    let sink: Box<dyn progress::ProgressSink> = if args.no_progress {
+    let sink: progress::SinkGuard = progress::SinkGuard::new(if args.no_progress {
         Box::new(progress::NoProgress)
     } else {
         Box::new(progress::Progress::new(std::io::stderr(), stderr_is_tty))
-    };
+    });
     sink.set_phase(progress::Phase::Scanning);
 
     // Build scope options from parsed CLI flags (FR-1, FR-2, FR-6).
@@ -84,7 +94,7 @@ fn run(args: cli::Cli) -> i32 {
     let dedup = engine::find_duplicates_with_progress(
         confirmed,
         keeper::build_comparator(args.keep),
-        sink.as_ref(),
+        &*sink,
     );
 
     // Progress must be finished — and therefore fully written to stderr —

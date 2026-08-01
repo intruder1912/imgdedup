@@ -277,10 +277,14 @@ where
 /// engine actually iterates if the two were ever refactored independently).
 ///
 /// The pipeline is then walked in two passes so the phase toggles **at most
-/// once** each way ([`Phase::Hashing`] then, only if there is any
-/// byte-verification workload at all, [`Phase::Verifying`]) regardless of
-/// how many size cohorts or hash groups exist, which keeps both the TTY
-/// redraw cadence and the non-TTY milestone-line count bounded:
+/// once** each way ([`Phase::Hashing`], only if there is anything to hash at
+/// all, then [`Phase::Verifying`], only if there is any byte-verification
+/// workload at all) regardless of how many size cohorts or hash groups
+/// exist, which keeps both the TTY redraw cadence and the non-TTY
+/// milestone-line count bounded. An empty candidate set enters neither phase
+/// (architect finding N1: the same "skip a zero-workload phase entirely"
+/// rule that finding 2 established for Verifying) — the run goes straight
+/// to [`ProgressSink::finish`]'s terminal `Done`.
 ///
 /// 1. **Hashing pass** — every size-singleton dropped by the size
 ///    pre-grouping is advanced up front (its disposition is final: it is
@@ -336,7 +340,17 @@ where
     // The engine is the single source of truth for the run-wide denominator
     // (finding 11) — set once, here, before anything else.
     sink.set_total(files.len() as u64);
-    sink.set_phase(Phase::Hashing);
+    // Finding N1: a phase with zero workload is skipped entirely, not shown
+    // as a degenerate `0 of 0` — the same rule already applied to Verifying
+    // (finding 2) applies here too. An empty candidate set has nothing to
+    // hash, so Hashing is never entered; the run goes straight from
+    // Scanning (main.rs) to `ProgressSink::finish`'s terminal `Done`, which
+    // *does* still render `done: 0 of 0 (100%)` — the AC explicitly
+    // sanctions the completion line against the full total even when it is
+    // zero.
+    if !files.is_empty() {
+        sink.set_phase(Phase::Hashing);
+    }
 
     // Stage 1 — size pre-grouping (FR-5, AC-9). Singleton sizes are dropped
     // without hashing — their disposition is final now, so they are counted
@@ -2240,6 +2254,34 @@ mod tests {
             0,
             "retotal must never be called when the verify workload is zero"
         );
+    }
+
+    #[test]
+    fn find_duplicates_with_progress_skips_hashing_when_candidate_set_is_empty() {
+        // Architect finding N1: the same "skip a zero-workload phase
+        // entirely, don't show a degenerate 0 of 0" rule finding 2
+        // established for Verifying applies to Hashing too. An empty
+        // candidate set has nothing to hash, so the engine must never call
+        // `set_phase(Hashing)` — the run-wide total is still set (to 0), so
+        // `ProgressSink::finish` can still render its terminal `done: 0 of 0
+        // (100%)` line, but no phase is ever entered by the engine itself.
+        let sink = RecordingSink::default();
+        let outcome = find_duplicates_with_progress(Vec::new(), lex_order, &sink);
+
+        assert!(outcome.groups.is_empty());
+        assert!(
+            sink.phases.lock().unwrap().is_empty(),
+            "no phase should ever be entered for an empty candidate set, got: {:?}",
+            sink.phases.lock().unwrap()
+        );
+        assert_eq!(
+            sink.set_total_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "set_total must still be called (with 0) so finish() knows the \
+             run-wide total"
+        );
+        assert_eq!(sink.total.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[test]

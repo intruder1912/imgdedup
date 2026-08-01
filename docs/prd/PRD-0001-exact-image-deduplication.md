@@ -169,12 +169,14 @@ User stories:
   show a counting/indeterminate state and switch to `x of y` + percentage once the
   denominator is fixed.
 
-  **Denominator across phases (Amendment 2026-08-01).** Scanning and hashing
-  report `x of y` against the full candidate count `y`. A later phase whose
+  **Denominator across phases (Amendment 2026-08-01).** Scanning runs before the
+  total is known, so it renders an indeterminate counting state with no
+  denominator; hashing is the first phase with one and reports `x of y` against
+  the full candidate count `y`. A later phase whose
   workload is a **strict subset** of the candidates (verifying, since only
   candidates that collided in a duplicate group are byte-verified) reports its
   own subset progress while **keeping the run's candidate total `y` visible in
-  the same line**, e.g. `verifying: 1 of 2 (50%) — 302 candidates`. A single
+  the same line**, e.g. `verifying: 1 of 2 (50%) (302 candidates)`. A single
   run-wide denominator shared by every phase is not used: a candidate file
   legitimately passes through more than one phase (hashing, then — only if it
   collided — verifying), so forcing one denominator across phases would either
@@ -322,11 +324,13 @@ Behavior:
 - **AC-21 (FR-19, TTY; amended 2026-08-01):** Given stderr is an interactive
   terminal, when a scan runs, then a **live single-line** progress indicator is
   shown on stderr reporting the current phase and its progress, where: scanning
-  and hashing report `x of y` and a percentage against `y` = the count of
+  renders an indeterminate counting state because the total is not yet known,
+  and hashing — the first phase with a denominator — reports `x of y` and a
+  percentage against `y` = the count of
   candidate files to check (known after enumeration); a phase whose workload is
   a strict subset of the candidates (verifying) reports its own subset `x of
   <subset-total>` and percentage while keeping the candidate total `y` visible in
-  the same line, e.g. `verifying: 1 of 2 (50%) — 302 candidates`; a phase with
+  the same line, e.g. `verifying: 1 of 2 (50%) (302 candidates)`; a phase with
   zero workload is skipped entirely rather than shown as `0 of 0`; and the run
   always ends on a terminal completion line rendered against the full candidate
   total, e.g. `done: 302 of 302 (100%)` — the state left on screen once the run
@@ -484,11 +488,12 @@ scanned.
 
 **Ratified resolution**, reflected in FR-19 and AC-21/AC-22 above:
 
-- Scanning and hashing continue to report `x of y` against `y` = the candidate
-  count, unchanged from the original amendment.
+- Scanning stays indeterminate (the total is not known until it finishes) and
+  hashing continues to report `x of y` against `y` = the candidate count,
+  unchanged from the original amendment.
 - A phase whose workload is a strict subset of the candidates (verifying)
   reports its own subset progress **while keeping the run's candidate total
-  visible in the same line**: `verifying: 1 of 2 (50%) — 302 candidates`.
+  visible in the same line**: `verifying: 1 of 2 (50%) (302 candidates)`.
 - A phase with zero workload is **skipped entirely** — no more degenerate
   `verifying: 0 of 0 (100%)` lines.
 - Every run **ends on a terminal completion state rendered against the full

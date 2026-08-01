@@ -259,12 +259,13 @@ Not every phase works on all `y` candidates — only files that turn out to
 collide with another file ever reach verifying — so the indicator does not
 force one shared denominator across every phase:
 
-- **Scanning** and **hashing** report `x of y` against the full candidate
-  total `y`, as above.
+- **Scanning** runs before the total is known, so it shows a plain counting
+  state with no `x of y`. **Hashing** is the first phase with a denominator and
+  reports `x of y` against the full candidate total `y`, as above.
 - **Verifying** works on a smaller set (only the files involved in a
   collision), so it reports its own subset progress while keeping the run's
   candidate total visible in the same line, for example
-  `verifying: 1 of 2 (50%) — 302 candidates`. If nothing collided, verifying
+  `verifying: 1 of 2 (50%) (302 candidates)`. If nothing collided, verifying
   has zero work to do and is skipped entirely — you will not see a degenerate
   `verifying: 0 of 0 (100%)`.
 - Every run **ends on a completion line rendered against the full candidate

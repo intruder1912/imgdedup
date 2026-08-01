@@ -125,6 +125,49 @@ empirically reproduced under a pty rather than reasoned about.
 | 12 | nit | Doc claims wider than the code: monotonicity is deliberately false across the `retotal` boundary, and the trait's "safe to call concurrently" overstates `set_total`/`retotal`. | Fixed — both qualified. |
 | 13 | nit | Task file still `Status: todo`; this review section was pending; the guide described `y` in AC-21's words, which the verify phase does not exhibit. | Fixed — all three. |
 
+### Confirmation pass (2026-08-01) — verdict: approve-with-nits
+
+A second architect dispatch verified the fix round against the code rather than
+the summary (full suite, clippy, fmt, and eight live binary runs — four under a
+pty — plus a 1502-file/194 MB tree to exercise a hashing phase long enough to
+animate). This is a deliberate deviation from the batch plan's "one architect
+dispatch per feature unit": the first review returned request-changes and the
+fixes substantially rewrote the concurrency-critical module, so confirming that
+the rewrite had not traded one class of defect for another was worth the second
+dispatch.
+
+Findings 1–7, 9, 11, 12, 13 confirmed genuinely resolved; the rewritten module
+was judged materially simpler and safer than what was first reviewed (one mutex
+instead of two, no lock-ordering hazard, no panic path, a lock-free hot path,
+and forced repaints that cannot be throttled away), with no new race, deadlock
+or panic constructible. Eight new items, none blocking:
+
+- **N1 (should-fix, resolved)** — a real conformance miss against the AC written
+  in this same round: the hashing phase switch was unconditional, so an empty
+  tree printed `hashing: 0 of 0 (100%)`. The degenerate line removed from
+  verifying still existed one phase earlier. Now guarded.
+- **N2 (resolved, orchestrator)** — the amended AC-21 and the guide both claimed
+  scanning reports `x of y`, which it never does now that `set_total` is silent
+  and lives in the engine. Corrected in the PRD and the guide: scanning is
+  indeterminate, hashing carries the problem-size line.
+- **N3–N6, N8 (resolved)** — the default repaint interval was pinned by no test
+  (a one-hour constant would have passed the suite); `finish()` made idempotent
+  and `Drop`-guarded so the finding-1 fix survives future early returns in
+  `run()` — the architect's top pick to land before S3; `try_lock` in `advance`
+  to remove the residual convoy; the em dash replaced (it was the only
+  non-ASCII byte the binary ever writes, and no test asserted it); unchecked
+  `now + interval` add made saturating.
+- **N7 (tracked)** — the TASK-0317 deferral was priced off an estimate that
+  measurement does not support; the sizing note is now on the backlog row.
+
+Confirmed answers to the two open questions: the "nothing else writes to stderr
+while a TTY line is live" rule was enforced *by inspection only*, which is why
+N4's `Drop` guard matters before S3 inserts apply/delete diagnostics into
+exactly that window; and the non-TTY throttle change is AC-22-conformant —
+milestone density is now bounded by time rather than file count, so a 100k-file
+log looks like a 1k-file one, and only milestones on runs too fast to read are
+lost.
+
 **Security gate: clean.** No new dependency (`std::io::IsTerminal`; `Cargo.toml`
 and `Cargo.lock` unchanged in the diff). Nothing path-derived reaches the
 terminal through the progress path — lines are built from static phase labels

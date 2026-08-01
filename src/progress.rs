@@ -62,14 +62,17 @@
 //! would otherwise **erase** the overall problem size from the screen right
 //! when the run is ending. So verifying gets its own denominator via
 //! [`ProgressSink::retotal`] — resetting the counter — while the run-wide
-//! total is *also* rendered alongside it as a `— N candidates` suffix (e.g.
-//! `verifying: 1 of 2 (50%) — 302 candidates`), so the problem size stays
-//! visible. When nothing needs byte-verification the phase is skipped
-//! entirely (no `retotal`, no `set_phase`) rather than showing a degenerate
-//! `0 of 0`. Finally, [`ProgressSink::finish`] always renders a terminal
-//! [`Phase::Done`] line against the run-wide total (`done: 302 of 302
-//! (100%)`), so the resting state after *any* run — with or without a
-//! verify phase — shows the problem size and a real completion state.
+//! total is *also* rendered alongside it as a `(N candidates)` suffix (e.g.
+//! `verifying: 1 of 2 (50%) (302 candidates)`), so the problem size stays
+//! visible. When a phase's workload is zero (including Hashing, for an empty
+//! candidate set) the phase is skipped entirely — no `set_phase`, and for
+//! Verifying no `retotal` either — rather than showing a degenerate `0 of 0`.
+//! Finally, [`ProgressSink::finish`] always renders a terminal [`Phase::Done`]
+//! line against the run-wide total (`done: 302 of 302 (100%)`, or `done: 0 of
+//! 0 (100%)` for an empty candidate set — the AC explicitly sanctions the
+//! completion line against the full total even when it is zero), so the
+//! resting state after *any* run — with or without a verify phase — shows
+//! the problem size and a real completion state.
 //!
 //! ## Nothing else may write to stderr while a TTY progress line is live
 //!
@@ -77,12 +80,16 @@
 //! (no trailing newline) between repaints, by design (AC-21). Any other
 //! write to stderr while that line is live — e.g. `eprintln!` for a
 //! diagnostic — lands in the *middle* of it, corrupting what the user sees
-//! (`scanning...error: ...`). The fix is structural, not a lock: **every**
-//! other stderr writer in the run must be sequenced strictly after
-//! [`ProgressSink::finish`] returns (which always leaves the cursor on a
-//! fresh line). `main.rs` follows this rule today for the root-error
-//! diagnostics; future stderr writers added during the run window (e.g.
-//! TASK-0309/TASK-0310's apply/delete diagnostics) must do the same.
+//! (`scanning...error: ...`). `main.rs` enforces the ordering half of this
+//! (every other stderr writer runs strictly after [`ProgressSink::finish`]
+//! returns, which always leaves the cursor on a fresh line) — but ordering
+//! alone is only as durable as every future edit to `run()`; an early
+//! `return` added by later work (e.g. TASK-0309/TASK-0310's apply/delete
+//! diagnostics) could skip the explicit `finish()` call entirely. [`SinkGuard`]
+//! makes this robust against that: it owns the sink and calls `finish()` from
+//! `Drop`, so progress is *always* terminated no matter how the caller's
+//! function returns. `finish()` is idempotent (double-calling it — once
+//! explicitly, once from `Drop` — renders the completion line exactly once).
 
 use std::io::Write;
 use std::sync::Mutex;
@@ -114,7 +121,7 @@ pub enum Phase {
     Hashing,
     /// Byte-for-byte verifying candidates against their group's keeper,
     /// measured against its own (typically much smaller) workload, with `y`
-    /// still shown alongside it as a `— N candidates` suffix.
+    /// still shown alongside it as a `(N candidates)` suffix.
     Verifying,
     /// Terminal state rendered once by [`ProgressSink::finish`], against the
     /// full candidate count `y`. Never set via [`ProgressSink::set_phase`].
@@ -229,7 +236,7 @@ struct State<W: Write> {
     phase: Phase,
     /// The run-wide denominator (`y`) fixed by `set_total`; unaffected by
     /// `retotal`. Used directly by Scanning/Hashing/Done, and shown as the
-    /// `— N candidates` suffix during Verifying.
+    /// `(N candidates)` suffix during Verifying.
     run_total: u64,
     /// The denominator the numerator is currently measured against: equal
     /// to `run_total` except during Verifying, where `retotal` overrides it
@@ -244,6 +251,10 @@ struct State<W: Write> {
     /// [`NON_TTY_PERCENT_STEP`]), so repeated advances within the same
     /// bucket don't each print a line.
     last_percent_shown: Option<u64>,
+    /// Set by `finish`, so a second call (e.g. from [`SinkGuard`]'s `Drop`
+    /// after `main.rs` already called it explicitly) is a no-op rather than
+    /// rendering a second completion line.
+    finished: bool,
 }
 
 /// Live progress renderer (FR-19).
@@ -304,6 +315,7 @@ impl<W: Write> Progress<W> {
                 total_known: false,
                 last_phase_shown: None,
                 last_percent_shown: None,
+                finished: false,
             }),
             tty,
             current: AtomicU64::new(0),
@@ -343,10 +355,16 @@ impl<W: Write> Progress<W> {
     }
 
     /// Render one status line: `"<phase>: <x> of <y> (<p>%)"`, with a
-    /// `— N candidates` suffix for [`Phase::Verifying`] (so the run-wide
+    /// `(N candidates)` suffix for [`Phase::Verifying`] (so the run-wide
     /// problem size stays visible even though the counter has been reset to
     /// the phase-local workload — see the module doc), or `"<phase>..."`
     /// while the total is not yet known (indeterminate).
+    ///
+    /// Pure ASCII, deliberately: this is the only text the binary ever
+    /// writes at runtime that could tempt a non-ASCII character (a
+    /// `Phase::Verifying` "N candidates" aside), and a redirected log read
+    /// under `LANG=C` or a non-UTF-8 code page would mojibake anything
+    /// outside that range — safer to just never emit it.
     fn line(
         phase: Phase,
         current: u64,
@@ -357,7 +375,7 @@ impl<W: Write> Progress<W> {
         match pct {
             None => format!("{}...", phase.label()),
             Some(p) if phase == Phase::Verifying => format!(
-                "{}: {current} of {phase_total} ({p}%) — {run_total} candidates",
+                "{}: {current} of {phase_total} ({p}%) ({run_total} candidates)",
                 phase.label()
             ),
             Some(p) => format!("{}: {current} of {phase_total} ({p}%)", phase.label()),
@@ -380,8 +398,13 @@ impl<W: Write> Progress<W> {
         if !force && now < self.next_check_millis.load(Ordering::Relaxed) {
             return;
         }
-        self.next_check_millis
-            .store(now + self.repaint_interval_ms, Ordering::Relaxed);
+        // `saturating_add` (not a bare `+`): progress accounting must not be
+        // where the program panics (debug) or silently wraps (release) —
+        // same principle as the `saturating_sub` in `engine.rs`.
+        self.next_check_millis.store(
+            now.saturating_add(self.repaint_interval_ms),
+            Ordering::Relaxed,
+        );
 
         let phase = st.phase;
         let phase_total = st.phase_total;
@@ -439,8 +462,18 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         if !self.due() {
             return;
         }
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        self.paint(&mut st, false);
+        // `try_lock`, not `lock` (a rayon worker must never block on I/O
+        // here): if another thread already holds the lock it is painting
+        // data that is at least as fresh as ours (`current` only grows), so
+        // skipping is harmless — the next `advance` from any thread retries
+        // once `due()` allows it again.
+        match self.state.try_lock() {
+            Ok(mut st) => self.paint(&mut st, false),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                self.paint(&mut poisoned.into_inner(), false);
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
     }
 
     fn retotal(&self, total: u64) {
@@ -453,6 +486,16 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
 
     fn finish(&self) {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // Idempotent (finding N4): `main.rs` calls this explicitly (so
+        // progress is fully flushed before the stdout report — AC-20), and
+        // `SinkGuard`'s `Drop` also calls it (so progress is *always*
+        // terminated, even on an early `return` future code might add). The
+        // second call must not render a second completion line.
+        if st.finished {
+            return;
+        }
+        st.finished = true;
+
         let run_total = st.run_total;
         st.phase = Phase::Done;
         st.phase_total = run_total;
@@ -475,6 +518,42 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
             let _ = st.writer.write_all(buf.as_bytes());
         }
         st.last_phase_shown = Some(Phase::Done);
+    }
+}
+
+/// Owns a `Box<dyn ProgressSink>` and calls [`ProgressSink::finish`] from
+/// `Drop`, so progress is *always* terminated — cleanly ending a live TTY
+/// line — no matter how the owning function returns, including an early
+/// `return` (finding N4). `finish` is idempotent, so this never renders a
+/// second completion line when the caller (as `main.rs` does, for AC-20's
+/// stdout-ordering guarantee, which `Drop` alone cannot provide) also calls
+/// `finish` explicitly before printing anything else.
+///
+/// Derefs to `&dyn ProgressSink` so it can be used everywhere a `&dyn
+/// ProgressSink` is expected (e.g. passed straight into
+/// [`crate::engine::find_duplicates_with_progress`]) without an extra
+/// `.as_ref()` at every call site.
+pub struct SinkGuard(Box<dyn ProgressSink>);
+
+impl SinkGuard {
+    /// Wrap `sink` so it is guaranteed to be finished, exactly once, by the
+    /// time the guard is dropped.
+    pub fn new(sink: Box<dyn ProgressSink>) -> Self {
+        Self(sink)
+    }
+}
+
+impl std::ops::Deref for SinkGuard {
+    type Target = dyn ProgressSink;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl Drop for SinkGuard {
+    fn drop(&mut self) {
+        self.0.finish();
     }
 }
 
@@ -597,14 +676,14 @@ mod tests {
         p.retotal(2);
         p.set_phase(Phase::Verifying);
         assert!(
-            captured(&p).contains("verifying: 0 of 2 (0%) — 302 candidates"),
+            captured(&p).contains("verifying: 0 of 2 (0%) (302 candidates)"),
             "got: {:?}",
             captured(&p)
         );
 
         p.advance(1);
         assert!(
-            captured(&p).contains("verifying: 1 of 2 (50%) — 302 candidates"),
+            captured(&p).contains("verifying: 1 of 2 (50%) (302 candidates)"),
             "got: {:?}",
             captured(&p)
         );
@@ -802,7 +881,7 @@ mod tests {
 
         let out = captured(&p);
         assert!(
-            out.contains("verifying: 0 of 2 (0%) — 6 candidates"),
+            out.contains("verifying: 0 of 2 (0%) (6 candidates)"),
             "got: {out:?}"
         );
     }
@@ -942,12 +1021,12 @@ mod tests {
 
         let out = captured(&p);
         assert!(
-            out.contains("verifying: 0 of 4 (0%) — 10 candidates"),
+            out.contains("verifying: 0 of 4 (0%) (10 candidates)"),
             "phase transition must show the new, reset denominator immediately \
              (not a stale 100%), got: {out:?}"
         );
         assert!(
-            out.contains("verifying: 2 of 4 (50%) — 10 candidates"),
+            out.contains("verifying: 2 of 4 (50%) (10 candidates)"),
             "got: {out:?}"
         );
         assert!(
@@ -982,5 +1061,131 @@ mod tests {
     fn unused_renderer_writes_nothing() {
         let p = Progress::new(Vec::new(), false);
         assert!(captured(&p).is_empty());
+    }
+
+    // ── Finding N3: the default interval itself must be pinned ────────────
+
+    #[test]
+    fn default_repaint_interval_is_in_a_sane_band() {
+        // Nothing else in this suite pins DEFAULT_REPAINT_INTERVAL_MS: the
+        // tests that exercise the true default (`tty_repaints_are_throttled_
+        // not_flooded`, `non_tty_bounded_under_default_throttle_for_a_fast_
+        // burst`) only assert upper bounds and would pass just as well if
+        // the constant were an hour, while the deterministic positive test
+        // (`tty_zero_interval_produces_one_repaint_per_advance`) injects 0
+        // and never touches the default at all. Pin the constant directly so
+        // a regression that defeats "live" (e.g. accidentally set to
+        // something absurd) fails here instead of nowhere.
+        assert!(
+            (20..=500).contains(&DEFAULT_REPAINT_INTERVAL_MS),
+            "expected the default repaint interval to sit in a sane, \
+             genuinely-live band (20-500ms), got {DEFAULT_REPAINT_INTERVAL_MS}"
+        );
+    }
+
+    // ── Finding N4: finish() is idempotent, and SinkGuard enforces it runs ─
+
+    #[test]
+    fn finish_is_idempotent_renders_exactly_one_completion_line() {
+        let p = immediate(false);
+        p.set_total(3);
+        p.set_phase(Phase::Hashing);
+        p.advance(3);
+
+        p.finish();
+        p.finish();
+        p.finish();
+
+        let out = captured(&p);
+        assert_eq!(
+            out.matches("done:").count(),
+            1,
+            "a second (and third) finish() must not render another \
+             completion line, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn finish_is_idempotent_on_tty_too_only_one_terminator_newline() {
+        let p = immediate(true);
+        p.set_total(3);
+        p.set_phase(Phase::Hashing);
+        p.advance(3);
+
+        p.finish();
+        p.finish();
+
+        let out = captured(&p);
+        assert_eq!(
+            out.matches('\n').count(),
+            1,
+            "a second finish() must not append another line-terminating \
+             newline, got: {out:?}"
+        );
+    }
+
+    /// A tiny `Write` that mirrors every write into a shared buffer, so the
+    /// `SinkGuard` tests below can inspect what was written even after the
+    /// `Progress`/`SinkGuard` (which own the writer) have been dropped.
+    #[derive(Clone)]
+    struct Mirror(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl Write for Mirror {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn sink_guard_calls_finish_on_drop_when_never_called_explicitly() {
+        // The whole point of finding N4: even if a caller never calls
+        // `finish()` explicitly (e.g. an early `return` added by future
+        // work), dropping the guard must still terminate progress.
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let p = Progress::new_with_interval_ms(Mirror(buf.clone()), false, 0);
+            p.set_total(2);
+            p.set_phase(Phase::Hashing);
+            p.advance(2);
+            let guard = SinkGuard::new(Box::new(p));
+            drop(guard); // never called finish() explicitly
+        }
+
+        let out = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert_eq!(
+            out.matches("done:").count(),
+            1,
+            "Drop must render the completion line when finish() was never \
+             called explicitly, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn sink_guard_drop_after_explicit_finish_is_still_exactly_one_line() {
+        // Mirrors real `main.rs` usage: an explicit `finish()` call (so
+        // progress is flushed before the stdout report, AC-20) followed by
+        // the guard's `Drop` when `run()` returns. Must still render the
+        // completion line exactly once.
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let p = Progress::new_with_interval_ms(Mirror(buf.clone()), false, 0);
+            p.set_total(2);
+            p.set_phase(Phase::Hashing);
+            p.advance(2);
+            p.finish(); // explicit, as main.rs does
+            let guard = SinkGuard::new(Box::new(p));
+            drop(guard); // Drop's finish() must be a no-op now
+        }
+
+        let out = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert_eq!(
+            out.matches("done:").count(),
+            1,
+            "explicit finish() + SinkGuard Drop must render exactly one \
+             completion line, got: {out:?}"
+        );
     }
 }
