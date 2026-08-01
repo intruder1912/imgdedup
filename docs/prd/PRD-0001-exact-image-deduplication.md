@@ -313,6 +313,18 @@ Behavior:
   warning and not removed, and the remaining groups are still applied normally.
 - **AC-18 (FR-17):** Given two hard links to the same content, when scanned, then
   neither is proposed for removal and they do not contribute to reclaimable space.
+- **AC-18a (FR-17; added 2026-08-01, TASK-0316):** Given two or more scanned
+  hard links to the same content and **no other file in scope with that
+  content**, when scanned, then the set is reported as already deduplicated —
+  the human report shows it under `Already deduplicated (hard-linked)` and
+  `--json` lists it in `already_deduplicated` with
+  `already_deduplicated_sets` counting it — while `duplicate_groups`,
+  `removable_files` and `reclaimable_bytes` all stay `0`. A single file with no
+  hard-linked sibling is **not** such a set and is reported as before. This
+  tightens AC-18 rather than extending scope: ADR-0008 edge case 1 already
+  required it (one inode trivially satisfies "every distinct inode is
+  multiply-linked in-scope"), and both output formatters already handled it —
+  only one engine guard dropped the note before it could be surfaced.
 - **AC-19 (FR-18):** Given `--exit-code`, when a scan finds duplicate groups the
   tool exits `3`; when it finds none it exits `0`; and without `--exit-code` a
   successful run exits `0` even when duplicates are present.

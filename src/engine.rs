@@ -601,14 +601,17 @@ where
     K: Fn(&FileRec, &FileRec) -> Ordering,
 {
     let (reps_with_anchor, hl_notes) = collapse_identity(group, &mut outcome.warnings);
-    if reps_with_anchor.len() < 2 {
-        // Fewer than two distinct physical files → nothing to remove.
-        // Hard-link notes are also discarded: there is no group to attach them to.
-        return;
-    }
 
     // Partition into anchors (is_anchor = true) and standalones (non-anchors).
     // Anchors are representatives whose identity set had ≥2 in-scope members.
+    //
+    // TASK-0316: this partition must happen *before* any count-based early
+    // return. A single anchor is still an all-anchor case under ADR-0008 edge
+    // case 1 — one inode trivially satisfies "every distinct inode is
+    // multiply-linked in-scope" — so bailing out on fewer than two
+    // representatives silently discarded the note for a lone hard-link set and
+    // printed "No duplicate groups found." for a tree the guide documents as
+    // already-deduplicated.
     let (anchors, standalones): (Vec<_>, Vec<_>) = reps_with_anchor
         .into_iter()
         .partition(|(_, is_anchor)| *is_anchor);
@@ -618,10 +621,17 @@ where
         // Edge case 1 (ADR-0008): all representatives are anchors — every
         // distinct inode is multiply-linked in-scope. Nothing is removable.
         // Retain all hard-link notes so the report can show the
-        // already-deduplicated note (no DuplicateGroup emitted).
+        // already-deduplicated note (no DuplicateGroup emitted). Reached with
+        // one anchor (a lone hard-link set) as well as with several.
         for note in hl_notes {
             outcome.hard_link_notes.push(note);
         }
+        return;
+    }
+
+    if standalones.len() < 2 && anchors.is_empty() {
+        // A single distinct physical file with no hard-linked siblings: not a
+        // duplicate of anything and not already-deduplicated. Nothing to report.
         return;
     }
 
@@ -1789,6 +1799,58 @@ mod tests {
         assert_eq!(
             total_reclaimable, 0,
             "all-anchor group must have 0 reclaimable"
+        );
+    }
+
+    #[test]
+    fn lone_hard_link_set_is_surfaced_as_already_deduplicated() {
+        // TASK-0316: one inode with ≥2 scanned links and nothing else matching is
+        // still an all-anchor case under ADR-0008 edge case 1 — a single inode
+        // trivially satisfies "every distinct inode is multiply-linked in-scope".
+        // It was previously dropped before reaching that branch, so the user saw
+        // "No duplicate groups found." for a tree the guide documents as
+        // already-deduplicated.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "beach.jpg", b"LONESET");
+        let a2 = dir.path().join("beach-hardlink.jpg");
+        fs::hard_link(&a, &a2).expect("hard link creatable");
+
+        let out = find_duplicates(vec![cf(&a), cf(&a2)], lex_order);
+
+        assert!(
+            out.groups.is_empty(),
+            "a lone hard-link set has nothing separate to remove; got {:?}",
+            out.groups
+        );
+        assert_eq!(
+            out.hard_link_notes.len(),
+            1,
+            "the lone set must surface exactly one hard-link note; got {:?}",
+            out.hard_link_notes
+        );
+        let note = &out.hard_link_notes[0];
+        assert_eq!(
+            note.representative, a,
+            "representative is the shortest path (beach.jpg beats beach-hardlink.jpg)"
+        );
+        assert_eq!(note.siblings, vec![a2], "the other link is the sibling");
+    }
+
+    #[test]
+    fn lone_file_without_hard_links_reports_nothing() {
+        // Companion guard for the fix above: dropping the reps < 2 early return
+        // must not start reporting an ordinary single file. Only a set with a
+        // real sibling is already-deduplicated.
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "solo.jpg", b"SOLO");
+
+        let out = find_duplicates(vec![cf(&a)], lex_order);
+
+        assert!(out.groups.is_empty(), "a single file forms no group");
+        assert!(
+            out.hard_link_notes.is_empty(),
+            "a file with no hard links is not an already-deduplicated set; got {:?}",
+            out.hard_link_notes
         );
     }
 
