@@ -46,8 +46,8 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
 one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
 (PR #52)** · **7:** binaries + v0.1.0 (TASK-0211) — **done (PR #54)** ·
-**8:** docs consistency (TASK-0217/0205/0206) — **done (PRs #56, #57, and
-TASK-0217's own PR)** · **9 (fresh window):** AI automation (TASK-0218).
+**8:** docs consistency (TASK-0217/0205/0206) — **done (PRs #56, #57, #58, #59)**
+· **9 (fresh window):** AI automation (TASK-0218).
 
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
@@ -100,7 +100,7 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Done
 
-- **TASK-0217 — docs consistency pass (2026-08-02).** Preceded by a read-only
+- **TASK-0217 — docs consistency pass (PR #59, 2026-08-02).** Preceded by a read-only
   recon (17 files) before any edit, which found the scope was narrower than
   "consistency pass" implied — bundled as one PR since all three pieces trace
   to this one backlog task. **(1) Prebuilt binaries were undocumented:**
