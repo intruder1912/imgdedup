@@ -29,6 +29,10 @@ full tour.
 5. [Output and exit codes](output-and-exit-codes.md) — the human-readable report,
    `--json` for scripting, the live progress indicator on stderr, and what each
    exit code means.
+6. [Using imgdedup with an AI agent](using-with-claude.md) — the official
+   Claude Code plugin: the `/imgdedup:dedupe` command, the dry-run-first
+   safety protocol, and the read-only `imgdedup-operator` subagent for large
+   scans.
 
 ## How this guide is maintained
 
