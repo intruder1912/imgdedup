@@ -406,9 +406,17 @@ fn keep_oldest_is_accepted() {
 }
 
 /// `--exit-code` flag is accepted (constant defined; behavior wired in TASK-0311).
+///
+/// Scans an empty temp dir, not the repository root: with `--exit-code` the
+/// exit status depends on whether duplicates are *found*, so pointing it at the
+/// working tree makes the assertion depend on whatever happens to sit in the
+/// repo (`target/`, and — since the release tooling landed — `node_modules/`,
+/// which does contain duplicate images). The flag-acceptance assertion needs a
+/// controlled, duplicate-free input.
 #[test]
 fn exit_code_flag_is_accepted() {
-    cmd().arg(".").arg("--exit-code").assert().code(0);
+    let dir = tempfile::tempdir().expect("tempdir");
+    cmd().arg(dir.path()).arg("--exit-code").assert().code(0);
 }
 
 /// `--json` flag is accepted.

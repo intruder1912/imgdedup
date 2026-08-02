@@ -22,3 +22,16 @@ updates:
       - "dependencies"
       - "rust"
     open-pull-requests-limit: 5
+  # Release meta-tooling only (semantic-release; ADR-0015). Not the product
+  # stack — package.json/package-lock.json exist solely to pin the release job's
+  # dependency tree, which runs with `contents: write`.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "release-tooling"
+    open-pull-requests-limit: 3

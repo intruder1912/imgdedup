@@ -63,6 +63,15 @@ convention adherence, leaving comments. Reviews are advisory in GitHub terms
 (0 required approvals) — the **human owner** is the merge gate and makes the
 final call. See [`docs/adr/0003-main-branch-protection-and-merge-model.md`](docs/adr/0003-main-branch-protection-and-merge-model.md).
 
+## Licensing of contributions
+
+`imgdedup` is licensed under **`GPL-3.0-only`** ([`LICENSE`](LICENSE),
+[ADR-0014](docs/adr/0014-project-license-gpl-3.0-only.md)). By contributing you
+agree that your contribution is licensed under those same terms. Do not paste in
+code whose license is unknown or GPLv3-incompatible — including dependencies:
+new crates must satisfy the allow-list in [`deny.toml`](deny.toml), which CI
+enforces.
+
 ## Security
 
 Never commit secrets. Report vulnerabilities per [`SECURITY.md`](SECURITY.md).

@@ -229,5 +229,14 @@ content alone.
 
 ## License
 
-No license is published yet. The repository is **private**; all rights reserved.
-A licensing decision will be recorded in an ADR before any public release.
+`imgdedup` is free software, licensed under the **GNU General Public License
+v3.0 only** (`GPL-3.0-only`) — the full text is in [`LICENSE`](LICENSE), and the
+decision (including why `-only` rather than `-or-later`) is recorded in
+[ADR-0014](docs/adr/0014-project-license-gpl-3.0-only.md).
+
+Copyright © 2026 the `imgdedup` authors.
+
+The repository is still **private**, which is an access-control state, not a
+licensing one: anyone who receives a copy — for example a collaborator added to
+the repository — receives it under GPL-3.0-only. Whether to publish the
+repository is a separate decision that has not been made.

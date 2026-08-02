@@ -1,9 +1,18 @@
 {
   "$schema": "https://json.schemastore.org/semantic-release.json",
   "branches": ["main"],
-  "dryRun": true,
+  "tagFormat": "v${version}",
   "plugins": [
     "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator"
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failTitle": false,
+        "labels": false,
+        "releasedLabels": false
+      }
+    ]
   ]
 }

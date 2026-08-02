@@ -43,8 +43,8 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | ID | Task | Role | Status | Parallel | Depends on |
 |---|---|---|---|---|---|
 | TASK-0201 | Author technology-stack selection ADR (fully open comparison) | architect | done | no | TASK-0101 |
-| TASK-0202 | Author licensing ADR — **owner decided GPL-3.0 (2026-07-19)**; repo stays private for now, ADR formalizes before any public flip | architect | todo | yes | TASK-0007 |
-| TASK-0203 | Wire full semantic-release publishing; resolve push to protected `main` (release bot / GitHub App or release-as-asset) — flips dry-run off | architect | todo | no | TASK-0201 |
+| TASK-0202 | Author licensing ADR — owner decided GPL-3.0 (2026-07-19); formalized as **`GPL-3.0-only`** in [ADR-0014](../adr/0014-project-license-gpl-3.0-only.md) + `LICENSE`; repo stays private (an access-control, not a licensing, state) | architect | done | yes | TASK-0007 |
+| TASK-0203 | Wire full semantic-release publishing — [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md): tag + GitHub Release only, **no commit back to `main`**, so the built-in `GITHUB_TOKEN` suffices (no bot/PAT/bypass). Dry-run off; CI-gated `release.yml`; pinned tooling via `package-lock.json` | architect | done | no | TASK-0201 |
 | TASK-0204 | Pin all GitHub Actions to commit SHAs (supply-chain hardening; incl. gitleaks image version pin) | architect | done | yes | TASK-0007 |
 | TASK-0205 | Evaluate replacing cspell with `typos` for spell checking | architect | todo | yes | TASK-0007 |
 | TASK-0206 | Promote link check (lychee) from informational to a required CI gate | architect | todo | yes | TASK-0007 |
@@ -52,7 +52,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0208 | Dependency audit (reframed per ADR-0007): cargo-deny in CI covering RUSTSEC advisories (supersedes standalone cargo-audit), licenses, bans, sources; `deny.toml` + `make deny`; fixed RUSTSEC-2026-0204 (crossbeam-epoch → 0.9.20) | architect | done | no | TASK-0201 |
 | TASK-0209 | Add Dependabot package ecosystem for the chosen stack (cargo, weekly, `build` prefix) | architect | done | yes | TASK-0201 |
 | TASK-0210 | Add project `.claude/settings.json` permission allowlist (deferred in Phase 0; via harness config tooling) | architect | done | yes | TASK-0007 |
-| TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases | architect | todo | no | TASK-0203, TASK-0207 |
+| TASK-0211 | Attach prebuilt cross-platform binaries to GitHub Releases. **Constraints from [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md):** (a) one-time `v0.0.0` baseline tag first, or the first release publishes v1.0.0 instead of v0.1.0; (b) build **inside** the release job — a tag pushed with `GITHUB_TOKEN` triggers no `on: push: tags:` workflow; (c) stamp the version into `Cargo.toml` at build time, since the release does not commit it back | architect | todo | no | TASK-0203, TASK-0207 |
 | TASK-0212 | [Unit-of-work cadence & planning gate](tasks/TASK-0212-process-unit-of-work-cadence.md) (implements [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md); `ci-gate` + path-filtered Rust matrix) | architect | done | no | — |
 | TASK-0213 | [Documentation ownership & guide structure](tasks/TASK-0213-documentation-ownership.md) (ADR-0012: product-owner owns user docs; README = general, `docs/guide/` = detailed) | product-owner | done | no | TASK-0212 |
 | TASK-0214 | [PRD-slice delivery cadence & in-progress review protocol](tasks/TASK-0214-prd-slice-delivery-cadence.md) (ADR-0013: feature unit = PRD slice; in-progress reviews + acceptance/docs PR-open gate) | architect | done | no | TASK-0212 |
@@ -60,6 +60,7 @@ wrapped (TASK-0007); the rest depend on the stack-selection ADR (TASK-0201).
 | TASK-0216 | Dependency & toolchain refresh + resilience review — refresh (PR #35: Rust 1.97.1, edition 2024, transitives) + [resilience review](reviews/resilience-2026-07.md) (finding F1 silent-root-error defect fixed in the same unit; F3→TASK-0308, F8→TASK-0312/0314) | architect | done | no | TASK-0215 |
 | TASK-0217 | Docs consistency pass: README + `docs/guide/` + process docs + AI docs (`CLAUDE.md`, `.claude/agents/`) reconciled with shipped behavior; unify stderr diagnostic prefix (`error:` vs bare message — resilience review nit) | product-owner | todo | no | TASK-0203 |
 | TASK-0218 | AI automation support: in-repo Claude usage skill + slash command + `imgdedup-operator` agent (dry-run-first, `--json`-driven, no unattended `--delete`) | architect | todo | no | TASK-0308 |
+| TASK-0219 | Public-release licensing readiness ([ADR-0014](../adr/0014-project-license-gpl-3.0-only.md) follow-ups): per-file GPL headers (or a reasoned decision not to), a license/copyright line in `--version`, GPLv3 §6 source-offer wording wherever binaries are distributed, and a `-only` vs `-or-later` re-check before accepting the first outside contribution | architect | todo | yes | TASK-0202 |
 
 > **Phase 2 design ADRs landed:** TASK-0201 produced
 > [ADR-0007](../adr/0007-technology-stack-rust-clap.md) (stack = Rust + clap) plus
@@ -114,6 +115,8 @@ cargo-llvm-cov) gates every PR in this phase from TASK-0301 onward.
 | TASK-0322 | Large files have **no intra-file parallelism**: `blake3` is compiled without its `rayon` feature and `engine.rs` calls the serial `update()`, so one file is hashed by one core. Evaluate `update_rayon` above a size threshold — compatible with ADR-0010, which rules out mmap but not threaded hashing over the existing streaming buffer. Measure before adopting | implementer | todo | yes | TASK-0312 |
 | TASK-0323 | `--delete` without `--apply` exits **1**, but `docs/guide/output-and-exit-codes.md` documents `2` as "usage error — invalid arguments". PRD AC-12 only requires non-zero, so neither is wrong — but the two disagree. Product-owner decides whether a refused flag *combination* is a usage error (exit 2) or a run-level error (exit 1), then code and guide are reconciled. Found by the S4 acceptance suite | product-owner | todo | yes | TASK-0312 |
 | TASK-0318 | Sanitize control characters in paths printed to stderr: `main.rs` prints `err.path.display()` raw, so a hostile filename can inject terminal escape sequences. Pre-existing, but FR-19 made stderr a stream we actively draw on, which raises the value of escaping it. Architect security note from the TASK-0315 review | implementer | todo | yes | TASK-0315 |
+| TASK-0324 | `release.yml`'s `@semantic-release/github` options use the deprecated `successComment`/`failTitle: false` form (v12 `DEPRECATION` warning); switch to `successCommentCondition`/`failCommentCondition: false` on the next `semantic-release` major bump so a future release doesn't silently start trying to comment without the scope to do it. Architect review nit, TASK-0203 | implementer | todo | yes | TASK-0203 |
+| TASK-0325 | Add `github.event.workflow_run.head_repository.full_name == github.repository` to `release.yml`'s trigger `if:` — redundant with the existing `event == 'push'` fork-exclusion today, but makes the safety property self-evident to a future reader who doesn't want to re-derive the `workflow_run` event semantics. Architect review nit, TASK-0203 | implementer | todo | yes | TASK-0203 |
 
 ### PRD-0001 delivery slices
 

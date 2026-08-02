@@ -11,9 +11,9 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — slice S4 (E2E acceptance & scale) merged in PR #50.
-  Sessions 4–5 of the 2026-08-01 re-plan landed together in one PR; session 6
-  (release plumbing) is next._
+- _Nothing in flight — session 6 (release plumbing: TASK-0202 licensing +
+  TASK-0203 semantic-release wiring) is complete, open as PR #52. Slice S4
+  merged in PR #50._
 
 ## Up next
 
@@ -21,15 +21,26 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 (TASK-0315) — **done** · **2:** TASK-0316 + S3 core (TASK-0309) — **done** ·
 **3:** S3 finish (TASK-0310, acceptance, docs, review, PR) — **done** ·
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
-one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **next** ·
-**7:** binaries + **v0.1.0** (TASK-0211) · **8–9 (week 2):** docs consistency
-(TASK-0217/0205/0206), AI automation (TASK-0218).
+one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done,
+open as PR #52** · **7 (next):** binaries + **v0.1.0** (TASK-0211) · **8–9
+(week 2):** docs consistency (TASK-0217/0205/0206), AI automation
+(TASK-0218).
+
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
 slip out of the S4 session. It is not on the session 6/7 critical path (only
 the v0.1.0 tag in session 7b needs it, per the batch-plan ordering
-constraints); pick it up whenever the owner can supply the corpus. Owner
-decisions
+constraints); pick it up whenever the owner can supply the corpus.
+
+**Session 7 starts with a one-time step:** push the `v0.0.0` baseline tag
+(`git tag v0.0.0 "$(git rev-list --max-parents=0 origin/main)"`), or the first
+automated release publishes **v1.0.0** instead of v0.1.0 — the release workflow
+deliberately no-ops until a `v*` tag exists. See
+[`../process/release.md`](../process/release.md) and
+[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md), whose
+constraints also mean the binaries must be built **inside** the release job.
+
+Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
@@ -51,14 +62,54 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   `docs/planning/reviews/<slice>.md`. Uncertain now-vs-defer calls go to the
   product-owner, and deferrals are promoted to tracked backlog tasks.
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
-  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203/TASK-0211
-  (release and prebuilt binaries) remain.
-- Stack-independent Phase 2 tasks still available in parallel: TASK-0202
-  (licensing ADR), TASK-0204 (SHA-pin actions), TASK-0205 (cspell→typos),
-  TASK-0206 (link-check gate), TASK-0210 (`.claude/settings.json`).
+  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot) and TASK-0203
+  (release wiring) are done; **TASK-0211** (prebuilt binaries) remains.
+- Stack-independent Phase 2 tasks still available in parallel: TASK-0205
+  (cspell→typos), TASK-0206 (link-check gate), TASK-0219 (public-release
+  licensing readiness).
 
 ## Done
 
+- **Release plumbing — licensing + publishing (TASK-0202, TASK-0203, session 6 /
+  batch 7a, 2026-08-02).** One chore unit, two decisions.
+  **[ADR-0014](../adr/0014-project-license-gpl-3.0-only.md): `GPL-3.0-only`.**
+  The owner's 2026-07-19 "GPL-3.0" is formalized with the canonical text in
+  `LICENSE`; `-only` rather than `-or-later` because a sole copyright holder can
+  always widen the grant later but can never narrow one already conveyed (and
+  bare `GPL-3.0` is a deprecated SPDX id). The ADR records what the license does
+  and does not mean while the repo is private: privacy is access control, not
+  licensing, so anyone given repository access receives a GPL copy they may
+  redistribute, and conveying a **binary** triggers the GPLv3 §6 source
+  obligation — a live constraint for TASK-0211. Reconciled `Cargo.toml`
+  (`license = "TBD"` → the SPDX id), README, CONTRIBUTING, `deny.toml`, and the
+  CI structure check.
+  **[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md):
+  publish the tag + GitHub Release, never commit back to `main`.** ADR-0004's
+  premise ("branch protection blocks the tag push") turned out to conflate two
+  refs: tags live in `refs/tags/*`, protection targets `refs/heads/main`, and
+  this repo has no tag rulesets — verified against semantic-release's source and
+  the live branch-protection API. So publishing needs **no bot, PAT, or
+  protection bypass**, only the workflow's own `GITHUB_TOKEN` with
+  `contents: write`, and ADR-0003 is untouched. `release.yml` now runs
+  semantic-release gated on a **green CI run for the merged commit**
+  (`workflow_run`), with the tooling pinned by `package-lock.json` +
+  `npm ci --ignore-scripts` because this is the only job holding write
+  permission. **A dry run caught a live trap:** with no tag in the repo,
+  semantic-release computes the first release as **v1.0.0** — merging the wiring
+  would have published 1.0.0 by accident. The job now skips until a `v*` tag
+  exists; the documented `v0.0.0` baseline then yields v0.1.0 (also verified by
+  dry run). Costs of the choice, all recorded: `CHANGELOG.md` is no longer
+  generated (it is now a signpost to the Releases page), `Cargo.toml`'s version
+  is not bumped by a release (TASK-0211 stamps it at build time), and a tag
+  pushed with `GITHUB_TOKEN` triggers no further workflow — so TASK-0211 must
+  build binaries **inside** the release job. New follow-up: **TASK-0219**
+  (public-release licensing readiness).
+  **One defect fell out of the wiring:** `exit_code_flag_is_accepted` asserted
+  `imgdedup . --exit-code == 0`, i.e. "the repository working tree contains no
+  duplicates" — true only by luck, and false as soon as `npm ci` puts duplicate
+  PNGs in `node_modules/`. Fixed to scan an empty temp dir, per the rule the
+  destructive-action tests in that file already state: no test scans a directory
+  it does not own.
 - **Slice S4 — E2E acceptance & scale (TASK-0312, PR #50, sessions 4–5 combined,
   2026-08-02).**
   `tests/acceptance.rs`: 21 tests, one per PRD criterion (AC-1..AC-19, AC-18a),
@@ -306,9 +357,12 @@ Every item intentionally deferred during the bootstrap now has a task in
 [`backlog.md`](backlog.md) so nothing is lost in prose:
 
 - Technology stack selection — **TASK-0201** (fully-open ADR).
-- Licensing decision — **TASK-0202** (ADR before any public release).
+- Licensing decision — **TASK-0202** — **done**: `GPL-3.0-only`
+  ([ADR-0014](../adr/0014-project-license-gpl-3.0-only.md), `LICENSE`).
 - Full semantic-release wiring + protected-`main` push mechanism — **TASK-0203**
-  (see [`../process/release.md`](../process/release.md), ADR-0004).
+  — **done**: tag + GitHub Release only, no commit back
+  ([ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md),
+  [`../process/release.md`](../process/release.md)).
 - Pin GitHub Actions to commit SHAs — **TASK-0204**.
 - Re-evaluate cspell → `typos` — **TASK-0205**.
 - Promote link check to a required gate — **TASK-0206**.

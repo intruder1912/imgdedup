@@ -166,6 +166,31 @@ consistently comes in under.
      anticipated.** It needs the owner's ~500–1k photo corpus, which has not
      been supplied; it is not on the session 6/7a critical path (only the
      v0.1.0 tag in 7b needs it) and can land whenever the corpus is ready.
+- **PR #51 (docs sync for the S4/PR #50 merge) + session 6 (batch 7a — PR #52,
+  TASK-0202 + TASK-0203), 2026-08-02 — 50% of the window combined against a
+  50–65 estimate for session 6 alone (i.e. squarely at the low end once the
+  free docs-sync is folded in); the week moved 25% → 30% (~5 weekly points,
+  same order as prior chore sessions).** Scope delivered: ADR-0014, `LICENSE`,
+  and the `Cargo.toml`/README/CONTRIBUTING/`deny.toml` reconciliation; ADR-0015,
+  `.releaserc.json`, `release.yml`, `package.json`/`package-lock.json`,
+  Dependabot npm, `CHANGELOG.md`, `docs/process/release.md`, and the ADR-0004
+  loop-closure; two planning syncs (#51, and this unit's own). Two things worth
+  carrying forward:
+  1. **This chore ran two architect dispatches (author, then an independent
+     review-only pass), not the usual one** — deliberately, because it's CI
+     automation carrying a write-permission `GITHUB_TOKEN` and CLAUDE.md's
+     security gate (rule 3) applies regardless of unit size. It still landed
+     at the low end of the estimate, so **security-sensitive chores can afford
+     the second dispatch without blowing the window** — budget for it rather
+     than defaulting to one.
+  2. **The expensive part was verification, not authoring.** Reading
+     semantic-release's source, querying the live branch-protection and
+     ruleset APIs, and running the tool in `--dry-run` against `main` is what
+     turned two plausible assumptions into facts — one of which (ADR-0004's
+     "protection blocks the tag push") was wrong, and another of which (the
+     first release computing as v1.0.0) would have published a wrong version
+     on merge. Budget chore units that touch release or security plumbing for
+     a verification pass, not just for writing.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -210,8 +235,8 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 | 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (safety-critical: budget **two** architect dispatches) | ~8 | **done 2026-08-01** — PR #49; actual **55%** |
 | 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | **done 2026-08-02** — landed together with session 5 in PR #50 |
 | 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | **done 2026-08-02 — PR #50** (AC's + NFR-4 measurement + architect review); **TASK-0314 field validation slipped as anticipated** (needs the owner's photo corpus, not yet supplied) — no user-facing doc reconciliation was needed since S4 added no product code |
-| 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | **next** — ADR + `LICENSE` committed before touching the release workflow |
-| 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | binaries building locally before wiring the release job |
+| 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | **done 2026-08-02** — ADR-0014 (`GPL-3.0-only` + `LICENSE`) and ADR-0015 (tag + GitHub Release only; no bot/PAT/bypass needed); see the actuals log |
+| 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | **next** — binaries building locally before wiring them into the release job; **starts with the one-time `v0.0.0` baseline tag** (ADR-0015), without which the first release publishes v1.0.0 |
 | 8 | 8 | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | ~5 | next week |
 | 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | next week |
 
