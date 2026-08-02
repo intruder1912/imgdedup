@@ -208,6 +208,21 @@ guide](docs/guide/README.md)**:
 - [Removing duplicates safely](docs/guide/removing-duplicates-safely.md)
 - [Output and exit codes](docs/guide/output-and-exit-codes.md)
 
+## Using imgdedup with an AI agent
+
+`imgdedup` ships an official Claude Code plugin — a skill, a `/imgdedup:dedupe`
+slash command, and a read-only `imgdedup-operator` subagent — so you can find
+and clean up duplicates by asking Claude instead of hand-writing commands. It
+always scans read-only first, always shows you the plan, and always asks
+before it touches disk; permanent deletion needs its own separate, explicit
+confirmation. See
+[Using imgdedup with an AI agent](docs/guide/using-with-claude.md) for install
+steps and a worked example.
+
+(This is a different thing from the AI agent **crew that builds imgdedup**,
+described below — that's contributor tooling; this is a product feature for
+anyone running `imgdedup`.)
+
 ## How this repository works
 
 This project is built and maintained by a crew of AI agents and a human owner.
