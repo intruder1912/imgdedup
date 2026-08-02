@@ -152,6 +152,20 @@ consistently comes in under.
      would have — because it could exercise the finished binary. For a slice
      whose risk is behavioral rather than architectural, one late review beats
      two early ones.
+- **Sessions 4+5 (PR #50, S4 acceptance + scale), 2026-08-02 — combined into one
+  session/PR against a 100–130 combined estimate; the week moved 20% → 25% (~5
+  weekly points, well under the ~16 combined estimate for two sessions).** Two
+  things worth carrying forward:
+  1. **A pure-test unit (no product code) is far cheaper than a feature-slice
+     build.** S4 added `tests/acceptance.rs` + `tests/scale.rs` only — no
+     `src/` changes — so it tracked closer to the "feature unit, inline, one
+     review" cost model (~50%/~8 weekly) than to two separate slice-sized
+     sessions. Test-only units should be priced with their own line in the
+     cost model rather than reusing the feature-slice estimate.
+  2. **TASK-0314 (real-photo field validation) slipped out, as the plan
+     anticipated.** It needs the owner's ~500–1k photo corpus, which has not
+     been supplied; it is not on the session 6/7a critical path (only the
+     v0.1.0 tag in 7b needs it) and can land whenever the corpus is ready.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -194,9 +208,9 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 | 1 | re-plan + 4b | chore, then feature | this file (PR #46), then TASK-0315 | 8–12 + 45–60 | ~9 | **done 2026-08-01** — both units landed, but at **100%** of the window (subagent-driven; see the actuals log) |
 | 2 | 4c + 5a | fix-or-docs, then feature slice | TASK-0316, then TASK-0309 | 10–20 + 45–55 | ~7 | **done 2026-08-01** — PR #48 merged, `feature/apply-delete` parked at the cut line; actual **47%** |
 | 3 | 5b | feature slice (finish) | TASK-0310 + S3 acceptance, docs, whole-slice review, PR | 60–75 (safety-critical: budget **two** architect dispatches) | ~8 | **done 2026-08-01** — PR #49; actual **55%** |
-| 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | AC coverage green; scale work is session 5 |
-| 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | benchmark numbers recorded; field validation can slip (needs the owner's photo corpus) |
-| 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | ADR + `LICENSE` committed before touching the release workflow |
+| 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | **done 2026-08-02** — landed together with session 5 in PR #50 |
+| 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | **done 2026-08-02 — PR #50** (AC's + NFR-4 measurement + architect review); **TASK-0314 field validation slipped as anticipated** (needs the owner's photo corpus, not yet supplied) — no user-facing doc reconciliation was needed since S4 added no product code |
+| 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | **next** — ADR + `LICENSE` committed before touching the release workflow |
 | 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | binaries building locally before wiring the release job |
 | 8 | 8 | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | ~5 | next week |
 | 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | next week |
