@@ -4,13 +4,17 @@
 # accept-code tuning below exists specifically to keep that gate from flaking
 # on transient network errors now that it actually blocks merges.
 #
-# TASK-0206 finding: this file failed to *load* under the pinned lychee
-# v0.24.2 (`exclude_mail` was removed from the config schema; mail links are
-# excluded by default now) — a schema-drift bug identical in kind to the
-# markdownlint-cli2 drift from Batch 0. Because the job ran with `fail: false`
-# until this task, the load failure (exit code 3) was silently swallowed: link
-# checking has never actually run in CI. Verified locally against the fixed
-# config: 439 links, 438 OK, 0 errors, 1 excluded, 3 accepted redirects.
+# TASK-0206 findings, both invisible until the gate actually ran for the first
+# time: (1) this file failed to *load* under the pinned lychee v0.24.2
+# (`exclude_mail` was removed from the config schema; mail links are excluded
+# by default now) — a schema-drift bug identical in kind to the
+# markdownlint-cli2 drift from Batch 0. (2) once loading, two gnu.org URLs
+# consistently timed out from GitHub-hosted runners specifically (see the
+# exclude list below) — excluded, not fixed, since the links themselves are
+# fine. Because the job ran with `fail: false` until this task, both were
+# silently swallowed: link checking has never actually run in CI. Verified
+# locally against the fixed config: 439 links, 436 OK, 0 errors, 3 excluded,
+# 3 accepted redirects.
 
 # Network behavior
 max_retries = 3
@@ -19,8 +23,17 @@ accept = [200, 206, 301, 302, 308, 429]
 
 # The repository is private and not yet pushed publicly; skip self-references
 # and common non-resolvable placeholders.
+#
+# gnu.org excludes: found live once the promoted gate actually ran (TASK-0206)
+# — www.gnu.org/licenses/{gpl-3.0.txt,gpl-howto.html} consistently timed out
+# from GitHub-hosted runners (two separate CI runs, max_retries=3 each) while
+# resolving instantly from a non-CI IP (curl -I: HTTP 200 in <2s both times).
+# gnu.org is known to rate-limit/block cloud CI IP ranges; this isn't a broken
+# link, it's the check environment being unable to reach a reachable one.
 exclude = [
   "^https://github.com/intruder1912/imgdedup",
+  "^https://www\\.gnu\\.org/licenses/gpl-3\\.0\\.txt$",
+  "^https://www\\.gnu\\.org/licenses/gpl-howto\\.html$",
 ]
 
 # Mail links are excluded by default (there's an `include_mail` opt-in for the
