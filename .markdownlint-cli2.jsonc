@@ -12,5 +12,9 @@
     "MD060": false  // table pipe spacing/alignment style not enforced
   },
   "globs": ["**/*.md"],
-  "ignores": ["node_modules", ".git"]
+  // .superpowers/sdd is local SDD scratch (task briefs/reports/progress),
+  // gitignored in .superpowers/sdd/.gitignore and never committed — exclude
+  // it so mdlint only checks tracked repository content, matching `spell`
+  // and `links` which already scope to `git ls-files`.
+  "ignores": ["node_modules", ".git", ".superpowers"]
 }

@@ -11,6 +11,18 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 9 (AI automation support, TASK-0218) delivered the `imgdedup`
+  Claude Code plugin (`claude-plugin/`): a skill (`using-imgdedup`) defining
+  the dry-run-first safety protocol, the `/imgdedup:dedupe` slash command,
+  and a read-only `imgdedup-operator` subagent for large scans — a pure
+  wrapper over the existing `--json`/`--apply`/`--delete` CLI contract, no
+  new CLI behavior. Formalized in
+  [ADR-0016](../adr/0016-ai-agent-automation-plugin.md), documented for users
+  in [`docs/guide/using-with-claude.md`](../guide/using-with-claude.md) and
+  README, and recorded as a supported capability in the
+  [2026-08-02 amendment to PRD-0001](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-08-02--ai-agent-automation-as-a-supported-capability).
+  This PR._
+
 - _Session 8 (docs/tooling consistency) is complete: TASK-0206 (PR #56),
   TASK-0205 (PR #57), the follow-up link-exclude fix (PR #58 — whose `fix:`
   squash commit auto-published **v0.2.1**, binaries and all), and
@@ -47,7 +59,7 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
 (PR #52)** · **7:** binaries + v0.1.0 (TASK-0211) — **done (PR #54)** ·
 **8:** docs consistency (TASK-0217/0205/0206) — **done (PRs #56, #57, #58, #59)**
-· **9 (fresh window):** AI automation (TASK-0218).
+· **9 (fresh window):** AI automation (TASK-0218) — **done (this PR)**.
 
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to

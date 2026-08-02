@@ -287,7 +287,7 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 | 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | **done 2026-08-02** — ADR-0014 (`GPL-3.0-only` + `LICENSE`) and ADR-0015 (tag + GitHub Release only; no bot/PAT/bypass needed); see the actuals log |
 | 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | **done 2026-08-02 — PR #54.** v0.1.0 had already auto-published (with no assets) via the workflow this session extends; the session built the `assets` job, added a `workflow_dispatch` backfill path, and used it once to attach binaries to v0.1.0 |
 | 8 | 8 | chore, then product-owner | TASK-0206 + TASK-0205 done (PRs #56, #57); TASK-0217 deferred | 40–60 | ~5 | **in progress 2026-08-02** — TASK-0206 + TASK-0205 done at 45% of the window (started 34%, ~11% combined); TASK-0217 deferred to a fresh window per mid-session cut-line check-in |
-| 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | next week |
+| 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | **done 2026-08-02 — PR #60.** Whole-branch architect review found 2 Critical + 6 Important issues (all fixed and re-verified — see PR notes); one residual Important finding introduced by the fix wave itself was closed in a follow-up fix round |
 
 **Week 1 target (2026-08-01 →): sessions 1–7, i.e. v0.1.0 shipped**, at an
 estimated 40–65 weekly points against a 100-point cap. **Week 2: sessions

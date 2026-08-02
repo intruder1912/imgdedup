@@ -524,3 +524,25 @@ reintroduce a single run-wide `x of y` for the whole run; readers of FR-19
 should not expect the verifying phase's own counter to match `y` — only the
 closing `done:` line and the `— <n> candidates` suffix carry that total once
 verifying is in progress.
+
+## Amendment 2026-08-02 — AI-agent automation as a supported capability
+
+The owner confirmed (session 9, TASK-0218) that AI-agent-driven usage is
+expected to become an increasingly common way people operate `imgdedup`, so it
+is recorded here as a supported product capability even though its design was
+architect-owned rather than run as a full PRD slice — see
+[ADR-0016](../adr/0016-ai-agent-automation-plugin.md) for the complete design
+rationale.
+
+`imgdedup` ships an official **Claude Code plugin** (`claude-plugin/` in this
+repository): a skill defining a dry-run-first safety protocol, a
+`/imgdedup:dedupe` slash command, and a read-only `imgdedup-operator` subagent
+for large scans. The plugin is a pure wrapper over the CLI contract already
+defined in this PRD — FR-9 (dry-run default), FR-10 (`--apply`), FR-11
+(`--delete`), and FR-14 (`--json`) — and introduces **no new CLI behavior**:
+every destructive action it takes is gated behind an explicit,
+in-conversation human confirmation, and permanent deletion (`--delete`)
+requires its own separate explicit confirmation beyond the one that
+authorizes `--apply`. See
+[Using imgdedup with an AI agent](../guide/using-with-claude.md) for the
+user-facing walkthrough.
