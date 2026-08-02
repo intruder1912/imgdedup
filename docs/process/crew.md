@@ -39,7 +39,10 @@ a prose summary plus **resolvable
 review threads** for each substantive finding, comments only, never a blocking
 GitHub approval. In the post-PR stage-two loop the architect **re-reviews** each
 iteration until checks are green and all threads are resolved. See
-[`sdlc.md`](sdlc.md). For a **PRD slice**, also performs **in-progress
+[`sdlc.md`](sdlc.md) — including the narrow, criteria-bound exception for
+skipping the dispatch on verified low-risk docs/CI-tooling units
+([ADR-0011 amendment](../adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units)).
+For a **PRD slice**, also performs **in-progress
 (mid-stream) reviews** on the branch — on the implementer's request or a
 product-owner/orchestrator demand — recorded in the slice's review log
 (`docs/planning/reviews/<slice>.md`); these are advisory and feed the **final

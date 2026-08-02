@@ -58,9 +58,11 @@ the full safety model, what a skipped file looks like, and recovery guidance.
 
 ## Installing
 
-The technology stack is **Rust + clap** (chosen in
-[ADR-0007](docs/adr/0007-technology-stack-rust-clap.md)). No prebuilt binaries are
-published yet, so build from source:
+Every [GitHub Release](https://github.com/intruder1912/imgdedup/releases)
+carries prebuilt binaries for Linux, macOS (Apple Silicon and Intel), and
+Windows — download the archive for your platform, verify its checksum, and
+extract it. Alternatively, build from source (Rust + clap, chosen in
+[ADR-0007](docs/adr/0007-technology-stack-rust-clap.md)):
 
 ```sh
 # Requires a Rust toolchain (https://rustup.rs). The repo pins the toolchain
@@ -70,6 +72,10 @@ cd imgdedup
 cargo build --release
 # the binary is then at ./target/release/imgdedup
 ```
+
+See [Getting started](docs/guide/getting-started.md#install) for the
+download/checksum walkthrough and platform-specific notes (the repository is
+currently private, so downloading a release asset needs repository access).
 
 ## Usage
 

@@ -11,17 +11,15 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Session 8 (docs/tooling consistency) is 2/3 done: TASK-0206 (link check →
-  required gate) merged as **PR #56**; TASK-0205 (cspell → typos) is **PR #57**,
-  green, rebased onto PR #56, awaiting merge. **TASK-0217 (docs consistency
-  pass) deliberately deferred to a fresh window** — usage checked in mid-session
-  (5h window 34% → 45% after TASK-0206+TASK-0205, ~11% combined, tracking the
-  "docs chore ≈10%" cost model closely) with the largest, product-owner-led
-  unit of the session still ahead; stopping here rather than starting it
-  against 45% already spent. TASK-0217 also carries its own stderr-diagnostic-
-  prefix unification nit (`cli.rs::validate()` bakes "error: " into its own
-  message instead of `main.rs` adding it uniformly like every other stderr
-  writer does) — small, but worth doing in the same unit._
+- _Session 8 (docs/tooling consistency) is complete: TASK-0206 (PR #56),
+  TASK-0205 (PR #57), and **TASK-0217** all done. TASK-0217 was preceded by a
+  deliberate **read-only recon pass** (17 files: README, all 6 `docs/guide/`
+  pages, all 5 `docs/process/` docs, all 4 agent files) before touching
+  anything, which turned an open-ended "consistency pass" into three
+  precisely-scoped pieces — most of the surface checked out clean. Owner
+  explicitly accepted overage risk for this session (not a standing rule) to
+  finish it in one go rather than deferring further. See the Done entry below
+  for what changed._
 
 - Session 7b (TASK-0211, prebuilt binaries) merged as **PR #54**. **Week 1
   target reached: v0.1.0 shipped**, with binaries backfilled onto it
@@ -46,8 +44,8 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
 one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
 (PR #52)** · **7:** binaries + v0.1.0 (TASK-0211) — **done (PR #54)** ·
-**8–9 (fresh window each):** docs consistency (TASK-0217/0205/0206), AI
-automation (TASK-0218).
+**8:** docs consistency (TASK-0217/0205/0206) — **done (PRs #56, #57, and
+TASK-0217's own PR)** · **9 (fresh window):** AI automation (TASK-0218).
 
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
@@ -99,6 +97,33 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   lychee-based gate and not wired into `validate` at all.
 
 ## Done
+
+- **TASK-0217 — docs consistency pass (2026-08-02).** Preceded by a read-only
+  recon (17 files) before any edit, which found the scope was narrower than
+  "consistency pass" implied — bundled as one PR since all three pieces trace
+  to this one backlog task. **(1) Prebuilt binaries were undocumented:**
+  README's "Installing" and `docs/guide/getting-started.md`'s "Install"
+  sections both still said "no prebuilt binaries yet" — stale since TASK-0211
+  (PR #54). Added a download/checksum-verify/extract walkthrough (with the
+  macOS quarantine and Windows SmartScreen caveats), linking to
+  `docs/process/release.md#distribution-targets` for full detail rather than
+  duplicating it. **(2) The architect-review policy didn't match practice:**
+  `sdlc.md`, `crew.md`, and `architect.md` all described every PR getting an
+  architect dispatch, but 8 units had already skipped it (docs-only syncs;
+  low-risk `contents: read` CI chores) under an unwritten cost/benefit
+  exception. Formalized as a dated
+  [amendment to ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units)
+  with three explicit criteria (no product-code changes; no write-permission/
+  secret-touching CI; correctness independently verified by the orchestrator,
+  not asserted), then propagated as short pointers into the three docs above
+  — the exception lowers the floor, never a ceiling; the architect/
+  product-owner/orchestrator can still always demand a review. **(3) Stderr
+  diagnostic prefix unified** (resilience-review nit): `cli.rs::validate()`
+  now returns the bare message; `main.rs` adds `"error: "` uniformly at its
+  one call site, the same way every other diagnostic in the run already did
+  — no user-visible behavior change (`refactor:`), regression-locked by a new
+  assertion on the existing test. Owner explicitly accepted overage risk to
+  finish this session in one go (not a standing rule).
 
 - **Session 8 — docs/tooling consistency (2026-08-02).** Three small
   independent units, each its own PR (per the one-unit-one-PR chore cadence).

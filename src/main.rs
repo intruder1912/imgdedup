@@ -28,7 +28,7 @@ fn run(args: cli::Cli) -> i32 {
     // Post-parse semantic validation: --delete without --apply is a run-level
     // error (exit 1, ADR-0008), not a clap parse error (exit 2).
     if let Err(msg) = args.validate() {
-        eprintln!("{msg}");
+        eprintln!("error: {msg}");
         return exit_code::ERROR;
     }
 
