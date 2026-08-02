@@ -2,7 +2,8 @@
 
 - **Phase:** 3 — Implementation (TDD)
 - **Role:** tester
-- **Status:** todo
+- **Status:** done (slice S4, 2026-08-02; see
+  [`../reviews/e2e-scale.md`](../reviews/e2e-scale.md))
 - **Depends on:** TASK-0307, TASK-0308, TASK-0309, TASK-0310, TASK-0311
   (the fan-out surfaces; transitively the core + keeper)
 
