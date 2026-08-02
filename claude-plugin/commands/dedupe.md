@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(imgdedup *)
+allowed-tools: Bash(imgdedup --version)
 description: Safely scan (and, on your confirmation, clean up) duplicate images with imgdedup
 disable-model-invocation: false
 ---
@@ -8,7 +8,9 @@ Use the using-imgdedup skill to scan the path below for duplicate images,
 following its protocol exactly: preflight, dry run, then Gate 1 (confirm
 before `--apply`) and Gate 2 (a separate explicit confirmation before
 `--delete`). Never skip a gate or infer approval from earlier in the
-conversation.
+conversation. Never run a destructive command in the same turn as the dry
+run, even if permanent deletion was requested up front — the user must see
+the scan results first.
 
 Path: $ARGUMENTS
 

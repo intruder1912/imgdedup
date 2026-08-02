@@ -17,8 +17,10 @@ The plugin bundles three things:
   your current conversation.
 - **A subagent**, `imgdedup-operator`, for offloading large or multi-folder
   scans without flooding your conversation with a big JSON payload. It is
-  **read-only** — it can only run a dry-run scan and report back; it can never
-  move or delete a file, no matter how it's asked.
+  **instructed to be read-only** — it will only ever run a dry-run scan and
+  report back, and will refuse to apply or delete no matter how it's asked.
+  And because anything it did would still need to pass your own Claude Code
+  permission prompts, nothing reaches disk without you.
 
 ## Installing it
 

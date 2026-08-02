@@ -107,6 +107,13 @@ self-approval deadlock — see
 - `docs/adr/` — architecture decision records (+ template).
 - `docs/guide/` — user-facing guide (detailed, per-topic pages; product-owner-owned,
   ADR-0012). General usage lives in the top-level `README.md`.
+- `claude-plugin/` — the official end-user Claude Code plugin (skill, slash
+  command, operator agent) that wraps the CLI; architect-designed
+  (ADR-0016), implementer-built. `docs/guide/using-with-claude.md`
+  (product-owner-owned) documents it for users.
+- `docs/superpowers/` — brainstormed design specs (`specs/`) and
+  implementation plans (`plans/`) produced when a unit of work goes through
+  a structured design/planning process before implementation.
 - `.github/` — CI/release/security workflows, Dependabot, PR template, CODEOWNERS.
 
 ## 7. When in doubt

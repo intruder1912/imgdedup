@@ -38,12 +38,26 @@ version 1 — field reference below) and present a plain-language summary:
 - every entry in `warnings` and `root_errors`, verbatim — never drop these,
   even if they seem minor
 
+**Exit codes matter — read them before deciding the run failed:**
+
+- Exit `0`: clean run.
+- Exit `1`: `root_errors` is non-empty (some input path couldn't be scanned) —
+  but stdout still has valid, parseable JSON for everything that *could* be
+  scanned. Parse it and report the results plus the `root_errors`, exactly as
+  you would on a clean run. Do not treat exit `1` as "the command failed" and
+  do not retry with different flags — a nonzero exit here means partial
+  results, not no results.
+- Exit `2`: usage error (bad flags/arguments) — fix the invocation, don't
+  retry blindly.
+
 If `root_errors` is non-empty, say so clearly: some input paths could not be
 scanned at all.
 
 ## Step 3 — Gate 1: confirm before `--apply`
 
-If `totals.duplicate_groups` is 0, stop here — nothing to do.
+If `totals.removable_files` is 0, stop here — nothing to do (this can be true
+even if `totals.duplicate_groups` is nonzero, when every group found is
+already fully hard-linked — nothing to reclaim).
 
 Otherwise, ask the user to explicitly approve moving the listed files to the
 trash. Do not proceed on an ambiguous or implied "ok" from earlier in the
@@ -55,6 +69,12 @@ On approval, run:
 ```sh
 imgdedup <path> --apply --json
 ```
+
+The apply run must be the **exact same command** the user saw in the dry run,
+with only `--apply` added — same path(s), same `--keep`/scope flags if any
+were used. If anything about the scope differs from what was shown and
+approved, you are not authorized to run it — go back to Step 2 with the new
+scope and get a fresh approval.
 
 Report `actions.removed` and `actions.skipped` from the result — this is what
 *actually* happened, not a restatement of the dry-run plan (a file can be
@@ -76,6 +96,14 @@ permanent deletion is opt-in and must be named as such by the user.
 imgdedup <path> --apply --delete --json
 ```
 
+**Gate 2 is always in addition to Gate 1, never instead of it.** Never run any
+destructive command (`--apply`, with or without `--delete`) in the same
+assistant turn as the dry run. Run the dry run, show the user the plan, and
+end your turn. The user's approval — for either gate — must arrive as a new
+message after they have actually seen the file list, even if they pre-empt
+you by requesting permanent deletion in the same message that asked for the
+scan.
+
 ## Working with the imgdedup-operator subagent
 
 For large or multi-path scans where the JSON would flood the main
@@ -90,9 +118,15 @@ themselves.
 Fields you need, from `docs/guide/output-and-exit-codes.md` in the imgdedup
 repository:
 
-- `totals.duplicate_groups`, `totals.reclaimable_bytes`
-- `groups[]`: each has `keeper` (File) and `removable[]` (File[])
-- `File`: `path`, `size`, `mtime`
+- `mode`: what the run actually did — `"dry-run"`, `"trash"`, or `"delete"`.
+  State this plainly when reporting back (e.g. "this was a dry run" vs "files
+  were trashed").
+- `totals.duplicate_groups`, `totals.removable_files`, `totals.reclaimable_bytes`
+- `groups[]`: each has `keeper` (File), `removable[]` (File[]), and
+  `protected[]` (File[]) — hard-link anchors that are kept but free no space.
+  Report `protected` entries too when present; don't silently drop them.
+- `File`: `path`, `size`, `mtime` (integer seconds, or `null` when the
+  platform didn't provide one — don't assume it's always present)
 - `warnings[]`: each has `stage` (`"enumerate"` | `"sniff"` | `"engine"`),
   `path`, `reason`
 - `root_errors[]`: each has `path`, `reason`

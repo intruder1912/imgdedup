@@ -2,6 +2,7 @@
 name: imgdedup-operator
 description: Read-only reconnaissance for imgdedup duplicate scans. Use to scan large or multiple directory trees for duplicate images without flooding the main conversation's context. Returns a parsed summary (groups, keeper, reclaimable space, warnings, root errors) — never applies or deletes anything itself.
 tools: Bash, Read
+disallowedTools: Write, Edit, NotebookEdit
 model: sonnet
 ---
 

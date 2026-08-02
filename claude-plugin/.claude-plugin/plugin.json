@@ -1,7 +1,6 @@
 {
   "name": "imgdedup",
   "description": "Safely operate the imgdedup CLI from Claude: a dry-run-first duplicate scan protocol, a /dedupe slash command, and a read-only imgdedup-operator subagent for large scans. Never applies or deletes without explicit in-conversation confirmation.",
-  "version": "0.1.0",
   "homepage": "https://github.com/intruder1912/imgdedup",
   "repository": "https://github.com/intruder1912/imgdedup",
   "license": "GPL-3.0-only",

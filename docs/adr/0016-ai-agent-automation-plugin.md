@@ -85,9 +85,17 @@ Concretely:
   (PRD-0001 NFR-1); and the subagent has no way to present its own approval
   prompt as if it were Gate 1/2, since applying only ever happens from the
   main-thread skill flow.
-- Follow-ups / new tasks created: keeping `claude-plugin/plugin.json`'s
-  version in sync with future crate releases is a manual step for now (no
-  task filed — small enough to fold into future release PRs).
+- Negative / trade-off: the original design spec had proposed pinning
+  `claude-plugin/.claude-plugin/plugin.json`'s `version` field to the crate
+  version. This was reconsidered during implementation because ADR-0015's
+  release model never commits back to `main`, so nothing would ever bump a
+  committed version string — `plugin.json` instead omits `version` entirely,
+  and Claude Code falls back to tracking the plugin's git commit SHA, so
+  installed users get updates automatically as the plugin's source files
+  change on `main`.
+- Follow-ups / new tasks created: none — `plugin.json` omits a pinned
+  `version` field (see Consequences below), so Claude Code tracks the
+  plugin's git commit SHA automatically; no manual sync step is needed.
 
 **Known limitation (documented, not hidden):** `imgdedup-operator`'s read-only
 guarantee is a prompt-and-tool-access boundary, not a hard technical sandbox.
