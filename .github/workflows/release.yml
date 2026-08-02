@@ -47,8 +47,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history and all tags: semantic-release needs them to find the
-          # last release and the commits since it.
+          # Full history *and all tags* — `fetch-depth: 0` makes checkout use
+          # its all-history refspec, which includes `+refs/tags/*:refs/tags/*`
+          # (it passes --no-tags otherwise). Both the bootstrap check below and
+          # semantic-release's "what was the last release?" depend on the tags
+          # being present.
           fetch-depth: 0
           # The exact commit CI validated. If `main` has moved on since,
           # semantic-release sees that the checkout is behind and skips; the
