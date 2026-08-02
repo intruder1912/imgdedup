@@ -10,9 +10,8 @@ all-features = true
 # Defaults: vulnerabilities are errors; unmaintained/unsound/yanked warn.
 
 [licenses]
-# Dependency licenses must be GPL-3.0-compatible (owner decision 2026-07-19;
-# formalized as the project license in TASK-0202). Everything currently in the
-# tree is permissive.
+# Dependency licenses must be GPL-3.0-compatible: imgdedup itself is
+# GPL-3.0-only (ADR-0014). Everything currently in the tree is permissive.
 allow = [
   "MIT",
   "MIT-0",
@@ -24,7 +23,8 @@ allow = [
   "Zlib",
   "Unicode-3.0",
 ]
-# imgdedup itself is publish = false and licensed via TASK-0202 (GPL-3.0).
+# imgdedup itself is publish = false, so its own (GPL-3.0-only) license is not
+# checked against the allow-list above — that list governs dependencies.
 private = { ignore = true }
 
 [bans]

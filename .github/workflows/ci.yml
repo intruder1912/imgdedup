@@ -50,6 +50,7 @@ jobs:
             "CONTRIBUTING.md"
             "SECURITY.md"
             "CHANGELOG.md"
+            "LICENSE"
             ".claude/agents/product-owner.md"
             ".claude/agents/architect.md"
             ".claude/agents/implementer.md"

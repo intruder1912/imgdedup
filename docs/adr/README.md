@@ -33,8 +33,9 @@ the options considered, the decision, and its consequences. They use a
 | [0011](0011-unit-of-work-cadence-and-planning-gate.md) | Unit-of-work cadence & planning gate | accepted |
 | [0012](0012-documentation-ownership-and-placement.md) | Documentation ownership & placement | accepted |
 | [0013](0013-prd-slice-delivery-cadence.md) | PRD-slice delivery cadence & in-progress review protocol | accepted |
+| [0014](0014-project-license-gpl-3.0-only.md) | Project license — GPL-3.0-only | accepted |
 
-> Planned: licensing ADR (before any public release). The technology-stack and
-> core design ADRs for PRD-0001 (0007–0010) have landed.
+> The technology-stack and core design ADRs for PRD-0001 (0007–0010) have
+> landed.
 >
 > Status values: `proposed` → `accepted` → `superseded` → `deprecated`.
