@@ -1,6 +1,7 @@
 name: Release
 
-# Automated releases — ADR-0015 (docs/adr/0015-release-publishing-tag-and-github-release.md).
+# Automated releases — ADR-0015 (docs/adr/0015-release-publishing-tag-and-github-release.md),
+# amended 2026-08 for TASK-0211 (prebuilt binaries).
 #
 # semantic-release computes the SemVer bump from the Conventional Commit history,
 # creates the `v<version>` tag and the GitHub Release with generated notes.
@@ -8,6 +9,13 @@ name: Release
 # protection targets `refs/heads/main`, so this needs no release bot, no PAT and
 # no protection bypass — only the workflow's own GITHUB_TOKEN with
 # `contents: write`. See docs/process/release.md for the operational procedure.
+#
+# A `GITHUB_TOKEN`-pushed tag triggers no other workflow (GitHub suppresses
+# GITHUB_TOKEN-originated events other than workflow_dispatch/repository_dispatch
+# to prevent recursion — ADR-0015), so the binaries cannot be built by a separate
+# `on: push: tags:` workflow. The `assets` job below builds them in this same
+# workflow run instead, gated on the `release` job detecting that a new tag was
+# actually published.
 
 on:
   # Gate on a green CI run for the merged commit rather than on the push itself,
@@ -17,9 +25,25 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-  # Manual escape hatch: re-run a release that failed after CI had already
-  # passed (e.g. a transient GitHub API error).
+  # Manual trigger, two uses:
+  #  1. Leave `tag` empty: re-run a release that failed after CI had already
+  #     passed (e.g. a transient GitHub API error) — behaves exactly like the
+  #     workflow_run path.
+  #  2. Set `tag` to an existing `v*` tag: skip semantic-release entirely and
+  #     (re-)build + attach binaries for that already-published release. This
+  #     is the recovery path for a release whose assets job failed, and the
+  #     one-time path used to backfill v0.1.0 (published before this workflow
+  #     could build binaries).
   workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Existing v* tag to (re-)build binaries for, e.g. v0.1.0. Leave empty
+          for the normal path. Skips semantic-release — use only to backfill
+          or recover assets for a release that already exists.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -44,26 +68,38 @@ jobs:
       # need `issues: write` / `pull-requests: write`) are disabled in
       # .releaserc.json.
       contents: write
+    env:
+      # Coerced to '' by the env-context string conversion when this run has no
+      # workflow_dispatch input (e.g. the workflow_run path) — see the null →
+      # '' rule in GitHub's expression data-type table. Steps below gate on
+      # this rather than on `github.event.inputs.tag` directly, because that
+      # expression's `== ''` comparison against a *missing* `inputs` key is a
+      # numeric-coercion comparison (null vs ''), which evaluates false — the
+      # opposite of what a same-looking string comparison would suggest.
+      BACKFILL_TAG: ${{ github.event.inputs.tag }}
+    outputs:
+      released: ${{ steps.detect.outputs.released }}
+      tag: ${{ steps.detect.outputs.tag }}
+      version: ${{ steps.detect.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history *and all tags* — `fetch-depth: 0` makes checkout use
           # its all-history refspec, which includes `+refs/tags/*:refs/tags/*`
-          # (it passes --no-tags otherwise). Both the bootstrap check below and
-          # semantic-release's "what was the last release?" depend on the tags
-          # being present.
+          # (it passes --no-tags otherwise). The bootstrap check, the tag-diff
+          # detection, and the backfill tag lookup all depend on tags being
+          # present.
           fetch-depth: 0
-          # The exact commit CI validated. If `main` has moved on since,
-          # semantic-release sees that the checkout is behind and skips; the
-          # next merge's run then releases everything accumulated.
+          # The exact commit CI validated, or (backfill) the tag to rebuild.
           # Checkout credentials are persisted (the default) on purpose —
           # semantic-release pushes the tag through this remote.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ env.BACKFILL_TAG || github.event.workflow_run.head_sha || github.sha }}
 
       - name: Check the version line is bootstrapped
         id: bootstrap
+        if: env.BACKFILL_TAG == ''
         # With no `v*` tag present, semantic-release treats the whole history as
-        # the first release and would publish v1.0.0. The first release is cut
+        # the first release and would publish v1.0.0. The first release was cut
         # deliberately (TASK-0211) after a one-time `v0.0.0` baseline tag — see
         # docs/process/release.md. Until that tag exists this workflow is a no-op.
         # Runs before Node/npm setup so an unbootstrapped repo doesn't install
@@ -78,19 +114,191 @@ jobs:
           fi
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: env.BACKFILL_TAG == '' && steps.bootstrap.outputs.ready == 'true'
         with:
           node-version: "22"
 
       - name: Install pinned release tooling
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: env.BACKFILL_TAG == '' && steps.bootstrap.outputs.ready == 'true'
         # `npm ci` installs exactly what package-lock.json pins (this is the most
         # privileged job in the repo, so its dependency tree is locked rather
         # than re-resolved per run); --ignore-scripts blocks install scripts.
         run: npm ci --ignore-scripts
 
+      - name: Snapshot existing release tags
+        if: env.BACKFILL_TAG == '' && steps.bootstrap.outputs.ready == 'true'
+        # semantic-release exposes no "did it release, and what version" job
+        # output; diffing the tag list before/after is the cheapest reliable
+        # signal, and needs no extra plugin in this job's dependency tree.
+        run: git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-before.txt"
+
       - name: Run semantic-release
-        if: steps.bootstrap.outputs.ready == 'true'
+        if: env.BACKFILL_TAG == '' && steps.bootstrap.outputs.ready == 'true'
         run: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect what (if anything) was just published
+        id: detect
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [ -n "$BACKFILL_TAG" ]; then
+            if ! git tag --list "$BACKFILL_TAG" | grep -qx "$BACKFILL_TAG"; then
+              echo "::error::tag '$BACKFILL_TAG' does not exist in this repository"
+              exit 1
+            fi
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$BACKFILL_TAG" >> "$GITHUB_OUTPUT"
+            echo "version=${BACKFILL_TAG#v}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ steps.bootstrap.outputs.ready }}" != "true" ]; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git tag --list 'v*' | sort > "$RUNNER_TEMP/tags-after.txt"
+          NEW="$(comm -13 "$RUNNER_TEMP/tags-before.txt" "$RUNNER_TEMP/tags-after.txt")"
+          COUNT=0
+          if [ -n "$NEW" ]; then
+            COUNT="$(printf '%s\n' "$NEW" | grep -c .)"
+          fi
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          elif [ "$COUNT" -eq 1 ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$NEW" >> "$GITHUB_OUTPUT"
+            echo "version=${NEW#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::more than one new v* tag appeared in this run: $NEW"
+            exit 1
+          fi
+
+  assets:
+    name: assets (${{ matrix.target }})
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      # `gh release upload` against the tag the release job just published (or
+      # was told to backfill). No other write access is used or needed.
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      # One leg's failure (a runner hiccup, a transient upload error) must not
+      # cancel binaries that were building fine for the other three platforms.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-latest # Apple Silicon
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: macos-15-intel # dated: this label is only guaranteed through Aug 2027
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          # This job never pushes anything via git — uploads go through `gh`
+          # with an explicit GH_TOKEN below — so the checkout token is dropped.
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup show # reads rust-toolchain.toml; installs the pinned channel + components
+
+      - name: Verify the runner's architecture matches this leg's target triple
+        # Guards against a GitHub-hosted runner label silently changing
+        # architecture (as macos-latest already has once) and shipping an
+        # artifact whose filename lies about what it contains.
+        run: |
+          set -euo pipefail
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "::error::runner host ($host) does not match matrix.target (${{ matrix.target }})"
+            exit 1
+          fi
+
+      - name: Stamp the released version into Cargo.toml
+        # Cargo.toml's `version` is a permanent development placeholder — the
+        # release process never commits a bump back to `main` (ADR-0015). This
+        # rewrite happens only in this ephemeral runner checkout, never pushed
+        # anywhere, so `imgdedup --version` in the shipped binary reports the
+        # real released version without Cargo.toml's in-tree value ever moving.
+        run: |
+          set -euo pipefail
+          v="${{ needs.release.outputs.version }}"
+          test "$(grep -c '^version = ' Cargo.toml)" -eq 1
+          sed -e "s/^version = .*/version = \"$v\"/" Cargo.toml > Cargo.toml.stamped
+          mv Cargo.toml.stamped Cargo.toml
+          grep -qx "version = \"$v\"" Cargo.toml
+
+      - name: cargo build --release
+        # Not --locked: the stamp above makes Cargo.lock's own `imgdedup` entry
+        # stale by design; cargo rewrites just that one entry, leaving every
+        # dependency pin untouched.
+        run: cargo build --release
+
+      - name: Verify the built binary reports the stamped version
+        run: |
+          set -euo pipefail
+          bin="target/release/imgdedup${{ runner.os == 'Windows' && '.exe' || '' }}"
+          got="$("$bin" --version)"
+          want="imgdedup ${{ needs.release.outputs.version }}"
+          if [ "$got" != "$want" ]; then
+            echo "::error::binary reports '$got', expected '$want'"
+            exit 1
+          fi
+
+      - name: Package the archive and checksum
+        id: package
+        run: |
+          set -euo pipefail
+          stem="imgdedup-${{ needs.release.outputs.tag }}-${{ matrix.target }}"
+          stage="$RUNNER_TEMP/$stem"
+          mkdir -p "$stage"
+          bin="target/release/imgdedup${{ runner.os == 'Windows' && '.exe' || '' }}"
+          cp "$bin" "$stage/"
+          cp LICENSE README.md "$stage/"
+
+          cd "$RUNNER_TEMP"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            file="$stem.zip"
+            7z a -tzip "$file" "$stem" >/dev/null
+          else
+            file="$stem.tar.gz"
+            COPYFILE_DISABLE=1 tar -czf "$file" "$stem" # COPYFILE_DISABLE: no macOS ._ AppleDouble entries
+          fi
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$file" > "$file.sha256"
+          else
+            shasum -a 256 "$file" > "$file.sha256" # macOS has no sha256sum
+          fi
+
+          echo "dir=$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the archive and checksum to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd "${{ steps.package.outputs.dir }}"
+          gh release upload "${{ needs.release.outputs.tag }}" \
+            "${{ steps.package.outputs.file }}" \
+            "${{ steps.package.outputs.file }}.sha256" \
+            --repo "${{ github.repository }}" \
+            --clobber

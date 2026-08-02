@@ -18,7 +18,8 @@ and [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md).
      `BREAKING CHANGE` → major),
    - creates the `v<version>` Git tag,
    - creates the **GitHub Release** with the generated notes,
-   - (from TASK-0211) attaches prebuilt cross-platform binaries.
+   - attaches prebuilt cross-platform binaries (TASK-0211; see
+     [Distribution targets](#distribution-targets) below).
 
 No release happens when only release-neutral commits (`docs`, `chore`, `ci`,
 `test`, `refactor`, `style`) are present since the last tag.
@@ -38,8 +39,9 @@ Two consequences worth remembering:
 - **`CHANGELOG.md` is not generated.** Release notes live on the GitHub Release
   (`gh release view v<version>`); the in-tree file just points there.
 - **`Cargo.toml`'s `version` is not bumped by a release.** The released version
-  is the tag. TASK-0211 stamps the version into the binaries at build time
-  inside the release job, so a published binary reports its own version.
+  is the tag. The `assets` job stamps the version into the binaries at build
+  time (TASK-0211), so a published binary reports its own version even though
+  the in-tree value never changes.
 
 ## Versioning policy
 
@@ -50,27 +52,12 @@ Two consequences worth remembering:
 
 ## Status
 
-Automated publishing is **wired and enabled** (TASK-0203): the release workflow
-runs on every green CI run for `main`. One step remains before it can publish.
-
-### One-time bootstrap of the version line (TASK-0211)
-
-semantic-release with **no `v*` tag in the repository** treats the entire
-history as the first release and publishes **v1.0.0** — verified by a dry run.
-The roadmap calls for `v0.1.0`, so the release workflow **skips (green, with a
-notice) while no `v*` tag exists**. To cut the first release:
-
-```sh
-# One-time: baseline the version line at the repository's first commit.
-git tag v0.0.0 "$(git rev-list --max-parents=0 origin/main)"
-git push origin v0.0.0
-```
-
-The next green CI run on `main` then publishes **v0.1.0** (the accumulated
-`feat:` commits bump the minor from the `0.0.0` baseline) — also verified by a
-dry run. Pushing a tag needs no special permissions; it is not a branch.
-
-After that the guard never triggers again, because tags accumulate.
+Automated publishing is **wired, enabled, and has shipped its first release**:
+`v0.0.0` was pushed as the one-time baseline tag on 2026-08-02, and the next
+green CI run on `main` published **v0.1.0** the same day — both steps verified
+in advance by dry run (see below). The bootstrap guard (skip green, with a
+`::notice::`, while no `v*` tag exists) stays in the workflow permanently as a
+harmless no-op safeguard; it never triggers again once tags accumulate.
 
 ### Verifying a release without publishing
 
@@ -94,10 +81,70 @@ bundled inside the `npm` package. Re-check on each Dependabot bump of
 ## Distribution targets
 
 - **GitHub Releases** with generated notes (always).
-- **Prebuilt cross-platform binaries** attached to each release (TASK-0211).
-  Note that a tag pushed with `GITHUB_TOKEN` does **not** trigger further
-  workflows, so the binaries must be built inside the release job itself rather
-  than by a separate `on: push: tags:` workflow.
-- Distributing a binary to anyone without repository access triggers the
-  GPLv3 §6 obligation to provide the corresponding source — see
-  [ADR-0014](../adr/0014-project-license-gpl-3.0-only.md).
+- **Prebuilt cross-platform binaries** attached to each release (TASK-0211;
+  design recorded in the
+  [2026-08 amendment to ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-02--binary-artifacts-task-0211)).
+  Built inside the `release` workflow's `assets` job (a tag pushed with
+  `GITHUB_TOKEN` triggers no further workflow, so there is no separate
+  `on: push: tags:` build), gated on the `release` job detecting that a new
+  tag was actually published.
+
+### Artifacts
+
+Four targets, each built natively (no cross-compilation) on a GitHub-hosted
+runner:
+
+| Target | Runner | Archive |
+|---|---|---|
+| `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | `.tar.gz` |
+| `aarch64-apple-darwin` | `macos-latest` (Apple Silicon) | `.tar.gz` |
+| `x86_64-apple-darwin` | `macos-15-intel` | `.tar.gz` |
+| `x86_64-pc-windows-msvc` | `windows-latest` | `.zip` |
+
+The Linux artifact carries a **glibc ≥ 2.39** floor (Ubuntu 24.04/Debian
+13/Fedora 40+). `musl` static Linux and any `aarch64` Linux/Windows targets are
+intentionally **not** shipped yet — tracked as a follow-up
+(TASK-0326) to reconsider before a public release, not blocking this private
+one.
+
+Each archive is named `imgdedup-v<version>-<target-triple>.{tar.gz,zip}` and
+contains one top-level directory of the same name holding the `imgdedup`
+binary, `LICENSE`, and `README.md`. A same-named `.sha256` file (one per
+artifact, `sha256sum -c` format) accompanies each archive:
+
+```sh
+# verify a downloaded artifact
+sha256sum -c imgdedup-v0.1.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+```
+
+The binary's own `--version` output is stamped with the real released version
+at build time (see the Cargo.toml comment above `version` and the `assets` job
+in `release.yml`) — Cargo.toml's in-tree value never changes.
+
+**Not in scope:** GPG signing, macOS codesigning/notarization, Windows
+Authenticode. Downloaded binaries are unsigned: macOS Gatekeeper will quarantine
+the archive (clear it with `xattr -d com.apple.quarantine <file>` after
+verifying the checksum) and Windows SmartScreen will warn. Revisit only if/when
+this ships publicly with an owner-managed signing identity.
+
+**Recovering a failed or missing asset leg.** If one platform's build/upload
+fails, re-run just that job from the Actions UI ("Re-run failed jobs") — the
+`release` job's outputs (the tag/version) are preserved from the original run.
+To attach binaries to a release that has none at all (as v0.1.0 did — it was
+published before this mechanism existed), dispatch the `Release` workflow
+manually with the `tag` input set to the existing tag (e.g. `v0.1.0`): this
+skips semantic-release entirely and runs only the `assets` job against that
+tag.
+
+### Licensing note (GPLv3 §6)
+
+Distributing a binary triggers the GPLv3 §6 obligation to make the
+corresponding source available. While this repository is **private**, every
+recipient of a release asset already has repository (source) access by the
+same grant, and GitHub additionally attaches an auto-generated source archive
+to every Release — so no separate written offer or source bundle is needed
+right now. `LICENSE` is still bundled in each archive as GPLv3 §4/§5 hygiene.
+This position **must be re-checked before the repository goes public**
+(TASK-0219), at which point already-published assets become anonymously
+downloadable and the §6 analysis above no longer holds — see
+[ADR-0014](../adr/0014-project-license-gpl-3.0-only.md).

@@ -7,6 +7,9 @@ repository = "https://github.com/intruder1912/imgdedup"
 license = "GPL-3.0-only"  # see LICENSE and docs/adr/0014-project-license-gpl-3.0-only.md
 # `version` above is a development placeholder: releases are tagged, not
 # committed back (ADR-0015), so the released version lives in the git tag.
+# Prebuilt release binaries get the real version stamped into this field
+# transiently, in the CI runner's checkout only (TASK-0211,
+# .github/workflows/release.yml) — this line never moves.
 publish = false
 
 [[bin]]
