@@ -218,6 +218,28 @@ consistently comes in under.
   manual step — the automatic path is now proven, not just the manual one,
   at effectively zero extra cost (it ran on GitHub's infrastructure, not this
   session's usage).
+- **Session 8 (partial — PRs #56, #57), 2026-08-02 — window continued from
+  34% (no fresh window this time) to 45% after TASK-0206 + TASK-0205: ~11%
+  combined, matching the "docs chore ≈10%" line of the cost model almost
+  exactly despite one of the two units (TASK-0206) surfacing and fixing a
+  real, previously-invisible defect (`lychee.toml` had never actually loaded
+  under the pinned lychee version).** Both units skipped architect dispatch
+  (low-risk, `contents: read`-only CI config, evaluated/verified directly)
+  — the cost/benefit call held for chore-weight CI tooling changes, not just
+  for docs-only planning syncs. **TASK-0217 (docs consistency pass,
+  product-owner-led) deliberately deferred**, per an explicit mid-session
+  owner check-in: the batch plan's own trigger ("if a session passes 60% of
+  its window with the unit not yet reviewable, stop at the cut line") was
+  read forward rather than waited for — 45% with the largest, least-defined
+  remaining unit still ahead was judged close enough to justify stopping
+  before starting it, rather than mid-way through it. Two things worth
+  carrying forward: (1) **stacking chores onto a non-fresh window still
+  tracks the cost model fine** — the 34%→45% delta prices the same as if it
+  had started fresh; the model prices *units*, not *sessions*. (2) **A
+  mid-session usage check-in before the largest unit of a multi-unit session
+  is a cheap, worthwhile pattern** — it turned an implicit judgment call
+  ("is 45% too much to start a ~20-40%-estimated unit against") into an
+  explicit one, at the cost of one round-trip.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -264,7 +286,7 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 | 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | **done 2026-08-02 — PR #50** (AC's + NFR-4 measurement + architect review); **TASK-0314 field validation slipped as anticipated** (needs the owner's photo corpus, not yet supplied) — no user-facing doc reconciliation was needed since S4 added no product code |
 | 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | **done 2026-08-02** — ADR-0014 (`GPL-3.0-only` + `LICENSE`) and ADR-0015 (tag + GitHub Release only; no bot/PAT/bypass needed); see the actuals log |
 | 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | **done 2026-08-02 — PR #54.** v0.1.0 had already auto-published (with no assets) via the workflow this session extends; the session built the `assets` job, added a `workflow_dispatch` backfill path, and used it once to attach binaries to v0.1.0 |
-| 8 | 8 | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | ~5 | next week |
+| 8 | 8 | chore, then product-owner | TASK-0206 + TASK-0205 done (PRs #56, #57); TASK-0217 deferred | 40–60 | ~5 | **in progress 2026-08-02** — TASK-0206 + TASK-0205 done at 45% of the window (started 34%, ~11% combined); TASK-0217 deferred to a fresh window per mid-session cut-line check-in |
 | 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | next week |
 
 **Week 1 target (2026-08-01 →): sessions 1–7, i.e. v0.1.0 shipped**, at an

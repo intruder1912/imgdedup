@@ -104,13 +104,20 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   independent units, each its own PR (per the one-unit-one-PR chore cadence).
   **TASK-0206 (PR #56):** `linkcheck` promoted from informational to a
   required gate (`fail: true`, renamed from `linkcheck (informational)`).
-  Flipping `fail: true` immediately surfaced a real, previously-invisible
-  defect: `lychee.toml` failed to _load_ under the pinned lychee v0.24.2
-  (`exclude_mail` was removed from its config schema — the same class of
-  drift as the markdownlint-cli2 issue from Batch 0); with `fail: false` that
-  load failure was silently swallowed, so link checking had never actually
-  run in CI, only reported green. Fixed and verified locally with the exact
-  pinned version: 439 links, 438 OK, 0 errors. Also corrected a stale claim
+  Flipping `fail: true` immediately surfaced **two** real, previously-invisible
+  defects. First: `lychee.toml` failed to _load_ under the pinned lychee
+  v0.24.2 (`exclude_mail` was removed from its config schema — the same class
+  of drift as the markdownlint-cli2 issue from Batch 0); fixed (field
+  removed). Second, once loading: `www.gnu.org/licenses/{gpl-3.0.txt,
+  gpl-howto.html}` (in ADR-0014) consistently timed out from GitHub-hosted
+  runners across two separate CI runs despite `max_retries = 3`, while
+  resolving instantly (`curl -I`, HTTP 200, <2s) from a non-CI IP — gnu.org
+  rate-limits/blocks cloud CI ranges, so this is the check environment being
+  unreachable, not a broken link; excluded rather than "fixed". With
+  `fail: false` both defects were silently swallowed, so link checking had
+  never actually run in CI, only reported green. Verified locally with the
+  exact pinned version: 439 links, 436 OK, 0 errors, 3 excluded. Also
+  corrected a stale claim
   that `cargo-deny` was a required check since 2026-07-19 — live-verified via
   the GitHub API that it was not, until the owner added it (and `linkcheck`)
   live during this session. The owner then renamed the required-check
