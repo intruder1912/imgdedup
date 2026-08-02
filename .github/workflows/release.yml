@@ -60,22 +60,14 @@ jobs:
           # semantic-release pushes the tag through this remote.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-
-      - name: Install pinned release tooling
-        # `npm ci` installs exactly what package-lock.json pins (this is the most
-        # privileged job in the repo, so its dependency tree is locked rather
-        # than re-resolved per run); --ignore-scripts blocks install scripts.
-        run: npm ci --ignore-scripts
-
       - name: Check the version line is bootstrapped
         id: bootstrap
         # With no `v*` tag present, semantic-release treats the whole history as
         # the first release and would publish v1.0.0. The first release is cut
         # deliberately (TASK-0211) after a one-time `v0.0.0` baseline tag — see
         # docs/process/release.md. Until that tag exists this workflow is a no-op.
+        # Runs before Node/npm setup so an unbootstrapped repo doesn't install
+        # 400+ packages in this job's only write-privileged run for nothing.
         run: |
           set -euo pipefail
           if [ -n "$(git tag --list 'v*')" ]; then
@@ -84,6 +76,18 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No v* tag yet — the version line is not bootstrapped, so nothing is published. See docs/process/release.md."
           fi
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.bootstrap.outputs.ready == 'true'
+        with:
+          node-version: "22"
+
+      - name: Install pinned release tooling
+        if: steps.bootstrap.outputs.ready == 'true'
+        # `npm ci` installs exactly what package-lock.json pins (this is the most
+        # privileged job in the repo, so its dependency tree is locked rather
+        # than re-resolved per run); --ignore-scripts blocks install scripts.
+        run: npm ci --ignore-scripts
 
       - name: Run semantic-release
         if: steps.bootstrap.outputs.ready == 'true'
