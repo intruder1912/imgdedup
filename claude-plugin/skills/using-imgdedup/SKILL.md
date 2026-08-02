@@ -46,7 +46,10 @@ version 1 — field reference below) and present a plain-language summary:
   scanned. Parse it and report the results plus the `root_errors`, exactly as
   you would on a clean run. Do not treat exit `1` as "the command failed" and
   do not retry with different flags — a nonzero exit here means partial
-  results, not no results.
+  results, not no results. On an `--apply` run (Step 3), exit `1` can also mean
+  the CLI refused to act at all and printed no JSON to stdout (only stderr) —
+  if stdout is empty, nothing was removed; report the error plainly without
+  claiming any deletions.
 - Exit `2`: usage error (bad flags/arguments) — fix the invocation, don't
   retry blindly.
 
