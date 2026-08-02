@@ -8,7 +8,7 @@
 # rust-toolchain.toml).
 
 .DEFAULT_GOAL := help
-.PHONY: help validate mdlint spell links build test fmt lint coverage deny
+.PHONY: help validate mdlint spell links build test fmt lint coverage deny release-dry-run
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -54,6 +54,12 @@ fmt: ## Check Rust formatting (use `cargo fmt` to auto-fix)
 
 lint: ## Run clippy with warnings-as-errors
 	cargo clippy --all-targets -- -D warnings
+
+# ── Release (see docs/process/release.md, ADR-0015) ───────────────────────────
+
+release-dry-run: ## Preview the next release without publishing (needs gh auth + npm)
+	npm ci --ignore-scripts
+	GITHUB_TOKEN=$$(gh auth token) npx --no-install semantic-release --dry-run --no-ci
 
 # ── Coverage (not in the blocking validate path) ──────────────────────────────
 # NOTE: enforced coverage floor is deferred; see TASK-0301 Deviation note in

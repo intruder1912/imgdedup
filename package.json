@@ -1,0 +1,16 @@
+{
+  "name": "imgdedup-release-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Node meta-tooling for imgdedup releases (semantic-release). Not the product stack — see docs/adr/0007-technology-stack-rust-clap.md.",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "release": "semantic-release"
+  },
+  "devDependencies": {
+    "semantic-release": "25.0.8"
+  }
+}

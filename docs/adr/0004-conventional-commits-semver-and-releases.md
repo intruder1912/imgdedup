@@ -3,7 +3,9 @@
 - **Status:** accepted
 - **Date:** 2026-06-13
 - **Deciders:** architect, human owner
-- **Related:** [ADR-0003](0003-main-branch-protection-and-merge-model.md)
+- **Related:** [ADR-0003](0003-main-branch-protection-and-merge-model.md),
+  [ADR-0015](0015-release-publishing-tag-and-github-release.md) (resolves the
+  open publishing-mechanism question below)
 
 ## Context and problem statement
 
@@ -36,15 +38,20 @@ work merges.
 - semantic-release analyzes commits, computes the next SemVer version, generates
   `CHANGELOG.md` and **GitHub Release** notes, tags the release, and (from
   Phase 2) attaches prebuilt cross-platform binaries.
+  *(Amended by [ADR-0015](0015-release-publishing-tag-and-github-release.md):
+  `CHANGELOG.md` is **not** generated — release notes only.)*
 - The human gate is at **merge time** (ADR-0003): nothing reaches `main` without
   the owner merging, so "auto-publish on merge" is still owner-controlled.
 
-### Phase 0 status
+### Phase 0 status — resolved 2026-08-02 by [ADR-0015](0015-release-publishing-tag-and-github-release.md)
 
-The release workflow is a **manual-dispatch placeholder** that does not run on
-push. semantic-release verifies push access to `main` even in dry-run, and branch
-protection blocks that — so no release runs until the push mechanism below is
-wired (TASK-0203). The semantic-release config lives in `.releaserc.json`.
+The original Phase 0 text is kept below for the record; it is **no longer
+current**. The release workflow was a **manual-dispatch placeholder** that did
+not run on push, on the assumption that "semantic-release verifies push access
+to `main` even in dry-run, and branch protection blocks that". Investigating
+that assumption for TASK-0203 showed it to be wrong in an important detail — a
+`--dry-run` push transmits no ref update, and the tag semantic-release really
+pushes goes to `refs/tags/*`, which branch protection does not cover.
 
 ### Known constraint — pushing to protected `main`
 
@@ -56,7 +63,11 @@ wired (TASK-0203). The semantic-release config lives in `.releaserc.json`.
 - Configure semantic-release to publish the tag/release and changelog **as
   release artifacts/notes only**, without committing back to `main`.
 
-The chosen mechanism will be recorded here (or in a superseding ADR) when wired.
+**Resolution (ADR-0015, TASK-0203):** the second option. Only the tag and the
+GitHub Release are published, nothing is committed back to `main`, and the job
+runs on the workflow's own `GITHUB_TOKEN` with `contents: write` — no bot, PAT
+or bypass. `CHANGELOG.md` is therefore not generated; the GitHub Releases page
+is the changelog of record.
 
 ### Consequences
 

@@ -34,8 +34,9 @@ the options considered, the decision, and its consequences. They use a
 | [0012](0012-documentation-ownership-and-placement.md) | Documentation ownership & placement | accepted |
 | [0013](0013-prd-slice-delivery-cadence.md) | PRD-slice delivery cadence & in-progress review protocol | accepted |
 | [0014](0014-project-license-gpl-3.0-only.md) | Project license — GPL-3.0-only | accepted |
+| [0015](0015-release-publishing-tag-and-github-release.md) | Release publishing — tag + GitHub Release, no commit back to `main` | accepted |
 
 > The technology-stack and core design ADRs for PRD-0001 (0007–0010) have
-> landed.
+> landed; ADR-0015 closes the release-mechanism question ADR-0004 left open.
 >
 > Status values: `proposed` → `accepted` → `superseded` → `deprecated`.
