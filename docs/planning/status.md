@@ -11,13 +11,12 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — session 6 (release plumbing: TASK-0202 licensing +
-  TASK-0203 semantic-release wiring) merged in PR #52. The one-time `v0.0.0`
-  baseline tag (ADR-0015) is pushed and verified — a release run that landed
-  moments before the tag existed correctly no-op'd with the "No v* tag yet"
-  notice, confirming the bootstrap guard works. Session 7 (7b): TASK-0211
-  (prebuilt binaries) is next, in a fresh window (this one closed at ~50%
-  after session 6, and 7b is its own ~40–55% estimate)._
+- _Session 7b (TASK-0211, prebuilt binaries) is implemented on
+  `chore/prebuilt-binaries`, architect-reviewed (design dispatch + an
+  independent review-only pass; both converged, no blockers), and pending: the
+  one-time manual `workflow_dispatch` backfill run to attach binaries to
+  `v0.1.0`, then PR open. **v0.1.0 already published** — see below — so this
+  session closes out the release rather than cutting it._
 
 ## Up next
 
@@ -26,24 +25,27 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 **3:** S3 finish (TASK-0310, acceptance, docs, review, PR) — **done** ·
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
 one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
-(PR #52)** · **7 (next):** binaries + **v0.1.0** (TASK-0211) · **8–9
-(week 2):** docs consistency (TASK-0217/0205/0206), AI automation
-(TASK-0218).
+(PR #52)** · **7 (in progress):** binaries (TASK-0211) — implemented, review
+converged, backfill + PR pending · **8–9 (week 2):** docs consistency
+(TASK-0217/0205/0206), AI automation (TASK-0218).
 
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
-slip out of the S4 session. It is not on the session 6/7 critical path (only
-the v0.1.0 tag in session 7b needs it, per the batch-plan ordering
-constraints); pick it up whenever the owner can supply the corpus.
+slip out of the S4 session. It turned out not to gate anything: **v0.1.0
+published automatically** (see below) without it, so pick it up whenever the
+owner can supply the corpus.
 
-**The `v0.0.0` baseline tag is pushed (2026-08-02).** Without it the first
-automated release would have published **v1.0.0** instead of v0.1.0 — the
-release workflow deliberately no-ops until a `v*` tag exists, and a real run
-that landed moments before the tag existed did exactly that (confirmed via
-its `::notice::` log line). Session 7 now proceeds straight to TASK-0211. See
-[`../process/release.md`](../process/release.md) and
-[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md), whose
-constraints also mean the binaries must be built **inside** the release job.
+**v0.1.0 published automatically, before TASK-0211 could attach binaries to
+it.** The `v0.0.0` baseline tag (pushed 2026-08-02) bootstrapped the version
+line as designed; the very next green CI run on `main` (the docs-sync merge,
+PR #53) triggered the release workflow, which found the bootstrap tag, ran
+semantic-release, and published **v0.1.0 with zero release assets** — this
+predates the `assets` job TASK-0211 adds. `docs/process/release.md` and
+[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md) explain
+why binaries must be built **inside** the release job (a `GITHUB_TOKEN`-pushed
+tag triggers no other workflow) and how `chore/prebuilt-binaries` backfills
+v0.1.0's missing assets via a manual `workflow_dispatch` input rather than
+re-running semantic-release.
 
 Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
@@ -67,8 +69,8 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   `docs/planning/reviews/<slice>.md`. Uncertain now-vs-defer calls go to the
   product-owner, and deferrals are promoted to tracked backlog tasks.
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
-  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot) and TASK-0203
-  (release wiring) are done; **TASK-0211** (prebuilt binaries) remains.
+  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203
+  (release wiring), and **TASK-0211** (prebuilt binaries) are done.
 - Stack-independent Phase 2 tasks still available in parallel: TASK-0205
   (cspell→typos), TASK-0206 (link-check gate), TASK-0219 (public-release
   licensing readiness).

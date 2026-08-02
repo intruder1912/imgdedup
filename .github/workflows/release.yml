@@ -69,13 +69,14 @@ jobs:
       # .releaserc.json.
       contents: write
     env:
-      # Coerced to '' by the env-context string conversion when this run has no
-      # workflow_dispatch input (e.g. the workflow_run path) — see the null →
-      # '' rule in GitHub's expression data-type table. Steps below gate on
-      # this rather than on `github.event.inputs.tag` directly, because that
-      # expression's `== ''` comparison against a *missing* `inputs` key is a
-      # numeric-coercion comparison (null vs ''), which evaluates false — the
-      # opposite of what a same-looking string comparison would suggest.
+      # Empty on every path that carries no workflow_dispatch input: the
+      # workflow_run path has no `github.event.inputs` at all, and a null
+      # expression result renders as '' when written into an env value. Steps
+      # below gate on this variable rather than on `github.event.inputs.tag`
+      # directly so that "input absent" and "input supplied but empty" collapse
+      # into one plain string-to-string comparison, and — the reason that
+      # matters — so this free-text input reaches a shell only as an
+      # environment variable, never via `${{ }}` interpolation into a `run:`.
       BACKFILL_TAG: ${{ github.event.inputs.tag }}
     outputs:
       released: ${{ steps.detect.outputs.released }}
@@ -144,7 +145,21 @@ jobs:
         run: |
           set -euo pipefail
 
+          # `tag`/`version` become `needs.release.outputs.*`, which the assets
+          # job interpolates into `run:` blocks and into a sed replacement.
+          # Git ref names may legally contain `$`, backticks and parens, so
+          # constrain the value to the SemVer charset here — the single point
+          # where it originates — instead of trusting every use downstream.
+          require_semver_tag() {
+            local re='^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$'
+            if [[ ! "$1" =~ $re ]]; then
+              echo "::error::refusing to use '$1': not a v<major>.<minor>.<patch> tag"
+              exit 1
+            fi
+          }
+
           if [ -n "$BACKFILL_TAG" ]; then
+            require_semver_tag "$BACKFILL_TAG"
             if ! git tag --list "$BACKFILL_TAG" | grep -qx "$BACKFILL_TAG"; then
               echo "::error::tag '$BACKFILL_TAG' does not exist in this repository"
               exit 1
@@ -170,6 +185,7 @@ jobs:
           if [ "$COUNT" -eq 0 ]; then
             echo "released=false" >> "$GITHUB_OUTPUT"
           elif [ "$COUNT" -eq 1 ]; then
+            require_semver_tag "$NEW"
             echo "released=true" >> "$GITHUB_OUTPUT"
             echo "tag=$NEW" >> "$GITHUB_OUTPUT"
             echo "version=${NEW#v}" >> "$GITHUB_OUTPUT"

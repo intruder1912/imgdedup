@@ -276,7 +276,16 @@ rewrites just that one entry, leaving every dependency pin untouched.
 run.** The `release` job now diffs `git tag --list 'v*'` before and after
 `npm run release` to detect whether a tag actually got published (semantic-
 release exposes no such output natively) and exposes `released`/`tag`/
-`version` as job outputs. A new `assets` job (`needs: release`, gated on
+`version` as job outputs. Those two outputs are the only values in the whole
+flow that are not workflow-authored constants, and the `assets` job
+interpolates them into `run:` blocks and into a `sed` replacement — so the
+detect step **validates the tag against `^v<major>.<minor>.<patch>[-+…]$`
+before emitting it**, at the single point where it originates. Git ref names
+legally permit `$`, backticks and parentheses, so without that guard a tag name
+would be a shell-expression-injection channel into the repository's most
+privileged job (reachable only with write access, which already grants an
+equivalent token — but a closed channel beats an argued-harmless one). A new
+`assets` job (`needs: release`, gated on
 `released == 'true'`) matrix-builds the four targets, each checking out the
 published tag, stamping the version, building, packaging into a per-target
 `.tar.gz`/`.zip` (named `imgdedup-v<version>-<target-triple>.*`, containing
