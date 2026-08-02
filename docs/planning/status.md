@@ -11,18 +11,25 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — slice S4 (E2E acceptance & scale) is complete and open as
-  a PR. Sessions 3–4 of the 2026-08-01 re-plan._
+- _Nothing in flight — slice S4 (E2E acceptance & scale) merged in PR #50.
+  Sessions 4–5 of the 2026-08-01 re-plan landed together in one PR; session 6
+  (release plumbing) is next._
 
 ## Up next
 
 Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
-(TASK-0315) — **done** · **2:** TASK-0316 + S3 core (TASK-0309) · **3:** S3
-finish (TASK-0310, acceptance, docs, review, PR) · **4:** S4 acceptance
-(TASK-0312) · **5:** S4 scale + field validation (TASK-0314) · **6:** release
-plumbing (TASK-0202, TASK-0203) · **7:** binaries + **v0.1.0** (TASK-0211) ·
-**8–9 (week 2):** docs consistency (TASK-0217/0205/0206), AI automation
-(TASK-0218). Owner decisions
+(TASK-0315) — **done** · **2:** TASK-0316 + S3 core (TASK-0309) — **done** ·
+**3:** S3 finish (TASK-0310, acceptance, docs, review, PR) — **done** ·
+**4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
+one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **next** ·
+**7:** binaries + **v0.1.0** (TASK-0211) · **8–9 (week 2):** docs consistency
+(TASK-0217/0205/0206), AI automation (TASK-0218).
+**TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
+the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
+slip out of the S4 session. It is not on the session 6/7 critical path (only
+the v0.1.0 tag in session 7b needs it, per the batch-plan ordering
+constraints); pick it up whenever the owner can supply the corpus. Owner
+decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
 generated golden set (TASK-0313), real photos only for read-only field
 validation (TASK-0314), AI automation = skill + command + operator agent
@@ -52,7 +59,8 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Done
 
-- **Slice S4 — E2E acceptance & scale (TASK-0312, session 4, 2026-08-02).**
+- **Slice S4 — E2E acceptance & scale (TASK-0312, PR #50, sessions 4–5 combined,
+  2026-08-02).**
   `tests/acceptance.rs`: 21 tests, one per PRD criterion (AC-1..AC-19, AC-18a),
   driving the compiled binary so coverage is traceable criterion by criterion.
   AC-19's binary-level test lands here after being deferred out of S1.
