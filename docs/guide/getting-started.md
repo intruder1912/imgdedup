@@ -11,24 +11,33 @@ This page gets you from nothing to a first, safe scan.
 Each [GitHub Release](https://github.com/intruder1912/imgdedup/releases)
 carries a binary archive for four platforms: `x86_64-unknown-linux-gnu`,
 `aarch64-apple-darwin` (Apple Silicon), `x86_64-apple-darwin` (Intel Mac), and
-`x86_64-pc-windows-msvc`. The repository is currently **private**, so
-downloading a release asset needs repository access.
+`x86_64-pc-windows-msvc`. The repository is currently **private**, so release
+assets are not anonymously downloadable: a plain `curl` of a
+`releases/download/...` URL returns `404` even with a token header. Use the
+authenticated [`gh`](https://cli.github.com) CLI (`gh auth login` once), which
+resolves the asset through the API:
 
 ```sh
-# Example: Linux, release v0.2.0 — adjust the filename for your platform/version.
-curl -sfLO https://github.com/intruder1912/imgdedup/releases/download/v0.2.0/imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
-curl -sfLO https://github.com/intruder1912/imgdedup/releases/download/v0.2.0/imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz.sha256
-sha256sum -c imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+# Example: Linux, release v0.2.0 — adjust the tag/pattern for your platform.
+gh release download v0.2.0 --repo intruder1912/imgdedup \
+  --pattern 'imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz*'
+sha256sum -c imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz.sha256  # macOS: shasum -a 256 -c
 tar -xzf imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
 # the imgdedup binary is now in imgdedup-v0.2.0-x86_64-unknown-linux-gnu/
 ```
 
+The trailing `*` in the pattern fetches the archive and its `.sha256` together.
+Windows artifacts are `.zip` rather than `.tar.gz` (unzip instead of `tar`).
+Once the repository is public, the same assets are downloadable with a plain
+`curl -LO <asset URL>`.
+
 The archive also contains `LICENSE` and `README.md`. Binaries are unsigned:
-on macOS, clear the quarantine flag after verifying the checksum
-(`xattr -d com.apple.quarantine ./imgdedup`); on Windows, SmartScreen may
-warn on first run. Full detail — the target matrix, checksum format, and why
-these two caveats exist — is in
-[Distribution targets](../process/release.md#distribution-targets).
+on macOS, a browser-downloaded archive is quarantined by Gatekeeper — clear
+the flag after verifying the checksum (`xattr -d com.apple.quarantine
+./imgdedup`; `gh`/`curl` downloads are not quarantined, so the attribute may
+simply not be there); on Windows, SmartScreen may warn on first run. Full
+detail — the target matrix, checksum format, and why these two caveats exist —
+is in [Distribution targets](../process/release.md#distribution-targets).
 
 ### Build from source
 

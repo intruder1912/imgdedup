@@ -75,7 +75,8 @@ cargo build --release
 
 See [Getting started](docs/guide/getting-started.md#install) for the
 download/checksum walkthrough and platform-specific notes (the repository is
-currently private, so downloading a release asset needs repository access).
+currently private, so release assets are not anonymously downloadable — fetch
+them with `gh release download`, which authenticates).
 
 ## Usage
 

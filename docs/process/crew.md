@@ -29,7 +29,7 @@ review** of any aspect mid-slice ([ADR-0013](../adr/0013-prd-slice-delivery-cade
 
 Owns *how*. Turns PRDs into design and records decisions as ADRs in
 [`../adr/`](../adr/), including the fully-open technology-stack selection. **Also
-reviews every PR**, in one of two modes scaled to the artifact: a *lightweight
+reviews every PR by default**, in one of two modes scaled to the artifact: a *lightweight
 document review* of PRDs/ADRs/process docs (feasibility, risk, scope/YAGNI,
 testable acceptance criteria, consistency) or a *heavyweight code review* of
 implementation (correctness, security, tests/TDD, design, conventions). To keep

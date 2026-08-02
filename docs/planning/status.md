@@ -12,7 +12,9 @@ docs pass → AI automation, batched within Claude usage limits.
 ## In progress
 
 - _Session 8 (docs/tooling consistency) is complete: TASK-0206 (PR #56),
-  TASK-0205 (PR #57), and **TASK-0217** all done. TASK-0217 was preceded by a
+  TASK-0205 (PR #57), the follow-up link-exclude fix (PR #58 — whose `fix:`
+  squash commit auto-published **v0.2.1**, binaries and all), and
+  **TASK-0217** all done. TASK-0217 was preceded by a
   deliberate **read-only recon pass** (17 files: README, all 6 `docs/guide/`
   pages, all 5 `docs/process/` docs, all 4 agent files) before touching
   anything, which turned an open-ended "consistency pass" into three
@@ -109,7 +111,7 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   `docs/process/release.md#distribution-targets` for full detail rather than
   duplicating it. **(2) The architect-review policy didn't match practice:**
   `sdlc.md`, `crew.md`, and `architect.md` all described every PR getting an
-  architect dispatch, but 8 units had already skipped it (docs-only syncs;
+  architect dispatch, but 9 units had already skipped it (docs-only syncs;
   low-risk `contents: read` CI chores) under an unwritten cost/benefit
   exception. Formalized as a dated
   [amendment to ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units)

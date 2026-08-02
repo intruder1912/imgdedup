@@ -205,8 +205,10 @@ new dependencies — anywhere green checks materially inform the review) may ins
 iterate on the PR. Either way:
 
 - The architect's review is **recorded on the PR** when it opens (the review is
-  posted there), so "the architect reviewed every PR" holds, and a quick
-  confirmation pass runs on the PR before merge.
+  posted there), so "the architect reviewed the PR" is visible from the PR
+  alone, and a quick confirmation pass runs on the PR before merge. (The one
+  exception — units where the dispatch is skipped outright — is immediately
+  below; those record the orchestrator's direct verification instead.)
 - The **human owner remains the sole merge gate** (ADR-0003); 0 approvals are
   required and the architect never blocks via a GitHub approval.
 

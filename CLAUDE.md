@@ -32,7 +32,7 @@ Work is divided across four roles. Each has a subagent definition in
 | Role | Subagent | Primary responsibility |
 |---|---|---|
 | Product Owner | `product-owner` | Requirements, PRDs, scope, acceptance criteria, functional acceptance, and user-facing docs (README + `docs/guide/`, ADR-0012) |
-| Architect / Reviewer | `architect` | ADRs, design, and **code review** on every PR |
+| Architect / Reviewer | `architect` | ADRs, design, and **code review** on every PR by default (narrow, criteria-bound skip exception: ADR-0011 amendment) |
 | Implementer | `implementer` | Production code, under TDD |
 | Tester | `tester` | Test strategy, test code, coverage, verification |
 
