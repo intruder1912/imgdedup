@@ -3,6 +3,14 @@
 # and `linkcheck` is a required status check on `main`. The retry/timeout/
 # accept-code tuning below exists specifically to keep that gate from flaking
 # on transient network errors now that it actually blocks merges.
+#
+# TASK-0206 finding: this file failed to *load* under the pinned lychee
+# v0.24.2 (`exclude_mail` was removed from the config schema; mail links are
+# excluded by default now) — a schema-drift bug identical in kind to the
+# markdownlint-cli2 drift from Batch 0. Because the job ran with `fail: false`
+# until this task, the load failure (exit code 3) was silently swallowed: link
+# checking has never actually run in CI. Verified locally against the fixed
+# config: 439 links, 438 OK, 0 errors, 1 excluded, 3 accepted redirects.
 
 # Network behavior
 max_retries = 3
@@ -15,5 +23,5 @@ exclude = [
   "^https://github.com/intruder1912/imgdedup",
 ]
 
-# Don't fail on mail links or localhost.
-exclude_mail = true
+# Mail links are excluded by default (there's an `include_mail` opt-in for the
+# opposite); nothing to configure here.
