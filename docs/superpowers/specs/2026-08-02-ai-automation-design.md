@@ -22,6 +22,7 @@ This is separate in purpose from the existing `.claude/agents/` in this repo
 *builds* imgdedup, not something end users install.
 
 **In scope:**
+
 - One Claude Code **plugin** (`claude-plugin/`) shipped in this repo, containing:
   - a **skill** (`using-imgdedup`) defining the safe operating protocol and the
     `--json` schema reference,
@@ -32,6 +33,7 @@ This is separate in purpose from the existing `.claude/agents/` in this repo
 - User-facing documentation of this as a real product capability (§6).
 
 **Non-goals:**
+
 - No new `imgdedup` CLI flags or behavior changes — this wraps the existing
   contract (PRD-0001, TASK-0308's JSON schema) as-is.
 - No auto-install of the `imgdedup` binary; the skill detects it's missing and

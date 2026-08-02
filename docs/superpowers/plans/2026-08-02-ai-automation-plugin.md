@@ -23,12 +23,14 @@
 ### Task 1: Scaffold the plugin package
 
 **Files:**
+
 - Create: `claude-plugin/.claude-plugin/plugin.json`
 - Create: `claude-plugin/skills/.gitkeep` (removed in Task 2 once `SKILL.md` lands — see Step 3)
 - Create: `claude-plugin/commands/.gitkeep` (removed in Task 3)
 - Create: `claude-plugin/agents/.gitkeep` (removed in Task 4)
 
 **Interfaces:**
+
 - Produces: the `claude-plugin/` directory tree and `plugin.json` manifest that Tasks 2–4 populate. No code interfaces (this is package metadata only).
 
 - [ ] **Step 1: Create the directory tree with placeholders**
@@ -75,10 +77,12 @@ git commit -m "feat(claude-plugin): scaffold imgdedup Claude Code plugin package
 ### Task 2: Write the `using-imgdedup` skill
 
 **Files:**
+
 - Create: `claude-plugin/skills/using-imgdedup/SKILL.md`
 - Delete: `claude-plugin/skills/.gitkeep`
 
 **Interfaces:**
+
 - Consumes: the `--json` schema documented in `docs/guide/output-and-exit-codes.md` (top-level fields `schema_version`, `mode`, `groups[]`, `totals`, `actions`, `warnings[]`, `root_errors[]`; `groups[].keeper`/`removable[]`; `File` has `path`/`size`/`mtime`; `Warning` has `stage`/`path`/`reason`; `RootError` has `path`/`reason`; `actions.removed[]`/`actions.skipped[]`, `Skip` has `path`/`reason`).
 - Produces: the `using-imgdedup` skill, referenced by name in Task 3's command and Task 4's agent instructions. Its four steps (Preflight, Dry run, Gate 1, Gate 2) are the exact step names Task 3/4 must refer back to.
 
@@ -194,6 +198,7 @@ repository:
 - Paraphrasing `actions.removed`/`actions.skipped` from memory instead of
   reading them from the actual command output.
 - Letting the `imgdedup-operator` subagent run anything but a dry run.
+
 ```
 
 - [ ] **Step 2: Remove the placeholder**
@@ -214,10 +219,12 @@ git commit -m "feat(claude-plugin): add using-imgdedup safety-protocol skill"
 ### Task 3: Write the `/imgdedup:dedupe` slash command
 
 **Files:**
+
 - Create: `claude-plugin/commands/dedupe.md`
 - Delete: `claude-plugin/commands/.gitkeep`
 
 **Interfaces:**
+
 - Consumes: the `using-imgdedup` skill from Task 2 (referenced by name, invoked inline — commands don't call skills programmatically, they instruct the model to follow it).
 - Produces: the `/imgdedup:dedupe` command, documented by name in Task 7 (guide page) and Task 8 (README).
 
@@ -260,10 +267,12 @@ git commit -m "feat(claude-plugin): add /imgdedup:dedupe slash command"
 ### Task 4: Write the `imgdedup-operator` subagent
 
 **Files:**
+
 - Create: `claude-plugin/agents/imgdedup-operator.md`
 - Delete: `claude-plugin/agents/.gitkeep`
 
 **Interfaces:**
+
 - Consumes: the `using-imgdedup` skill's Steps 1–2 (Preflight, Dry run) as its operating instructions — it must not perform Steps 3–4.
 - Produces: the `imgdedup-operator` subagent, whose read-only boundary Task 5 Step 4 adversarially tests, and which Task 7/8 document as "safe to dispatch for big scans."
 
@@ -327,6 +336,7 @@ git commit -m "feat(claude-plugin): add read-only imgdedup-operator subagent"
 **Files:** none created/modified — this task exercises Tasks 1–4's deliverables against a real `imgdedup` binary. Uses a scratch directory outside the repo.
 
 **Interfaces:**
+
 - Consumes: the built `claude-plugin/` package (Tasks 1–4) and a locally built `imgdedup` binary (`cargo build --release`, or `cargo run --` if already built elsewhere in this session).
 - Produces: a verified pass/fail record for the two properties the design's safety claim rests on (spec §5): (a) the dry-run → apply flow works end-to-end and surfaces `warnings`/`root_errors`, (b) the `imgdedup-operator` subagent refuses to apply/delete when asked directly.
 
@@ -427,10 +437,12 @@ planning-doc side of this).
 ### Task 6: Write ADR-0016
 
 **Files:**
+
 - Create: `docs/adr/0016-ai-agent-automation-plugin.md`
 - Modify: `docs/adr/README.md` (index table)
 
 **Interfaces:**
+
 - Consumes: the design spec (`docs/superpowers/specs/2026-08-02-ai-automation-design.md`), `docs/adr/TEMPLATE.md`'s structure.
 - Produces: ADR-0016, referenced by Task 7 (guide page) and Task 9 (PRD amendment).
 
@@ -585,10 +597,12 @@ git commit -m "docs(adr): add ADR-0016 AI-agent automation plugin design"
 ### Task 7: Write the user guide page
 
 **Files:**
+
 - Create: `docs/guide/using-with-claude.md`
 - Modify: `docs/guide/README.md` (add to the numbered page list)
 
 **Interfaces:**
+
 - Consumes: ADR-0016 (Task 6), the built plugin (Tasks 1–4), Task 5's verified behavior.
 - Produces: the guide page linked from Task 8 (README) and Task 9 (PRD amendment).
 
@@ -627,7 +641,7 @@ repository as a plugin source and install it:
 /plugin install imgdedup
 ```
 
-(The repository is currently private — see [the README](../../README.md#installing)
+(The repository is currently private — see [the README](../../../README.md#installing)
 for authenticated-access notes that also apply to adding it as a plugin
 source.)
 
@@ -642,7 +656,7 @@ Ask Claude in plain language, or use the command directly:
 Every run follows the same protocol, no matter how you ask:
 
 1. **It checks `imgdedup` is installed.** If it isn't, you'll be pointed at
-   the [Installing](../../README.md#installing) section — the agent never
+   the [Installing](../../../README.md#installing) section — the agent never
    installs it for you.
 2. **It always scans read-only first** (`imgdedup <path> --json`) and shows
    you a plain-language summary: how many duplicate groups, how much space is
@@ -685,7 +699,8 @@ your main conversation, afterward.
 
 The full rationale — why the protocol is split this way, and the known
 limitation of the subagent's read-only boundary — is in
-[ADR-0016](../adr/0016-ai-agent-automation-plugin.md).
+[ADR-0016](../../adr/0016-ai-agent-automation-plugin.md).
+
 ```
 
 - [ ] **Step 2: Add the page to `docs/guide/README.md`'s numbered list**
@@ -711,9 +726,11 @@ git commit -m "docs(guide): add Using imgdedup with an AI agent guide page"
 ### Task 8: Update the top-level README
 
 **Files:**
+
 - Modify: `README.md`
 
 **Interfaces:**
+
 - Consumes: Task 7's guide page.
 - Produces: nothing consumed downstream — this is the last documentation-linking step.
 
@@ -757,9 +774,11 @@ git commit -m "docs(readme): document the imgdedup Claude Code plugin"
 ### Task 9: Add the PRD-0001 amendment
 
 **Files:**
+
 - Modify: `docs/prd/PRD-0001-exact-image-deduplication.md`
 
 **Interfaces:**
+
 - Consumes: ADR-0016 (Task 6), the guide page (Task 7).
 - Produces: nothing consumed downstream.
 
@@ -803,6 +822,7 @@ git commit -m "docs(prd): record AI-agent automation as a supported capability"
 ### Task 10: Planning sync
 
 **Files:**
+
 - Modify: `docs/planning/backlog.md`
 - Modify: `docs/planning/status.md`
 - Modify: `docs/planning/batch-plan.md`
