@@ -112,7 +112,9 @@
     "recoverably",
     "untrashed",
     "NTFS",
-    "RAII"
+    "RAII",
+    "codesigning",
+    "Authenticode"
   ],
   "ignoreRegExpList": [
     "/\\]\\([^)]*\\)/",

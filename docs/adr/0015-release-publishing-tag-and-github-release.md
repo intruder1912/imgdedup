@@ -236,6 +236,97 @@ Hence the two-part answer:
 - Bad: ADR-0004 already rejected the release-PR cadence (an extra human gate on
   top of the merge gate that already exists).
 
+## Amendment 2026-08-02 — binary artifacts (TASK-0211)
+
+This ADR named TASK-0211 as the owner of three loose ends: which binaries to
+ship, how the released version reaches them given `Cargo.toml` is never
+bumped, and how to build them at all given a `GITHUB_TOKEN`-pushed tag
+triggers no other workflow. All three are now resolved and implemented in
+`.github/workflows/release.yml`'s `assets` job.
+
+**Platform matrix — four native builds, no cross-compilation.**
+`x86_64-unknown-linux-gnu` (`ubuntu-24.04`), `aarch64-apple-darwin`
+(`macos-latest`, Apple Silicon), `x86_64-apple-darwin` (`macos-15-intel`), and
+`x86_64-pc-windows-msvc` (`windows-latest`). Every artifact is built and smoke
+tested (`--version` check) on the architecture it targets. Deliberately
+excluded: `x86_64-unknown-linux-musl` (blake3 pulls in `cc`, so a musl build
+needs an untested sysroot in the most privileged job right before the first
+cut), and any `aarch64` Linux/Windows target (hosted ARM runners are not free
+on private repos, and nothing has asked for them). Consequence: the Linux
+artifact carries a glibc ≥ 2.39 floor. `ubuntu-22.04` was rejected as a lower
+floor because its deprecation (with deliberate job failures) begins
+2026-09-17. Tracked as a follow-up (TASK-0326) to widen before a public
+release, not before. `macos-15-intel` is a **dated** label, guaranteed only
+through August 2027 — recorded so its eventual removal is a scheduled decision
+rather than a surprised outage.
+
+**Version stamping — patch `Cargo.toml` transiently in each build runner's
+checkout, zero Rust source changes.** The CLI already derives `--version` from
+`CARGO_PKG_VERSION` (`#[command(version, …)]`), so the `assets` job
+line-anchors on `^version =` (verified to match exactly once) and rewrites it
+to the tag's version before `cargo build --release`, then asserts the built
+binary's `--version` output matches. This resolves the "Cargo.toml's version
+is not bumped" consequence recorded above: the in-tree placeholder never
+moves — only the ephemeral runner checkout is patched — while published
+binaries self-report correctly. The build cannot use `--locked`, since the
+stamp makes `Cargo.lock`'s own `imgdedup` entry stale by construction; cargo
+rewrites just that one entry, leaving every dependency pin untouched.
+
+**Workflow mechanics — publish, then a gated matrix job uploads, in the same
+run.** The `release` job now diffs `git tag --list 'v*'` before and after
+`npm run release` to detect whether a tag actually got published (semantic-
+release exposes no such output natively) and exposes `released`/`tag`/
+`version` as job outputs. Those two outputs are the only values in the whole
+flow that are not workflow-authored constants, and the `assets` job
+interpolates them into `run:` blocks and into a `sed` replacement — so the
+detect step **validates the tag against `^v<major>.<minor>.<patch>[-+…]$`
+before emitting it**, at the single point where it originates. Git ref names
+legally permit `$`, backticks and parentheses, so without that guard a tag name
+would be a shell-expression-injection channel into the repository's most
+privileged job (reachable only with write access, which already grants an
+equivalent token — but a closed channel beats an argued-harmless one). A new
+`assets` job (`needs: release`, gated on
+`released == 'true'`) matrix-builds the four targets, each checking out the
+published tag, stamping the version, building, packaging into a per-target
+`.tar.gz`/`.zip` (named `imgdedup-v<version>-<target-triple>.*`, containing
+`imgdedup`, `LICENSE`, `README.md`) with a same-named `.sha256`, and uploading
+via `gh release upload --clobber`. Chosen over building in parallel with
+semantic-release and attaching via `@semantic-release/github`'s `assets`
+option because that alternative runs version computation twice, adds
+artifact upload/download plumbing between jobs, and touches `.releaserc.json`
+— three new failure modes to buy a property not worth much here: the released
+commit's CI already compiled and tested on all three OSes minutes earlier, and
+a failed leg is recoverable (`--clobber` plus GitHub's "re-run failed jobs",
+which preserves the `release` job's outputs). No caching action runs in the
+`assets` job — a job holding `contents: write` should not restore a cache
+another job could have poisoned.
+
+**Manual backfill/recovery path.** `workflow_dispatch` gained an optional
+`tag` input: when set, the `release` job skips semantic-release entirely and
+reports that tag as `released`, letting the `assets` job (re-)build binaries
+for a release that already exists with none — the exact situation `v0.1.0`
+was in, having published (correctly, per the bootstrap design above) before
+this mechanism existed.
+
+**GPLv3 §6 — no additional action while private.** A GitHub Release asset on
+a private repo is downloadable only by a principal with repo read access, so
+every possible recipient already holds the complete corresponding source by
+the same grant; GitHub also attaches an auto-generated source archive to every
+Release. No written offer, source bundle, or notice text is needed now beyond
+bundling `LICENSE` in each archive (free, and good §4/§5 hygiene regardless).
+**TASK-0219 is the gate**: the moment the repository goes public, already-
+published assets become anonymously downloadable and this analysis no longer
+holds, so TASK-0219 must complete before that flip — recorded as an explicit
+dependency on its backlog row.
+
+**Not in scope:** GPG signing, macOS codesigning/notarization, Windows
+Authenticode — all require an owner-managed signing identity and long-lived
+secrets, which is exactly what this ADR's chosen option (no standing
+credentials beyond `GITHUB_TOKEN`) avoids. Unsigned binaries mean macOS
+Gatekeeper quarantines the download and Windows SmartScreen warns; documented
+as a user-facing workaround in [`../process/release.md`](../process/release.md),
+revisited only for a public release.
+
 ## Links
 
 - [semantic-release configuration](https://semantic-release.gitbook.io/semantic-release/usage/configuration)

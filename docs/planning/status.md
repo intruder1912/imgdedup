@@ -11,13 +11,12 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — session 6 (release plumbing: TASK-0202 licensing +
-  TASK-0203 semantic-release wiring) merged in PR #52. The one-time `v0.0.0`
-  baseline tag (ADR-0015) is pushed and verified — a release run that landed
-  moments before the tag existed correctly no-op'd with the "No v* tag yet"
-  notice, confirming the bootstrap guard works. Session 7 (7b): TASK-0211
-  (prebuilt binaries) is next, in a fresh window (this one closed at ~50%
-  after session 6, and 7b is its own ~40–55% estimate)._
+- _Nothing in flight — session 7b (TASK-0211, prebuilt binaries) is complete
+  on `chore/prebuilt-binaries`: implemented, architect-reviewed (design
+  dispatch + an independent review-only pass, both converged, no blockers),
+  and the one-time manual `workflow_dispatch` backfill run attached binaries
+  to `v0.1.0` (all four legs green; the macOS-arm64 artifact downloaded,
+  checksum-verified, extracted, and run — `imgdedup 0.1.0`). PR opening next._
 
 ## Up next
 
@@ -26,24 +25,27 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 **3:** S3 finish (TASK-0310, acceptance, docs, review, PR) — **done** ·
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
 one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
-(PR #52)** · **7 (next):** binaries + **v0.1.0** (TASK-0211) · **8–9
-(week 2):** docs consistency (TASK-0217/0205/0206), AI automation
-(TASK-0218).
+(PR #52)** · **7 (in progress):** binaries (TASK-0211) — implemented, review
+converged, backfill + PR pending · **8–9 (week 2):** docs consistency
+(TASK-0217/0205/0206), AI automation (TASK-0218).
 
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
-slip out of the S4 session. It is not on the session 6/7 critical path (only
-the v0.1.0 tag in session 7b needs it, per the batch-plan ordering
-constraints); pick it up whenever the owner can supply the corpus.
+slip out of the S4 session. It turned out not to gate anything: **v0.1.0
+published automatically** (see below) without it, so pick it up whenever the
+owner can supply the corpus.
 
-**The `v0.0.0` baseline tag is pushed (2026-08-02).** Without it the first
-automated release would have published **v1.0.0** instead of v0.1.0 — the
-release workflow deliberately no-ops until a `v*` tag exists, and a real run
-that landed moments before the tag existed did exactly that (confirmed via
-its `::notice::` log line). Session 7 now proceeds straight to TASK-0211. See
-[`../process/release.md`](../process/release.md) and
-[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md), whose
-constraints also mean the binaries must be built **inside** the release job.
+**v0.1.0 published automatically, before TASK-0211 could attach binaries to
+it.** The `v0.0.0` baseline tag (pushed 2026-08-02) bootstrapped the version
+line as designed; the very next green CI run on `main` (the docs-sync merge,
+PR #53) triggered the release workflow, which found the bootstrap tag, ran
+semantic-release, and published **v0.1.0 with zero release assets** — this
+predates the `assets` job TASK-0211 adds. `docs/process/release.md` and
+[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md) explain
+why binaries must be built **inside** the release job (a `GITHUB_TOKEN`-pushed
+tag triggers no other workflow) and how `chore/prebuilt-binaries` backfills
+v0.1.0's missing assets via a manual `workflow_dispatch` input rather than
+re-running semantic-release.
 
 Owner decisions
 2026-07-19: **license = GPL-3.0** (repo private for now), test oracle =
@@ -67,13 +69,48 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   `docs/planning/reviews/<slice>.md`. Uncertain now-vs-defer calls go to the
   product-owner, and deferrals are promoted to tracked backlog tasks.
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
-  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot) and TASK-0203
-  (release wiring) are done; **TASK-0211** (prebuilt binaries) remains.
+  and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203
+  (release wiring), and **TASK-0211** (prebuilt binaries) are done.
 - Stack-independent Phase 2 tasks still available in parallel: TASK-0205
   (cspell→typos), TASK-0206 (link-check gate), TASK-0219 (public-release
   licensing readiness).
 
 ## Done
+
+- **Prebuilt release binaries (TASK-0211, PR #54, session 7b, 2026-08-02).** An
+  `assets` job in `release.yml` now builds four native targets
+  (`x86_64-unknown-linux-gnu` on `ubuntu-24.04`, `aarch64-apple-darwin` on
+  `macos-latest`, `x86_64-apple-darwin` on `macos-15-intel`,
+  `x86_64-pc-windows-msvc` on `windows-latest`) after the `release` job
+  detects a newly published tag (diffing `git tag --list 'v*'`
+  before/after `npm run release`, since semantic-release exposes no such
+  output itself), stamps the released version transiently into each build
+  runner's `Cargo.toml` (never committed — `imgdedup --version` now reports
+  the real release version without the in-tree placeholder moving),
+  packages a per-target `.tar.gz`/`.zip` with `LICENSE` + `README.md` + a
+  `.sha256` checksum, and uploads via `gh release upload --clobber`.
+  Design recorded in a
+  [2026-08-02 amendment to ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-02--binary-artifacts-task-0211);
+  operational detail in
+  [`process/release.md`](../process/release.md#distribution-targets).
+  **v0.1.0 turned out to have already published automatically** (the
+  `v0.0.0` bootstrap tag + PR #53's green CI run triggered a real release,
+  correctly, before this job existed) with zero assets — a `tag` input was
+  added to `workflow_dispatch` so the workflow can be run against an
+  already-published tag without re-invoking semantic-release; used once to
+  backfill v0.1.0 (all four legs green, macOS-arm64 artifact independently
+  downloaded/checksum-verified/run). **Two architect dispatches** (design,
+  then an independent review-only pass — this touches the same
+  write-permission `GITHUB_TOKEN` job as TASK-0202/0203, so the CLAUDE.md
+  security gate applied the same way as PR #52): the review found and fixed
+  an inverted comment about GitHub Actions null/empty-string coercion, and
+  closed a tag-name shell-expression-injection channel (git ref names
+  legally permit `$`/backticks/parens; a `require_semver_tag` guard now
+  constrains the value at the point it originates) — not a privilege
+  escalation given it needs write access already, but a closed channel over
+  an argued-harmless one. Follow-up: TASK-0326 (musl/`aarch64` targets,
+  deferred to a public-release gate; TASK-0219 already gates the GPLv3 §6
+  position on the same event).
 
 - **Release plumbing — licensing + publishing (TASK-0202, TASK-0203, session 6 /
   batch 7a, 2026-08-02).** One chore unit, two decisions.
