@@ -11,11 +11,23 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — session 7b (TASK-0211, prebuilt binaries) merged as
-  **PR #54**. **Week 1 target reached: v0.1.0 shipped**, with binaries
-  backfilled onto it manually. Unplanned bonus: PR #54's own squash commit was
-  a `feat:` type (adding the binary-attachment capability), which — correctly,
-  per the automation this same PR built — triggered **another** real release,
+- _Session 8 (docs/tooling consistency) is 2/3 done: TASK-0206 (link check →
+  required gate) merged as **PR #56**; TASK-0205 (cspell → typos) is **PR #57**,
+  green, rebased onto PR #56, awaiting merge. **TASK-0217 (docs consistency
+  pass) deliberately deferred to a fresh window** — usage checked in mid-session
+  (5h window 34% → 45% after TASK-0206+TASK-0205, ~11% combined, tracking the
+  "docs chore ≈10%" cost model closely) with the largest, product-owner-led
+  unit of the session still ahead; stopping here rather than starting it
+  against 45% already spent. TASK-0217 also carries its own stderr-diagnostic-
+  prefix unification nit (`cli.rs::validate()` bakes "error: " into its own
+  message instead of `main.rs` adding it uniformly like every other stderr
+  writer does) — small, but worth doing in the same unit._
+
+- Session 7b (TASK-0211, prebuilt binaries) merged as **PR #54**. **Week 1
+  target reached: v0.1.0 shipped**, with binaries backfilled onto it
+  manually. Unplanned bonus: PR #54's own squash commit was a `feat:` type
+  (adding the binary-attachment capability), which — correctly, per the
+  automation this same PR built — triggered **another** real release,
   **v0.2.0**, and its `assets` job ran the fully-automatic path end-to-end for
   the first time with no manual intervention: all four legs green, uploaded
   to the live release, spot-checked (Linux artifact downloaded,
@@ -24,7 +36,7 @@ docs pass → AI automation, batched within Claude usage limits.
   landing as `feat:`/`fix:` now triggers a real release _and_ a four-target
   binary build, not just a tag — keep `docs:`/`chore:`/etc. commit types for
   planning-only or non-shipping changes, as the convention already requires
-  ([`commits.md`](../process/commits.md))._
+  ([`commits.md`](../process/commits.md)).
 
 ## Up next
 
@@ -79,9 +91,8 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
   and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203
   (release wiring), **TASK-0211** (prebuilt binaries), **TASK-0206** (link
-  check promoted to a required gate — PR #56, pending the owner's
-  required-check rename), and **TASK-0205** (cspell → typos migration —
-  chore/typos-spellcheck) are done.
+  check promoted to a required gate — **PR #56, merged**), and **TASK-0205**
+  (cspell → typos migration — PR #57) are done.
 - TASK-0219 (public-release licensing readiness) still available in
   parallel. New follow-up from TASK-0205: **TASK-0327** — `Makefile`'s
   `links` target still uses `markdown-link-check`, diverging from CI's
@@ -102,12 +113,12 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   pinned version: 439 links, 438 OK, 0 errors. Also corrected a stale claim
   that `cargo-deny` was a required check since 2026-07-19 — live-verified via
   the GitHub API that it was not, until the owner added it (and `linkcheck`)
-  live during this session. **Owner action still pending:** the
-  required-check context name needs renaming from `linkcheck (informational)`
-  to `linkcheck` to match, or future PRs sit pending forever (command in
-  Blockers, below) — the agent's own `gh api` attempt was blocked by the
-  permission classifier, as intended for branch-protection changes.
-  **TASK-0205 (chore/typos-spellcheck):** migrated spell-checking from cspell
+  live during this session. The owner then renamed the required-check
+  context from `linkcheck (informational)` to `linkcheck` to match (the
+  agent's own `gh api` attempt was blocked by the permission classifier, as
+  intended for branch-protection changes) — verified live afterward; no
+  blocker remains. **PR #56 merged.**
+  **TASK-0205 (PR #57):** migrated spell-checking from cspell
   to `typos`. Decided by running both tools against this repo's Markdown and
   a deliberately-misspelled scratch file: equal catch rate on six real typos,
   but `typos` needed only **one** exception (`PNGs`, a tokenizer artifact)
@@ -439,21 +450,14 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- **Branch-protection required-check rename pending (TASK-0206).** Verified
-  live via the GitHub API on 2026-08-02: `main` actually requires `ci-gate`,
-  `markdownlint`, `spellcheck`, `structure`, `pr-title`, `secret-scan`,
-  `cargo-deny`, and `linkcheck (informational)` — correcting a prior status.md
-  claim that `cargo-deny` was added 2026-07-19 after PR #34; it was not
-  actually in `required_status_checks.contexts` until the owner added it (and
-  `linkcheck`) live on 2026-08-02 while this task was in flight. This PR
-  renames the CI job from `linkcheck (informational)` to `linkcheck` (it now
-  actually blocks on broken links, `fail: true`), so the required-check
-  context must be renamed to match or every future PR will sit pending
-  forever on a check name nothing reports anymore. **Owner action needed**
-  (the agent's `gh api` PATCH to branch protection was blocked by the
-  permission classifier — modifying shared repo settings, by design): run
-  `gh api -X PATCH repos/intruder1912/imgdedup/branches/main/protection/required_status_checks -f strict=true -f 'contexts[]=markdownlint' -f 'contexts[]=spellcheck' -f 'contexts[]=structure' -f 'contexts[]=pr-title' -f 'contexts[]=secret-scan' -f 'contexts[]=ci-gate' -f 'contexts[]=cargo-deny' -f 'contexts[]=linkcheck'`
-  (or the equivalent edit in Settings → Branches) before merging this PR.
+- _None currently._ `main`'s required checks, verified live via the GitHub
+  API on 2026-08-02: `ci-gate`, `markdownlint`, `spellcheck`, `structure`,
+  `pr-title`, `secret-scan`, `cargo-deny`, `linkcheck` — the last two added by
+  the owner live during TASK-0206 (2026-08-02), correcting a prior status.md
+  claim that `cargo-deny` had already been required since 2026-07-19 (it had
+  not). The owner also renamed the `linkcheck (informational)` context to
+  `linkcheck` to match TASK-0206's job rename, resolving what was briefly a
+  blocker here.
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
