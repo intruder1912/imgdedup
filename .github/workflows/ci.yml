@@ -28,13 +28,26 @@ jobs:
   spellcheck:
     name: spellcheck
     runs-on: ubuntu-latest
+    env:
+      TYPOS_VERSION: "1.48.0"
+      # sha256 of typos-v1.48.0-x86_64-unknown-linux-musl.tar.gz, computed and
+      # pinned by hand (crate-ci/typos publishes no checksums file to verify
+      # against) — the third-party `crate-ci/typos` GitHub Action was tried
+      # and rejected: its entrypoint builds a glob with plain bash (no
+      # `shopt -s globstar`), so a `**` pattern silently fails to recurse and
+      # would have under-checked everything below the top level.
+      TYPOS_SHA256: "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
+      - name: Install pinned typos
+        run: |
+          set -euo pipefail
+          curl -sfLO "https://github.com/crate-ci/typos/releases/download/v${TYPOS_VERSION}/typos-v${TYPOS_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          echo "${TYPOS_SHA256}  typos-v${TYPOS_VERSION}-x86_64-unknown-linux-musl.tar.gz" | sha256sum -c
+          tar -xzf "typos-v${TYPOS_VERSION}-x86_64-unknown-linux-musl.tar.gz" ./typos
+          install -m 755 ./typos /usr/local/bin/typos
       - name: Spell-check docs
-        run: npx -y cspell@10.0.1 --no-progress "**/*.md"
+        run: typos $(git ls-files '*.md')
 
   structure:
     name: structure

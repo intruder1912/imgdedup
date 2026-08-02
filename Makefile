@@ -25,8 +25,8 @@ validate: mdlint spell fmt lint test ## Run all local validation (run before eve
 mdlint: ## Lint Markdown
 	npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
-spell: ## Spell-check documentation
-	npx -y cspell@10.0.1 --no-progress "**/*.md"
+spell: ## Spell-check documentation (needs: brew install typos-cli / cargo install typos-cli)
+	typos $$(git ls-files '*.md')
 
 links: ## Check links in Markdown (best-effort; CI runs the authoritative check)
 	npx -y markdown-link-check@3.14.2 --quiet --config .markdown-link-check.json $$(git ls-files '*.md')

@@ -78,12 +78,51 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   product-owner, and deferrals are promoted to tracked backlog tasks.
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
   and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203
-  (release wiring), and **TASK-0211** (prebuilt binaries) are done.
-- Stack-independent Phase 2 tasks still available in parallel: TASK-0205
-  (cspell→typos), TASK-0206 (link-check gate), TASK-0219 (public-release
-  licensing readiness).
+  (release wiring), **TASK-0211** (prebuilt binaries), **TASK-0206** (link
+  check promoted to a required gate — PR #56, pending the owner's
+  required-check rename), and **TASK-0205** (cspell → typos migration —
+  chore/typos-spellcheck) are done.
+- TASK-0219 (public-release licensing readiness) still available in
+  parallel. New follow-up from TASK-0205: **TASK-0327** — `Makefile`'s
+  `links` target still uses `markdown-link-check`, diverging from CI's
+  lychee-based gate and not wired into `validate` at all.
 
 ## Done
+
+- **Session 8 — docs/tooling consistency (2026-08-02).** Three small
+  independent units, each its own PR (per the one-unit-one-PR chore cadence).
+  **TASK-0206 (PR #56):** `linkcheck` promoted from informational to a
+  required gate (`fail: true`, renamed from `linkcheck (informational)`).
+  Flipping `fail: true` immediately surfaced a real, previously-invisible
+  defect: `lychee.toml` failed to _load_ under the pinned lychee v0.24.2
+  (`exclude_mail` was removed from its config schema — the same class of
+  drift as the markdownlint-cli2 issue from Batch 0); with `fail: false` that
+  load failure was silently swallowed, so link checking had never actually
+  run in CI, only reported green. Fixed and verified locally with the exact
+  pinned version: 439 links, 438 OK, 0 errors. Also corrected a stale claim
+  that `cargo-deny` was a required check since 2026-07-19 — live-verified via
+  the GitHub API that it was not, until the owner added it (and `linkcheck`)
+  live during this session. **Owner action still pending:** the
+  required-check context name needs renaming from `linkcheck (informational)`
+  to `linkcheck` to match, or future PRs sit pending forever (command in
+  Blockers, below) — the agent's own `gh api` attempt was blocked by the
+  permission classifier, as intended for branch-protection changes.
+  **TASK-0205 (chore/typos-spellcheck):** migrated spell-checking from cspell
+  to `typos`. Decided by running both tools against this repo's Markdown and
+  a deliberately-misspelled scratch file: equal catch rate on six real typos,
+  but `typos` needed only **one** exception (`PNGs`, a tokenizer artifact)
+  versus cspell's 100+ curated custom words — typos matches known
+  misspelling _patterns_ rather than checking every word against a
+  dictionary, so jargon needs no allowlist. Rejected the community
+  `crate-ci/typos` GitHub Action: its entrypoint builds a `**` glob under
+  plain bash with no `shopt -s globstar`, so it silently under-matches
+  recursively — confirmed by direct test. CI instead installs the pinned
+  binary directly (SHA256-verified, since upstream publishes no checksums
+  file) and runs it against `git ls-files '*.md'`, matching cspell's old
+  scope exactly. Follow-up: **TASK-0327** — `Makefile`'s `links` target still
+  uses `markdown-link-check`, diverging from TASK-0206's lychee-based gate
+  and not wired into `validate` at all; found while touching the Makefile for
+  this task, not fixed here to keep the unit focused.
 
 - **Prebuilt release binaries (TASK-0211, PR #54, session 7b, 2026-08-02).** An
   `assets` job in `release.yml` now builds four native targets
@@ -429,11 +468,11 @@ Every item intentionally deferred during the bootstrap now has a task in
   ([ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md),
   [`../process/release.md`](../process/release.md)).
 - Pin GitHub Actions to commit SHAs — **TASK-0204**.
-- Re-evaluate cspell → `typos` — **TASK-0205**.
-- Promote link check to a required gate — **TASK-0206**.
+- Re-evaluate cspell → `typos` — **TASK-0205** — **done**: migrated.
+- Promote link check to a required gate — **TASK-0206** — **done**: PR #56.
 - Language toolchain (build/lint/fmt/test/coverage/hooks) — **TASK-0207**
   (fulfilled by TASK-0301, merged in PR #14).
 - CodeQL + dependency audit — **TASK-0208**.
 - Dependabot package ecosystem for the stack — **TASK-0209**.
 - Project `.claude/settings.json` permission allowlist — **TASK-0210**.
-- Prebuilt binaries on releases — **TASK-0211**.
+- Prebuilt binaries on releases — **TASK-0211** — **done**: PR #54.
