@@ -77,7 +77,7 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Done
 
-- **Prebuilt release binaries (TASK-0211, session 7b, 2026-08-02).** An
+- **Prebuilt release binaries (TASK-0211, PR #54, session 7b, 2026-08-02).** An
   `assets` job in `release.yml` now builds four native targets
   (`x86_64-unknown-linux-gnu` on `ubuntu-24.04`, `aarch64-apple-darwin` on
   `macos-latest`, `x86_64-apple-darwin` on `macos-15-intel`,

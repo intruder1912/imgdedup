@@ -191,6 +191,27 @@ consistently comes in under.
      first release computing as v1.0.0) would have published a wrong version
      on merge. Budget chore units that touch release or security plumbing for
      a verification pass, not just for writing.
+- **PR #53 (docs sync recording the v0.0.0 tag push) landed the same day as
+  session 6, ~0% marginal cost** — a purely factual planning sync, no design
+  change, architect dispatch skipped per the owner-endorsed cost/benefit call
+  ([[review-cost-benefit]]). Its own CI run going green then triggered the
+  release workflow, which found the newly-bootstrapped `v0.0.0` tag and
+  **published v0.1.0 automatically** — correct behavior per the bootstrap
+  design, but a session-7 surprise: the release existed with zero assets
+  before TASK-0211 had shipped anything to attach.
+- **Session 7 (7b — PR #54, TASK-0211), 2026-08-02.** Two architect dispatches
+  (design, then an independent review-only pass — security-sensitive release
+  automation gets the second dispatch per the session-6 precedent, and it
+  again found real issues: an inverted null-coercion comment and a tag-name
+  shell-injection channel, both fixed in the review). Discovering v0.1.0's
+  early publish mid-session added scope not in the original estimate — a
+  `workflow_dispatch` backfill path, plus the actual backfill run and its
+  live verification (download, checksum, extract, run `--version`) — so this
+  session's actual-vs-estimate is not a clean comparison to prior chore
+  sessions; treat "handle a release that already exists" as a real cost line
+  if this pattern recurs (e.g. session 6/7 splits where the automation itself
+  can fire between them). Usage actuals to be reconciled against the owner's
+  `/usage` check, as with every prior session.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
@@ -236,7 +257,7 @@ is the estimated cost in 7-day-cap points, per the measured cost model above.
 | 4 | 6a | feature slice | TASK-0312 (AC-1..AC-19 through the real CLI, incl. the deferred AC-19 `--exit-code` binary test) | 50–60 | ~8 | **done 2026-08-02** — landed together with session 5 in PR #50 |
 | 5 | 6b | feature slice (finish) | NFR-4 scale/benchmark + TASK-0314 field validation + doc reconciliation, review, PR | 50–70 | ~8 | **done 2026-08-02 — PR #50** (AC's + NFR-4 measurement + architect review); **TASK-0314 field validation slipped as anticipated** (needs the owner's photo corpus, not yet supplied) — no user-facing doc reconciliation was needed since S4 added no product code |
 | 6 | 7a | chore | TASK-0202 (GPL-3.0 ADR + `LICENSE`), TASK-0203 (semantic-release wiring, protected-`main` push mechanism) | 50–65 | ~7 | **done 2026-08-02** — ADR-0014 (`GPL-3.0-only` + `LICENSE`) and ADR-0015 (tag + GitHub Release only; no bot/PAT/bypass needed); see the actuals log |
-| 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | `v0.0.0` baseline tag **pushed and verified 2026-08-02**; **next** — TASK-0211 itself, in a fresh window (session 6 closed this one at ~50%) |
+| 7 | 7b | chore/feature | TASK-0211 prebuilt binaries; cut **v0.1.0** (private) | 40–55 | ~6 | **done 2026-08-02 — PR #54.** v0.1.0 had already auto-published (with no assets) via the workflow this session extends; the session built the `assets` job, added a `workflow_dispatch` backfill path, and used it once to attach binaries to v0.1.0 |
 | 8 | 8 | chore | TASK-0217, TASK-0205, TASK-0206 | 40–60 | ~5 | next week |
 | 9 | 9 | feature | TASK-0218 | 50–70 | ~7 | next week |
 
