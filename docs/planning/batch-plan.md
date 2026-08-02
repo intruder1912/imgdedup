@@ -199,19 +199,25 @@ consistently comes in under.
   **published v0.1.0 automatically** — correct behavior per the bootstrap
   design, but a session-7 surprise: the release existed with zero assets
   before TASK-0211 had shipped anything to attach.
-- **Session 7 (7b — PR #54, TASK-0211), 2026-08-02.** Two architect dispatches
-  (design, then an independent review-only pass — security-sensitive release
-  automation gets the second dispatch per the session-6 precedent, and it
-  again found real issues: an inverted null-coercion comment and a tag-name
-  shell-injection channel, both fixed in the review). Discovering v0.1.0's
-  early publish mid-session added scope not in the original estimate — a
-  `workflow_dispatch` backfill path, plus the actual backfill run and its
-  live verification (download, checksum, extract, run `--version`) — so this
-  session's actual-vs-estimate is not a clean comparison to prior chore
-  sessions; treat "handle a release that already exists" as a real cost line
-  if this pattern recurs (e.g. session 6/7 splits where the automation itself
-  can fire between them). Usage actuals to be reconciled against the owner's
-  `/usage` check, as with every prior session.
+- **Session 7 (7b — PR #54, TASK-0211), 2026-08-02 — session started at 0%/31%
+  (window/week) and closed at 32%/34%: ~32% of the window against a 40–55
+  estimate (comfortably under, despite the added scope below), ~3% weekly,
+  in line with the ~10-weekly-points-per-full-window ratio (32% × ~10 ≈ 3).**
+  Two architect dispatches (design, then an independent review-only pass —
+  security-sensitive release automation gets the second dispatch per the
+  session-6 precedent, and it again found real issues: an inverted
+  null-coercion comment and a tag-name shell-injection channel, both fixed in
+  the review). Discovering v0.1.0's early publish mid-session added scope not
+  in the original estimate — a `workflow_dispatch` backfill path, plus the
+  actual backfill run and its live verification (download, checksum, extract,
+  run `--version`) — and it still landed well under estimate, so "handle a
+  release that already exists" is cheap in practice even though it wasn't
+  priced in; no estimate revision needed on that basis alone. Merging PR #54
+  then triggered a **second real release** (v0.2.0, `feat:`-typed commit) the
+  same session, whose `assets` job ran fully automatically end-to-end with no
+  manual step — the automatic path is now proven, not just the manual one,
+  at effectively zero extra cost (it ran on GitHub's infrastructure, not this
+  session's usage).
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 

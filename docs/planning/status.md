@@ -11,12 +11,20 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — session 7b (TASK-0211, prebuilt binaries) is complete
-  on `chore/prebuilt-binaries`: implemented, architect-reviewed (design
-  dispatch + an independent review-only pass, both converged, no blockers),
-  and the one-time manual `workflow_dispatch` backfill run attached binaries
-  to `v0.1.0` (all four legs green; the macOS-arm64 artifact downloaded,
-  checksum-verified, extracted, and run — `imgdedup 0.1.0`). PR opening next._
+- _Nothing in flight — session 7b (TASK-0211, prebuilt binaries) merged as
+  **PR #54**. **Week 1 target reached: v0.1.0 shipped**, with binaries
+  backfilled onto it manually. Unplanned bonus: PR #54's own squash commit was
+  a `feat:` type (adding the binary-attachment capability), which — correctly,
+  per the automation this same PR built — triggered **another** real release,
+  **v0.2.0**, and its `assets` job ran the fully-automatic path end-to-end for
+  the first time with no manual intervention: all four legs green, uploaded
+  to the live release, spot-checked (Linux artifact downloaded,
+  checksum-verified). The pipeline is now proven both ways: manual backfill
+  and automatic on-merge. **Operational note for future sessions:** any PR
+  landing as `feat:`/`fix:` now triggers a real release _and_ a four-target
+  binary build, not just a tag — keep `docs:`/`chore:`/etc. commit types for
+  planning-only or non-shipping changes, as the convention already requires
+  ([`commits.md`](../process/commits.md))._
 
 ## Up next
 
@@ -25,9 +33,9 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 **3:** S3 finish (TASK-0310, acceptance, docs, review, PR) — **done** ·
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
 one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
-(PR #52)** · **7 (in progress):** binaries (TASK-0211) — implemented, review
-converged, backfill + PR pending · **8–9 (week 2):** docs consistency
-(TASK-0217/0205/0206), AI automation (TASK-0218).
+(PR #52)** · **7:** binaries + v0.1.0 (TASK-0211) — **done (PR #54)** ·
+**8–9 (fresh window each):** docs consistency (TASK-0217/0205/0206), AI
+automation (TASK-0218).
 
 **TASK-0314 (real-photo field validation) did not land in PR #50** — it needs
 the owner's ~500–1k photo corpus, which per the 2026-08-01 plan was allowed to
@@ -110,7 +118,10 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   escalation given it needs write access already, but a closed channel over
   an argued-harmless one. Follow-up: TASK-0326 (musl/`aarch64` targets,
   deferred to a public-release gate; TASK-0219 already gates the GPLv3 §6
-  position on the same event).
+  position on the same event). **Proven both paths the same day:** merging
+  this PR's own `feat:`-typed squash commit triggered a real, unplanned
+  **v0.2.0** release, whose `assets` job ran fully automatically (no manual
+  dispatch) for the first time — all four legs green, uploaded, spot-checked.
 
 - **Release plumbing — licensing + publishing (TASK-0202, TASK-0203, session 6 /
   batch 7a, 2026-08-02).** One chore unit, two decisions.
