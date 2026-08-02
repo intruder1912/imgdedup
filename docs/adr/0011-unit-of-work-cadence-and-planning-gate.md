@@ -182,6 +182,47 @@ instance.**
 - Bad: breaks "resume from repo content alone" (ADR-0002); less agent-friendly as
   a narrative source of truth; splits the source of truth across two systems.
 
+## Amendment 2026-08-02 — architect-review-skip exception for verified low-risk units
+
+Since this ADR shipped, §7's "the architect reviews the branch diff before the
+PR opens" has had an unwritten exception, applied consistently across **nine**
+units without ever being recorded: TASK-0217 (this task) found the gap while
+reconciling process docs against shipped practice — exactly the kind of drift
+[ADR-0012](0012-documentation-ownership-and-placement.md)/this ADR exist to
+prevent.
+
+**The pattern, as actually practiced:** a docs-only planning sync (PRs #39, #42, #46, #51, #53, #55) or a low-risk `contents: read` CI-tooling chore (PRs #56, #57, #58 — the last one a `fix(ci)` config-only exclude bundled with a docs sync) skipped the architect dispatch entirely, with the orchestrator instead verifying the change's claims directly — running the tool locally, querying a live API, re-running CI — and recording that verification in the PR body in place of a review summary.
+
+**Formalized here, narrowly:** skipping the architect dispatch is permitted
+only when **all** of the following hold:
+
+1. **No product code changes** (nothing under `src/`, `tests/`, or affecting
+   the binary's behavior) — `refactor`/`feat`/`fix` touching product code
+   always gets the normal review.
+2. **No write-permission or secret-touching CI/workflow change.** A job
+   holding `contents: write` or handling any secret gets the normal review
+   (and, per the TASK-0202/0203 and TASK-0211 precedent, often *two*
+   dispatches) regardless of how small the diff looks — CLAUDE.md's security
+   gate (rule 3) applies by risk class, not by unit size.
+3. **The change's correctness is independently verifiable by the orchestrator
+   directly**, not merely asserted — running the tool with the exact pinned
+   version, querying the live GitHub API, re-running the CI job — and that
+   verification is recorded in the PR body. A change whose correctness rests
+   on judgment (design trade-offs, security reasoning, anything a second
+   pair of eyes would actually reason about differently) still needs the
+   architect.
+4. **The unit is a planning/status sync or a CI-tooling chore** — the two
+   classes observed above, and nothing else by analogy. A new or amended
+   ADR/PRD/process rule (including any future widening of *this* exception)
+   is a judgment change under (3) and always gets the normal review; this
+   amendment itself was reviewed rather than self-exempted.
+
+The architect (or the product-owner, or the orchestrator) may **always**
+demand a review regardless of this exception — it lowers the floor, not a
+ceiling. This does not relax [ADR-0006](0006-post-pr-review-iteration-loop.md)
+or the merge gate (ADR-0003): checks still must be green and, when a review
+did happen, its threads resolved, before the human owner merges.
+
 ## Links
 
 - [ADR-0002](0002-in-repo-markdown-as-canonical-planning.md) — reaffirmed:

@@ -44,6 +44,12 @@ fn delete_without_apply_exits_1() {
 
 /// `--delete` without `--apply` prints a clear error message mentioning --apply.
 /// Maps to: AC-12 ("with a clear error").
+///
+/// Also pins the `error: ` prefix on the *printed* line: `cli::validate()`
+/// returns the bare message and `main.rs` adds the prefix at the stderr call
+/// site, uniformly with every other diagnostic (TASK-0217). The unit test in
+/// `cli.rs` pins the other half (that the returned message has no prefix), so
+/// only the pair of assertions keeps the prefix from silently vanishing.
 #[test]
 fn delete_without_apply_prints_clear_error() {
     cmd()
@@ -51,6 +57,7 @@ fn delete_without_apply_prints_clear_error() {
         .arg("--delete")
         .assert()
         .failure()
+        .stderr(predicate::str::contains("error: --delete"))
         .stderr(predicate::str::contains("--apply"));
 }
 

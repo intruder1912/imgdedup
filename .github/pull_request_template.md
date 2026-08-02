@@ -29,7 +29,9 @@ See docs/process/commits.md.
 - [ ] Docs updated (README/CLAUDE/process as needed)
 - [ ] Planning updated (`docs/planning/status.md`, `backlog.md`)
 - [ ] No secrets committed; security considerations reviewed
-- [ ] Architect review requested
+- [ ] Architect review requested — or the dispatch skipped and the
+      orchestrator's direct verification recorded above, per the
+      [ADR-0011 amendment](../docs/adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units)
 
 ## Notes for the reviewer
 

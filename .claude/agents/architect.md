@@ -53,6 +53,15 @@ resolved (ADR-0006). Check:
 Be specific and actionable. Distinguish blocking issues from nits. Verify claims
 against the code; do not rubber-stamp.
 
+**Not every unit gets a dispatch.** A docs-only planning sync, or a low-risk
+`contents: read` CI-tooling chore whose correctness the orchestrator verifies
+directly (running the tool, querying a live API, re-running CI) rather than
+asserting, may skip the architect review, with that verification recorded in
+the PR body instead. Never applies to product code or anything holding write
+permissions or touching a secret — see the
+[ADR-0011 amendment](../../docs/adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units)
+for the exact criteria.
+
 **On a PRD slice** ([ADR-0013](../../docs/adr/0013-prd-slice-delivery-cadence.md)),
 review in two phases. *In-progress:* when the implementer requests it (or the
 product-owner/orchestrator demands it), review the relevant **commit range** on the

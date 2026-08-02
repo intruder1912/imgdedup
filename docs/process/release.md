@@ -113,7 +113,7 @@ binary, `LICENSE`, and `README.md`. A same-named `.sha256` file (one per
 artifact, `sha256sum -c` format) accompanies each archive:
 
 ```sh
-# verify a downloaded artifact
+# verify a downloaded artifact (macOS lacks sha256sum: use `shasum -a 256 -c`)
 sha256sum -c imgdedup-v0.1.0-x86_64-unknown-linux-gnu.tar.gz.sha256
 ```
 

@@ -205,10 +205,22 @@ new dependencies — anywhere green checks materially inform the review) may ins
 iterate on the PR. Either way:
 
 - The architect's review is **recorded on the PR** when it opens (the review is
-  posted there), so "the architect reviewed every PR" holds, and a quick
-  confirmation pass runs on the PR before merge.
+  posted there), so "the architect reviewed the PR" is visible from the PR
+  alone, and a quick confirmation pass runs on the PR before merge. (The one
+  exception — units where the dispatch is skipped outright — is immediately
+  below; those record the orchestrator's direct verification instead.)
 - The **human owner remains the sole merge gate** (ADR-0003); 0 approvals are
   required and the architect never blocks via a GitHub approval.
+
+**Skipping the review entirely.** For a narrow class of unit — a docs-only
+planning sync, or a low-risk `contents: read` CI-tooling chore whose
+correctness the orchestrator verifies directly (running the tool locally,
+querying a live API, re-running CI) rather than asserting — the architect
+dispatch may be skipped, with that verification recorded in the PR body in
+its place. This never applies to product code changes or to anything holding
+write permissions or touching a secret. See the
+[2026-08-02 amendment to ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units)
+for the exact criteria.
 
 **Stage-two loop (post-PR, lightweight).** Once the PR is open, any remaining
 findings — CI-only failures plus confirmation-pass nits — flow through a small,

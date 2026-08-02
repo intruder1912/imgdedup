@@ -79,10 +79,14 @@ impl Cli {
     ///
     /// Currently enforced: `--delete` requires `--apply` (AC-12, ADR-0008).
     /// This is a *run-level* error (exit 1), not a parse error (exit 2).
+    ///
+    /// Returns the bare diagnostic, with no `"error: "` prefix — `main.rs`
+    /// adds it uniformly at the single stderr call site, the same way every
+    /// other diagnostic in the run does (TASK-0217 consistency pass).
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.delete && !self.apply {
             return Err(
-                "error: --delete requires --apply (refusing to permanently delete without an explicit --apply)",
+                "--delete requires --apply (refusing to permanently delete without an explicit --apply)",
             );
         }
         Ok(())
@@ -258,6 +262,11 @@ mod tests {
         assert!(
             msg.contains("--apply"),
             "error message must mention --apply, got: {msg}"
+        );
+        assert!(
+            !msg.starts_with("error:"),
+            "validate() must return the bare message — main.rs adds the \
+             \"error: \" prefix uniformly at the one stderr call site, got: {msg}"
         );
     }
 
