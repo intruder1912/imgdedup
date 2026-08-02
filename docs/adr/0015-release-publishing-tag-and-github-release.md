@@ -41,7 +41,7 @@ So a *tag* push is not a *branch* push. What semantic-release actually pushes
 |---|---|---|
 | verify auth | `git push --dry-run --no-verify -- <url> HEAD:main` | none — a dry run sends no ref update |
 | tag | `git tag v<version> <sha>` then `git push --tags -- <url>` | `refs/tags/*` |
-| notes | `git push --force -- <url> refs/notes/semantic-release` | `refs/notes/*` |
+| notes | `git push -- <url> refs/notes/semantic-release-v<version>` | `refs/notes/*` |
 
 A commit is pushed to `refs/heads/main` **only** by the optional
 `@semantic-release/git` plugin (the plugin that commits an updated
