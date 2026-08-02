@@ -400,9 +400,21 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- _None currently._ (`main` requires `ci-gate`, `markdownlint`, `spellcheck`,
-  `structure`, `pr-title`, `secret-scan`, and `cargo-deny` — the last added by
-  the owner 2026-07-19 after PR #34.)
+- **Branch-protection required-check rename pending (TASK-0206).** Verified
+  live via the GitHub API on 2026-08-02: `main` actually requires `ci-gate`,
+  `markdownlint`, `spellcheck`, `structure`, `pr-title`, `secret-scan`,
+  `cargo-deny`, and `linkcheck (informational)` — correcting a prior status.md
+  claim that `cargo-deny` was added 2026-07-19 after PR #34; it was not
+  actually in `required_status_checks.contexts` until the owner added it (and
+  `linkcheck`) live on 2026-08-02 while this task was in flight. This PR
+  renames the CI job from `linkcheck (informational)` to `linkcheck` (it now
+  actually blocks on broken links, `fail: true`), so the required-check
+  context must be renamed to match or every future PR will sit pending
+  forever on a check name nothing reports anymore. **Owner action needed**
+  (the agent's `gh api` PATCH to branch protection was blocked by the
+  permission classifier — modifying shared repo settings, by design): run
+  `gh api -X PATCH repos/intruder1912/imgdedup/branches/main/protection/required_status_checks -f strict=true -f 'contexts[]=markdownlint' -f 'contexts[]=spellcheck' -f 'contexts[]=structure' -f 'contexts[]=pr-title' -f 'contexts[]=secret-scan' -f 'contexts[]=ci-gate' -f 'contexts[]=cargo-deny' -f 'contexts[]=linkcheck'`
+  (or the equivalent edit in Settings → Branches) before merging this PR.
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 

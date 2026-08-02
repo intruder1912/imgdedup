@@ -1,6 +1,8 @@
 # lychee link-checker configuration (used by CI).
-# Link checking is informational in Phase 0 (not a required check) and is
-# promoted to a required gate in Phase 2.
+# Required gate since TASK-0206 (Phase 2): the CI job fails on broken links
+# and `linkcheck` is a required status check on `main`. The retry/timeout/
+# accept-code tuning below exists specifically to keep that gate from flaking
+# on transient network errors now that it actually blocks merges.
 
 # Network behavior
 max_retries = 3
