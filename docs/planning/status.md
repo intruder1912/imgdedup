@@ -12,8 +12,12 @@ docs pass → AI automation, batched within Claude usage limits.
 ## In progress
 
 - _Nothing in flight — session 6 (release plumbing: TASK-0202 licensing +
-  TASK-0203 semantic-release wiring) is complete, open as PR #52. Slice S4
-  merged in PR #50._
+  TASK-0203 semantic-release wiring) merged in PR #52. The one-time `v0.0.0`
+  baseline tag (ADR-0015) is pushed and verified — a release run that landed
+  moments before the tag existed correctly no-op'd with the "No v* tag yet"
+  notice, confirming the bootstrap guard works. Session 7 (7b): TASK-0211
+  (prebuilt binaries) is next, in a fresh window (this one closed at ~50%
+  after session 6, and 7b is its own ~40–55% estimate)._
 
 ## Up next
 
@@ -21,8 +25,8 @@ Session order per the [batch plan](batch-plan.md) — **1:** re-plan + batch 4b
 (TASK-0315) — **done** · **2:** TASK-0316 + S3 core (TASK-0309) — **done** ·
 **3:** S3 finish (TASK-0310, acceptance, docs, review, PR) — **done** ·
 **4+5:** S4 acceptance + scale (TASK-0312) — **done (PR #50)**, combined into
-one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done,
-open as PR #52** · **7 (next):** binaries + **v0.1.0** (TASK-0211) · **8–9
+one session/PR · **6:** release plumbing (TASK-0202, TASK-0203) — **done
+(PR #52)** · **7 (next):** binaries + **v0.1.0** (TASK-0211) · **8–9
 (week 2):** docs consistency (TASK-0217/0205/0206), AI automation
 (TASK-0218).
 
@@ -32,10 +36,11 @@ slip out of the S4 session. It is not on the session 6/7 critical path (only
 the v0.1.0 tag in session 7b needs it, per the batch-plan ordering
 constraints); pick it up whenever the owner can supply the corpus.
 
-**Session 7 starts with a one-time step:** push the `v0.0.0` baseline tag
-(`git tag v0.0.0 "$(git rev-list --max-parents=0 origin/main)"`), or the first
-automated release publishes **v1.0.0** instead of v0.1.0 — the release workflow
-deliberately no-ops until a `v*` tag exists. See
+**The `v0.0.0` baseline tag is pushed (2026-08-02).** Without it the first
+automated release would have published **v1.0.0** instead of v0.1.0 — the
+release workflow deliberately no-ops until a `v*` tag exists, and a real run
+that landed moments before the tag existed did exactly that (confirmed via
+its `::notice::` log line). Session 7 now proceeds straight to TASK-0211. See
 [`../process/release.md`](../process/release.md) and
 [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md), whose
 constraints also mean the binaries must be built **inside** the release job.
