@@ -166,21 +166,31 @@ consistently comes in under.
      anticipated.** It needs the owner's ~500–1k photo corpus, which has not
      been supplied; it is not on the session 6/7a critical path (only the
      v0.1.0 tag in 7b needs it) and can land whenever the corpus is ready.
-- **Session 6 (batch 7a — TASK-0202 + TASK-0203), 2026-08-02 — complete; no
-  `/usage` figures captured for this unit** (the work ran as a single architect
-  dispatch, so the number was never read; record it at the next reconciliation).
-  Scope delivered: ADR-0014 + `LICENSE` + the `Cargo.toml`/README/CONTRIBUTING/
-  `deny.toml` reconciliation; ADR-0015 + `.releaserc.json` + `release.yml` +
-  `package.json`/`package-lock.json` + Dependabot npm + `CHANGELOG.md` +
-  `docs/process/release.md` + the ADR-0004 loop-closure; this planning sync.
-  One estimating lesson worth carrying: **the expensive part was verification,
-  not authoring.** Reading semantic-release's source, querying the live
-  branch-protection and ruleset APIs, and running the tool in `--dry-run`
-  against `main` is what turned two plausible assumptions into facts — one of
-  which (ADR-0004's "protection blocks the tag push") was wrong, and another of
-  which (the first release computing as v1.0.0) would have published a wrong
-  version on merge. Budget chore units that touch release or security plumbing
-  for a verification pass, not just for writing.
+- **PR #51 (docs sync for the S4/PR #50 merge) + session 6 (batch 7a — PR #52,
+  TASK-0202 + TASK-0203), 2026-08-02 — 50% of the window combined against a
+  50–65 estimate for session 6 alone (i.e. squarely at the low end once the
+  free docs-sync is folded in); the week moved 25% → 30% (~5 weekly points,
+  same order as prior chore sessions).** Scope delivered: ADR-0014, `LICENSE`,
+  and the `Cargo.toml`/README/CONTRIBUTING/`deny.toml` reconciliation; ADR-0015,
+  `.releaserc.json`, `release.yml`, `package.json`/`package-lock.json`,
+  Dependabot npm, `CHANGELOG.md`, `docs/process/release.md`, and the ADR-0004
+  loop-closure; two planning syncs (#51, and this unit's own). Two things worth
+  carrying forward:
+  1. **This chore ran two architect dispatches (author, then an independent
+     review-only pass), not the usual one** — deliberately, because it's CI
+     automation carrying a write-permission `GITHUB_TOKEN` and CLAUDE.md's
+     security gate (rule 3) applies regardless of unit size. It still landed
+     at the low end of the estimate, so **security-sensitive chores can afford
+     the second dispatch without blowing the window** — budget for it rather
+     than defaulting to one.
+  2. **The expensive part was verification, not authoring.** Reading
+     semantic-release's source, querying the live branch-protection and
+     ruleset APIs, and running the tool in `--dry-run` against `main` is what
+     turned two plausible assumptions into facts — one of which (ADR-0004's
+     "protection blocks the tag push") was wrong, and another of which (the
+     first release computing as v1.0.0) would have published a wrong version
+     on merge. Budget chore units that touch release or security plumbing for
+     a verification pass, not just for writing.
 
 ## Re-plan 2026-08-01 — both limit pools fresh
 
