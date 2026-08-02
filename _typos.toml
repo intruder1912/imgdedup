@@ -1,0 +1,17 @@
+# typos spell-checker configuration (used by CI and `make validate`).
+# Replaces cspell (TASK-0205): typos matches known common-misspelling
+# patterns rather than checking every word against a dictionary, so this
+# jargon-heavy repo needs a near-empty exceptions list instead of cspell's
+# 100+ curated custom words — evaluated by running both tools against this
+# repo's Markdown and against a deliberately-misspelled scratch file; typos
+# caught the same real typos cspell did, with a single false positive.
+
+[files]
+extend-exclude = ["*.lock", "package-lock.json"]
+
+[default.extend-identifiers]
+# False positive: typos' identifier splitter reads "PNGs" as "PN" + "Gs" (the
+# last uppercase letter before a lowercase run attaches to that run), and "PN"
+# alone is a known typo of "ON". extend-words doesn't suppress this because
+# the match fires on the split sub-token, not the whole word.
+PNGs = "PNGs"

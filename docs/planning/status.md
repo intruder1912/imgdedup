@@ -11,11 +11,23 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Nothing in flight — session 7b (TASK-0211, prebuilt binaries) merged as
-  **PR #54**. **Week 1 target reached: v0.1.0 shipped**, with binaries
-  backfilled onto it manually. Unplanned bonus: PR #54's own squash commit was
-  a `feat:` type (adding the binary-attachment capability), which — correctly,
-  per the automation this same PR built — triggered **another** real release,
+- _Session 8 (docs/tooling consistency) is 2/3 done: TASK-0206 (link check →
+  required gate) merged as **PR #56**; TASK-0205 (cspell → typos) is **PR #57**,
+  green, rebased onto PR #56, awaiting merge. **TASK-0217 (docs consistency
+  pass) deliberately deferred to a fresh window** — usage checked in mid-session
+  (5h window 34% → 45% after TASK-0206+TASK-0205, ~11% combined, tracking the
+  "docs chore ≈10%" cost model closely) with the largest, product-owner-led
+  unit of the session still ahead; stopping here rather than starting it
+  against 45% already spent. TASK-0217 also carries its own stderr-diagnostic-
+  prefix unification nit (`cli.rs::validate()` bakes "error: " into its own
+  message instead of `main.rs` adding it uniformly like every other stderr
+  writer does) — small, but worth doing in the same unit._
+
+- Session 7b (TASK-0211, prebuilt binaries) merged as **PR #54**. **Week 1
+  target reached: v0.1.0 shipped**, with binaries backfilled onto it
+  manually. Unplanned bonus: PR #54's own squash commit was a `feat:` type
+  (adding the binary-attachment capability), which — correctly, per the
+  automation this same PR built — triggered **another** real release,
   **v0.2.0**, and its `assets` job ran the fully-automatic path end-to-end for
   the first time with no manual intervention: all four legs green, uploaded
   to the live release, spot-checked (Linux artifact downloaded,
@@ -24,7 +36,7 @@ docs pass → AI automation, batched within Claude usage limits.
   landing as `feat:`/`fix:` now triggers a real release _and_ a four-target
   binary build, not just a tag — keep `docs:`/`chore:`/etc. commit types for
   planning-only or non-shipping changes, as the convention already requires
-  ([`commits.md`](../process/commits.md))._
+  ([`commits.md`](../process/commits.md)).
 
 ## Up next
 
@@ -78,12 +90,50 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   product-owner, and deferrals are promoted to tracked backlog tasks.
 - **TASK-0207 fulfilled by TASK-0301.** TASK-0208 reframed to clippy, cargo-audit,
   and cargo-deny (see ADR-0007). TASK-0209 (cargo Dependabot), TASK-0203
-  (release wiring), and **TASK-0211** (prebuilt binaries) are done.
-- Stack-independent Phase 2 tasks still available in parallel: TASK-0205
-  (cspell→typos), TASK-0206 (link-check gate), TASK-0219 (public-release
-  licensing readiness).
+  (release wiring), **TASK-0211** (prebuilt binaries), **TASK-0206** (link
+  check promoted to a required gate — **PR #56, merged**), and **TASK-0205**
+  (cspell → typos migration — PR #57) are done.
+- TASK-0219 (public-release licensing readiness) still available in
+  parallel. New follow-up from TASK-0205: **TASK-0327** — `Makefile`'s
+  `links` target still uses `markdown-link-check`, diverging from CI's
+  lychee-based gate and not wired into `validate` at all.
 
 ## Done
+
+- **Session 8 — docs/tooling consistency (2026-08-02).** Three small
+  independent units, each its own PR (per the one-unit-one-PR chore cadence).
+  **TASK-0206 (PR #56):** `linkcheck` promoted from informational to a
+  required gate (`fail: true`, renamed from `linkcheck (informational)`).
+  Flipping `fail: true` immediately surfaced a real, previously-invisible
+  defect: `lychee.toml` failed to _load_ under the pinned lychee v0.24.2
+  (`exclude_mail` was removed from its config schema — the same class of
+  drift as the markdownlint-cli2 issue from Batch 0); with `fail: false` that
+  load failure was silently swallowed, so link checking had never actually
+  run in CI, only reported green. Fixed and verified locally with the exact
+  pinned version: 439 links, 438 OK, 0 errors. Also corrected a stale claim
+  that `cargo-deny` was a required check since 2026-07-19 — live-verified via
+  the GitHub API that it was not, until the owner added it (and `linkcheck`)
+  live during this session. The owner then renamed the required-check
+  context from `linkcheck (informational)` to `linkcheck` to match (the
+  agent's own `gh api` attempt was blocked by the permission classifier, as
+  intended for branch-protection changes) — verified live afterward; no
+  blocker remains. **PR #56 merged.**
+  **TASK-0205 (PR #57):** migrated spell-checking from cspell
+  to `typos`. Decided by running both tools against this repo's Markdown and
+  a deliberately-misspelled scratch file: equal catch rate on six real typos,
+  but `typos` needed only **one** exception (`PNGs`, a tokenizer artifact)
+  versus cspell's 100+ curated custom words — typos matches known
+  misspelling _patterns_ rather than checking every word against a
+  dictionary, so jargon needs no allowlist. Rejected the community
+  `crate-ci/typos` GitHub Action: its entrypoint builds a `**` glob under
+  plain bash with no `shopt -s globstar`, so it silently under-matches
+  recursively — confirmed by direct test. CI instead installs the pinned
+  binary directly (SHA256-verified, since upstream publishes no checksums
+  file) and runs it against `git ls-files '*.md'`, matching cspell's old
+  scope exactly. Follow-up: **TASK-0327** — `Makefile`'s `links` target still
+  uses `markdown-link-check`, diverging from TASK-0206's lychee-based gate
+  and not wired into `validate` at all; found while touching the Makefile for
+  this task, not fixed here to keep the unit focused.
 
 - **Prebuilt release binaries (TASK-0211, PR #54, session 7b, 2026-08-02).** An
   `assets` job in `release.yml` now builds four native targets
@@ -400,21 +450,14 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- **Branch-protection required-check rename pending (TASK-0206).** Verified
-  live via the GitHub API on 2026-08-02: `main` actually requires `ci-gate`,
-  `markdownlint`, `spellcheck`, `structure`, `pr-title`, `secret-scan`,
-  `cargo-deny`, and `linkcheck (informational)` — correcting a prior status.md
-  claim that `cargo-deny` was added 2026-07-19 after PR #34; it was not
-  actually in `required_status_checks.contexts` until the owner added it (and
-  `linkcheck`) live on 2026-08-02 while this task was in flight. This PR
-  renames the CI job from `linkcheck (informational)` to `linkcheck` (it now
-  actually blocks on broken links, `fail: true`), so the required-check
-  context must be renamed to match or every future PR will sit pending
-  forever on a check name nothing reports anymore. **Owner action needed**
-  (the agent's `gh api` PATCH to branch protection was blocked by the
-  permission classifier — modifying shared repo settings, by design): run
-  `gh api -X PATCH repos/intruder1912/imgdedup/branches/main/protection/required_status_checks -f strict=true -f 'contexts[]=markdownlint' -f 'contexts[]=spellcheck' -f 'contexts[]=structure' -f 'contexts[]=pr-title' -f 'contexts[]=secret-scan' -f 'contexts[]=ci-gate' -f 'contexts[]=cargo-deny' -f 'contexts[]=linkcheck'`
-  (or the equivalent edit in Settings → Branches) before merging this PR.
+- _None currently._ `main`'s required checks, verified live via the GitHub
+  API on 2026-08-02: `ci-gate`, `markdownlint`, `spellcheck`, `structure`,
+  `pr-title`, `secret-scan`, `cargo-deny`, `linkcheck` — the last two added by
+  the owner live during TASK-0206 (2026-08-02), correcting a prior status.md
+  claim that `cargo-deny` had already been required since 2026-07-19 (it had
+  not). The owner also renamed the `linkcheck (informational)` context to
+  `linkcheck` to match TASK-0206's job rename, resolving what was briefly a
+  blocker here.
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
@@ -429,11 +472,11 @@ Every item intentionally deferred during the bootstrap now has a task in
   ([ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md),
   [`../process/release.md`](../process/release.md)).
 - Pin GitHub Actions to commit SHAs — **TASK-0204**.
-- Re-evaluate cspell → `typos` — **TASK-0205**.
-- Promote link check to a required gate — **TASK-0206**.
+- Re-evaluate cspell → `typos` — **TASK-0205** — **done**: migrated.
+- Promote link check to a required gate — **TASK-0206** — **done**: PR #56.
 - Language toolchain (build/lint/fmt/test/coverage/hooks) — **TASK-0207**
   (fulfilled by TASK-0301, merged in PR #14).
 - CodeQL + dependency audit — **TASK-0208**.
 - Dependabot package ecosystem for the stack — **TASK-0209**.
 - Project `.claude/settings.json` permission allowlist — **TASK-0210**.
-- Prebuilt binaries on releases — **TASK-0211**.
+- Prebuilt binaries on releases — **TASK-0211** — **done**: PR #54.
