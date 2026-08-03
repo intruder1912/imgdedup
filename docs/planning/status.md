@@ -11,6 +11,19 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 13, follow-up fix (TASK-0327 regression) — found by actually
+  running `make validate` locally, not by reading the config: TASK-0327
+  folded `make links`/`scripts/validate.sh` onto lychee, using the exact same
+  invocation as CI's `linkcheck` job, `'./**/*.md'`. CI's job runs on a fresh
+  checkout with no `npm ci` step, so `node_modules` never exists there —
+  locally, after this session's own `npm ci --ignore-scripts` (run to
+  dry-run-verify TASK-0324's `semantic-release` config change), the same glob
+  picked up thousands of vendored markdown files with root-relative links
+  lychee cannot resolve, producing 1,645 spurious errors. Fixed with
+  `lychee.toml`'s `exclude_path = ["node_modules"]` — a no-op in CI (the
+  directory doesn't exist there) but load-bearing for any contributor whose
+  working tree has it. This PR._
+
 - _Session 13, second unit (TASK-0324 + TASK-0325, release.yml nits) closes
   two architect-review nits from TASK-0203 against the write-permission
   release job. **TASK-0324:** `.releaserc.json`'s `@semantic-release/github`
