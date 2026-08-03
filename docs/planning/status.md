@@ -12,20 +12,33 @@ docs pass → AI automation, batched within Claude usage limits.
 ## In progress
 
 - _Session 11b (TASK-0317, animate the scanning phase) fixes the frozen
-  `scanning...` indicator: `progress.rs` had a latent bug where `paint()`
-  unconditionally clamped the numerator to `phase_total`, which is 0 until a
-  total is known, so any `advance()` call during the indeterminate phase was
-  invisible — the renderer's own tests never exercised advancing before
-  `set_total`. Fixed, and the indeterminate branch now renders `"scanning...
-  N file(s) found"`. New `enumerate::enumerate_with_progress` (mirrors
-  `engine.rs`'s progress-aware/progress-free split) advances the counter once
-  per accepted candidate during the serial walkdir traversal. Deliberately
-  scoped to enumeration only, not magic-byte sniffing (recorded in the
-  backlog row) — TASK-0321 already made sniff fast, and summing both stages
-  into one counter would double-count files. Non-TTY output shows the count
-  once, at phase entry (matching the existing coarse-milestone philosophy for
-  every other phase); the live-growing count is a TTY-only experience,
-  which is the interactive case this was written for. This PR._
+  `scanning...` indicator for the **enumeration** sub-phase (magic-byte
+  sniffing is a separate follow-up, TASK-0328 — see below). Architect review
+  found two real defects before merge, not just nits: (1) `progress.rs`'s
+  `paint()` unconditionally clamped the numerator to `phase_total`, which is
+  0 until a total is known, so any `advance()` during the indeterminate
+  phase was invisible. (2) `set_total` never reset the numerator, so
+  enumeration's "files found" count leaked straight into Hashing, pinning
+  it at `x of x (100%)` from Hashing's very first repaint — a genuine AC-21
+  violation the green suite did not catch. Both fixed, with regression
+  tests at the unit and CLI level. The indeterminate branch renders
+  `"scanning... N file(s) found"` — **TTY only**: review also found that
+  showing the count on non-TTY output would freeze at a permanently false
+  `"0 files found"` (non-TTY repaints an indeterminate phase exactly once,
+  at phase entry, before anything is counted), which is worse than the old
+  neutral `"scanning..."`; non-TTY stays bare. New
+  `enumerate::enumerate_with_progress` (mirrors `engine.rs`'s
+  progress-aware/progress-free split) advances the counter once per
+  accepted candidate during the serial walkdir traversal.
+  **Not animating magic-byte sniffing was initially justified on the wrong
+  grounds** (claimed "double-counting" made it technically hard; review
+  showed `retotal` already solves that, same as Verifying does) **and an
+  unmeasured one** (claimed TASK-0321 made sniff no longer dominant;
+  review measured the opposite on a release build — enumeration is only
+  ≈10% of the scanning window, sniff ≈90%). Corrected: the real reason is
+  an AC-21 product-owner call (Scanning is currently spec'd as one
+  indeterminate state), tracked as **TASK-0328** with the measurement
+  recorded. This PR._
 
 - _Session 11 (TASK-0318, control-character sanitization) closes a security
   note from the TASK-0315 review: hostile filenames (or error messages that

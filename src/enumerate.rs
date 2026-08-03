@@ -37,8 +37,18 @@
 //! - No file content reads (magic-byte sniffing is TASK-0303).
 //! - No path canonicalization for keeper tie-breaks (TASK-0305/TASK-0306).
 //! - No deduplication or grouping logic.
+//!
+//! ## Progress (TASK-0317)
+//!
+//! [`enumerate_with_progress`] additionally depends on
+//! [`crate::progress::ProgressSink`], notifying it once per accepted
+//! candidate so `main.rs` can animate the indeterminate Scanning phase
+//! instead of leaving it frozen for the whole traversal. This is the only
+//! dependency this module has outside `walkdir`/`std`.
 
-use crate::progress::{NoProgress, ProgressSink};
+#[cfg(test)]
+use crate::progress::NoProgress;
+use crate::progress::ProgressSink;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -222,12 +232,17 @@ impl ScopeOptions {
 /// warnings (NFR-6). A caller may treat the result as always-`Ok` — the
 /// returned `CandidateSet` may simply contain warnings describing what was
 /// skipped.
-/// The pipeline integrates through [`enumerate_with_progress`] (which `main`
-/// calls with the real sink); this progress-free entry point is retained as
-/// public API and exercised by the unit tests, hence the `dead_code`
-/// allowance for the non-test build — mirrors `sniff::confirm_image`.
-#[allow(dead_code)]
-pub fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet {
+///
+/// Progress-free variant of [`enumerate_with_progress`], kept
+/// `#[cfg(test)]`-only (mirrors `engine.rs`'s `find_duplicates` /
+/// `find_duplicates_with_progress` split, architect finding 6 there):
+/// `enumerate_with_progress` is this module's **sole production entry
+/// point** — the compiler proves it (no production code path can reach this
+/// function at all), rather than relying on a lint suppression. `pub(crate)`
+/// (rather than fully private) for parity with that same precedent, even
+/// though today only this module's own tests call it.
+#[cfg(test)]
+pub(crate) fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet {
     enumerate_with_progress(paths, opts, &NoProgress)
 }
 

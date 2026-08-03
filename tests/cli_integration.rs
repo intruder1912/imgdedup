@@ -639,17 +639,25 @@ fn progress_enabled_json_stdout_is_single_valid_json_with_no_progress_text() {
     );
 }
 
-/// TASK-0317: the Scanning phase renders a "files found" count instead of a
-/// bare, static "scanning...", proving the new indeterminate-count wiring
-/// (progress.rs's `line()` + `enumerate_with_progress`'s `advance` calls) is
-/// connected end to end through the real binary. Piped (non-TTY) capture, as
-/// with every other progress CLI test — the live in-place TTY animation
-/// itself is exercised directly against `Progress<Vec<u8>>` in
-/// `progress.rs`'s and `enumerate.rs`'s own unit tests, which can observe
-/// intermediate counts; a subprocess's captured output can only ever show
-/// the final state on each stream.
+/// TASK-0317, end-to-end through the real binary (piped/non-TTY capture, as
+/// with every other progress CLI test — the live in-place TTY count itself
+/// is exercised directly against `Progress<Vec<u8>>` in `progress.rs`'s and
+/// `enumerate.rs`'s own unit tests, which can observe intermediate values; a
+/// subprocess's captured output can only ever show the final state on each
+/// stream). Two regressions an architect review caught, both now pinned
+/// here as the end-to-end guard for the whole class of bug:
+///
+/// 1. Non-TTY output must **not** show the new "files found" count — a
+///    non-TTY repaint of Scanning happens at most once, at phase entry
+///    before anything is counted, so including it there would freeze at a
+///    permanently false "0 files found" instead of the old, neutral
+///    "scanning..." (which made no claim at all).
+/// 2. Hashing must start at `0 of N (0%)`, not carry Scanning's internal
+///    "files found" counter forward — `set_total` must reset the numerator,
+///    or the whole hashing phase renders as already-100%-complete from its
+///    first repaint.
 #[test]
-fn scanning_phase_shows_a_files_found_count_not_a_static_ellipsis() {
+fn scanning_stays_bare_on_non_tty_and_hashing_starts_at_zero() {
     let dir = tempfile::tempdir().expect("tempdir");
     materialize_progress_fixture(dir.path());
 
@@ -658,12 +666,17 @@ fn scanning_phase_shows_a_files_found_count_not_a_static_ellipsis() {
 
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("files found"),
-        "expected the new indeterminate-count text on stderr; got:\n{stderr}"
+        stderr.contains("scanning...\n"),
+        "non-TTY scanning must stay the bare, neutral line; got:\n{stderr:?}"
     );
     assert!(
-        !stderr.contains("scanning...\r") && !stderr.contains("scanning...\n"),
-        "the old static 'scanning...' with nothing after it must be gone; got:\n{stderr:?}"
+        !stderr.contains("found"),
+        "non-TTY must never show the found-count (it would be stale/false); got:\n{stderr:?}"
+    );
+    assert!(
+        stderr.contains("hashing: 0 of 6 (0%)"),
+        "hashing must start at 0, not carry Scanning's internal counter \
+         forward (the 6-format progress fixture has 6 confirmed files); got:\n{stderr}"
     );
 }
 
