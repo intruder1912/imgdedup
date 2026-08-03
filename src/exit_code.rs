@@ -2,8 +2,10 @@
 //!
 //! ADR-0008 exit-code scheme:
 //! - `SUCCESS` (0): clean run, whether or not duplicates were found.
-//! - `ERROR` (1): run-level error (invalid invocation, unreadable scan root, etc.).
-//! - `CLAP` (2): reserved for clap's own argument-parsing errors.
+//! - `ERROR` (1): run-level error (unreadable/nonexistent scan root, etc.).
+//! - `USAGE` (2): usage error — clap's own parse-time argument errors, and
+//!   semantic validation failures this binary catches post-parse (e.g.
+//!   `--delete` without `--apply`, TASK-0323).
 //! - `DUPLICATES_FOUND` (3): opt-in via `--exit-code`; at least one duplicate
 //!   group was found. Only emitted when `--exit-code` is supplied.
 //!
@@ -14,16 +16,19 @@
 /// A clean, successful run.
 pub const SUCCESS: i32 = 0;
 
-/// Run-level error (e.g. `--delete` without `--apply`, unreadable scan root).
+/// Run-level error (e.g. an unreadable/nonexistent scan root) — the
+/// invocation itself was fine, but something about the state of the
+/// filesystem prevented the run from completing cleanly.
 pub const ERROR: i32 = 1;
 
-/// Reserved for clap's own argument-parsing errors. Clap exits with 2 by
-/// default on a parse failure; this constant documents that value and prevents
-/// other code from reusing exit code 2 for a different purpose.
-// Clap handles exit-2 itself; this constant is documentation and a guard
-// against future misuse. Not currently referenced in production code paths.
-#[allow(dead_code)]
-pub const CLAP: i32 = 2;
+/// Usage error: the invocation itself was wrong. Covers both clap's own
+/// parse-time argument errors (clap exits 2 by default; this constant
+/// documents that value and prevents other code from reusing it for a
+/// different purpose) and semantic validation failures this binary catches
+/// itself post-parse — e.g. `--delete` without `--apply` (TASK-0323, owner
+/// ruling 2026-08-03: a refused flag *combination* is a usage error, not a
+/// run-level one, the same bucket as an invalid flag value).
+pub const USAGE: i32 = 2;
 
 /// Opt-in duplicates-found signal (`--exit-code` flag, FR-18, ADR-0008).
 /// Emitted instead of `SUCCESS` when `--exit-code` is set and at least one
@@ -82,13 +87,13 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(SUCCESS, 0);
         assert_eq!(ERROR, 1);
-        assert_eq!(CLAP, 2);
+        assert_eq!(USAGE, 2);
         assert_eq!(DUPLICATES_FOUND, 3);
     }
 
     #[test]
     fn constants_are_distinct() {
-        let codes = [SUCCESS, ERROR, CLAP, DUPLICATES_FOUND];
+        let codes = [SUCCESS, ERROR, USAGE, DUPLICATES_FOUND];
         for i in 0..codes.len() {
             for j in (i + 1)..codes.len() {
                 assert_ne!(
@@ -123,8 +128,10 @@ mod tests {
 
     #[test]
     fn run_level_error_exits_1() {
-        // AC-12: a run-level error (unreadable root, --delete without --apply)
-        // exits 1 regardless of other flags.
+        // AC-12: a run-level error (e.g. an unreadable root) exits 1
+        // regardless of other flags. `--delete` without `--apply` is a
+        // *usage* error (exit 2, TASK-0323) handled by `cli::validate()`
+        // before `compute()` is ever called — not exercised here.
         assert_eq!(compute(true, false, false), ERROR, "run-level error → 1");
     }
 

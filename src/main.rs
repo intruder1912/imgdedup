@@ -26,11 +26,13 @@ fn main() {
 /// the magic-byte confirmation stage (TASK-0303). Later Phase 3 tasks
 /// (TASK-0304..TASK-0312) will extend the pipeline from the confirmed set.
 fn run(args: cli::Cli) -> i32 {
-    // Post-parse semantic validation: --delete without --apply is a run-level
-    // error (exit 1, ADR-0008), not a clap parse error (exit 2).
+    // Post-parse semantic validation: --delete without --apply is a usage
+    // error (exit 2, TASK-0323) — not caught by clap's own parsing (it's a
+    // valid flag combination syntactically), but the same code as if it had
+    // been, since both mean "the invocation itself was wrong."
     if let Err(msg) = args.validate() {
         eprintln!("error: {msg}");
-        return exit_code::ERROR;
+        return exit_code::USAGE;
     }
 
     // Progress sink (FR-19, TASK-0315). Default-on; --no-progress disables it

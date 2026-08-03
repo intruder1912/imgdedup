@@ -27,19 +27,22 @@ fn successful_invocation_exits_0() {
 
 /// Invoking with no path argument errors with a non-zero exit.
 /// clap exits 2 on parse errors.
-/// Maps to: "invoking with none errors clearly", exit_code::CLAP (2).
+/// Maps to: "invoking with none errors clearly", exit_code::USAGE (2).
 #[test]
 fn no_path_exits_nonzero() {
     cmd().assert().failure().code(2);
 }
 
-/// `--delete` without `--apply` exits 1 (run-level error, ADR-0008).
-/// This is NOT a clap parse error (exit 2); it is a semantic/run-level error
-/// caught by post-parse validation. Maps to: AC-12 ("--delete without --apply
-/// is rejected"), exit_code::ERROR (1).
+/// `--delete` without `--apply` exits 2 (usage error, TASK-0323 — owner
+/// ruling 2026-08-03: a refused flag *combination* is a usage error, the
+/// same bucket as clap's own parse-time argument errors, not a run-level
+/// error). Caught by post-parse semantic validation (`cli::validate()`)
+/// rather than by clap itself, but both land on the same code because both
+/// mean "the invocation itself was wrong." Maps to: AC-12 ("--delete
+/// without --apply is rejected"), exit_code::USAGE (2).
 #[test]
-fn delete_without_apply_exits_1() {
-    cmd().arg(".").arg("--delete").assert().failure().code(1);
+fn delete_without_apply_exits_2() {
+    cmd().arg(".").arg("--delete").assert().failure().code(2);
 }
 
 /// `--delete` without `--apply` prints a clear error message mentioning --apply.

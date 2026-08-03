@@ -11,6 +11,16 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 12 (TASK-0323, exit-code reconciliation) resolves the `--delete`
+  without `--apply` exit-code disagreement found by the S4 acceptance suite:
+  code exited `1`, the guide documented `2`. Owner ruling (2026-08-03): `2`
+  (usage error) — a refused flag combination joins clap's own parse-time
+  errors, not run-level failures like an unreadable root. `exit_code::CLAP`
+  renamed to `USAGE` (no longer clap-exclusive) and wired into `main.rs`'s
+  `args.validate()` failure branch in place of `ERROR`. `cli.rs`, `main.rs`,
+  and the test suite (`cli_integration.rs`, `acceptance.rs`) all reconciled;
+  the guide needed no change, it was already right. This PR._
+
 - _Session 11b (TASK-0317, animate the scanning phase) fixes the frozen
   `scanning...` indicator for the **enumeration** sub-phase (magic-byte
   sniffing is a separate follow-up, TASK-0328 — see below). Architect review
