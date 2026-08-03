@@ -442,6 +442,40 @@ apply time is now a second, independent safety net rather than the sole
 guard against this scenario — both are correct and neither depends on the
 other.
 
+**Nesting is only redundant if the ancestor's own walk actually reaches it**
+(architect review, same day). Two of this document's own scope rules can make
+that false, and treating a nested root as covered anyway would silently drop
+files the user explicitly named — the same class of harm this fix exists to
+prevent:
+
+- **`--no-recurse`** caps every root's walk at its own immediate children
+  (depth 1, "Scope rules" above), so an ancestor root never reaches a nested
+  root's contents at all. Under `--no-recurse`, `dedupe_roots` only collapses
+  *exact*-duplicate roots; nesting is never treated as coverage.
+- **Hidden entries** are skipped by default (FR-6) — except a hidden path
+  passed *explicitly* as a scan root, which is always included
+  (`docs/guide/scanning-and-scope.md`). A nested root that is hidden relative
+  to its ancestor is kept rather than collapsed, unless `--hidden` is also
+  given — otherwise the ancestor's own walk would silently un-opt-in it.
+
+Both exceptions are keyed off the *shared* `ScopeOptions` already threaded
+through enumeration (`no_recurse`/`include_hidden` apply uniformly to every
+root in one invocation), so `dedupe_roots` takes `&ScopeOptions` alongside the
+root list rather than deciding blind.
+
+**Performance: sort, don't compare all pairs.** An initial all-pairs
+`starts_with` comparison across the root list is O(n²) — for the common case
+of a handful of roots this is free, but a shell glob like `imgdedup */` over a
+directory with thousands of subdirectories is a realistic invocation, and
+review measured a 25× slowdown at 20,000 roots (73 s vs. 2.97 s on `main`) from
+a purely mechanical pre-pass sitting behind a frozen `scanning...` indicator.
+`dedupe_roots` instead sorts the canonicalized roots once — `Path`'s `Ord` is
+lexicographic over components, so a path's descendants occupy a contiguous
+range immediately after it in sorted order, the standard prefix-dedup
+property — and does a single linear pass comparing each root only to the last
+*kept* one. The sort is stable, so exact duplicates keep their original
+relative order (first occurrence wins) for free.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)

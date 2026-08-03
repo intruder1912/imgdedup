@@ -33,11 +33,31 @@ docs pass → AI automation, batched within Claude usage limits.
   at scale. A root that cannot be canonicalized (e.g. it does not exist)
   passes through unchanged so the existing root-error path (ADR-0008
   exit-code semantics) is untouched — verified by a regression test.
-  4 new `enumerate.rs` unit tests (exact-duplicate root, nested root in both
-  argument orders, non-overlapping roots unaffected, nonexistent duplicate
-  root still errors) plus 2 CLI-level regression tests confirming the exact
-  bug symptom is gone end-to-end and that a genuine duplicate elsewhere in
-  an overlapping-root scan is still correctly detected. Recorded in the
+  **One architect dispatch, not a clean pass: 3 blockers, all real, plus a
+  should-fix on the tests.** (1) With `--no-recurse`, an ancestor root's walk
+  is capped at depth 1, so it never reaches a nested root's contents —
+  collapsing the nested root as "covered" silently dropped its files
+  entirely. (2) A hidden path passed _explicitly_ as a scan root is always
+  included (opt-in-by-explicit-root, `docs/guide/scanning-and-scope.md`) —
+  collapsing an explicitly-named hidden nested root into its ancestor
+  silently un-opted it back out, since the ancestor's own walk skips hidden
+  entries by default. Both are now guarded: nesting is only ever treated as
+  redundant when the ancestor's own walk provably reaches the descendant
+  under the run's actual `ScopeOptions`. (3) The original all-pairs
+  `starts_with` comparison was O(n²) — review measured a 25× slowdown at
+  20,000 roots (73s vs. `main`'s 2.97s) — replaced with a single sort-then-
+  linear-pass (`Path`'s `Ord` is lexicographic over components, so a path's
+  descendants sit in a contiguous range right after it once sorted; verified
+  back down to 2.49s on the same fixture). **Should-fix:** the
+  `overlapping_roots_do_not_double_count_and_still_find_real_duplicates` CLI
+  test's only assertion also matched the pre-fix buggy output, so it wasn't
+  actually pinning the bug it was named for — strengthened with an explicit
+  `hard-link`-absence assertion. 3 new `enumerate.rs` unit tests added for
+  the two scope-rule exceptions (`--no-recurse`, hidden file root, hidden
+  directory root) on top of the original 4 (exact-duplicate root, nested
+  root in both argument orders, non-overlapping roots unaffected, nonexistent
+  duplicate root still errors); both CLI-level regression tests re-verified
+  against the real binary after the fixes. Recorded in the
   [2026-08-03 amendment to ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md#amendment-2026-08-03--overlappingrepeated-scan-roots-are-no-longer-double-enumerated-task-0319).
   This PR._
 

@@ -13,6 +13,19 @@ imgdedup [OPTIONS] <PATH>...
 `<PATH>...` is one or more files or directories. Directories are scanned
 recursively by default.
 
+## Overlapping or repeated paths
+
+Passing the same path twice, or one path nested inside another
+(`imgdedup ./photos ./photos/2024`), is scanned as if you had only passed the
+outer path once — nothing is walked twice, and nothing is reported as
+duplicate or hard-linked to itself just because you named it more than once.
+
+The one case this doesn't collapse is a nested path that `--no-recurse` or the
+hidden-file rule would otherwise exclude: with `--no-recurse`, an outer path's
+scan never reaches a nested path's contents at all, so both are still scanned
+independently; and a hidden path you name explicitly is always included (see
+below), even when it sits inside another path you also passed.
+
 ## Recursion: `--no-recurse`
 
 By default `imgdedup` descends into subdirectories. Pass `--no-recurse` to scan

@@ -521,8 +521,17 @@ fn overlapping_roots_do_not_double_count_and_still_find_real_duplicates() {
         .assert()
         .code(0)
         .stdout(predicate::str::contains(
-            "Summary: 1 duplicate group, 2 files",
-        ));
+            "Summary: 1 duplicate group, 2 files, 64 bytes reclaimable.",
+        ))
+        // Review finding: this substring alone also matches the buggy
+        // behavior (main's summary reads "...; 1 already-deduplicated
+        // hard-link set (nothing to reclaim)." because sub/nested.png was
+        // walked twice and collapsed with itself). The exact trailing
+        // period above already rules that out, but assert the absence of
+        // any hard-link mention explicitly so this test actually pins the
+        // double-count bug rather than only the "real duplicates still
+        // found" half.
+        .stdout(predicate::str::contains("hard-link").not());
 }
 
 /// A nonexistent scan root must exit 1 AND explain itself on stderr

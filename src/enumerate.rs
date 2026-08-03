@@ -261,7 +261,7 @@ pub fn enumerate_with_progress(
 ) -> CandidateSet {
     let mut result = CandidateSet::default();
 
-    for root in &dedupe_roots(paths) {
+    for root in &dedupe_roots(paths, opts) {
         enumerate_root(root, opts, &mut result, sink);
     }
 
@@ -281,17 +281,43 @@ pub fn enumerate_with_progress(
 /// misleading: a user could conclude a tree is clean when it was never
 /// checked against anything).
 ///
+/// **A nested root is only redundant if the ancestor's walk actually reaches
+/// it.** Two scope rules can make that false, and treating a nested root as
+/// redundant anyway would silently drop files the user explicitly asked to
+/// scan — the same class of harm this fix exists to prevent:
+///
+/// - `--no-recurse` caps every root's walk at its own immediate children
+///   (depth 1), so an ancestor root never reaches a nested root's contents
+///   at all. Under `--no-recurse`, only *exact*-duplicate roots are
+///   collapsed; nesting is never treated as coverage.
+/// - Hidden entries are skipped unless `--hidden` is given — **except** a
+///   hidden path passed *explicitly* as a scan root, which is always
+///   included (`docs/guide/scanning-and-scope.md`). Collapsing an
+///   explicitly-given hidden root into its ancestor would silently
+///   un-opt-in it, since the ancestor's own walk *would* then skip it as a
+///   hidden descendant. So a nested root that is hidden relative to its
+///   ancestor is kept, unless `--hidden` is also set.
+///
 /// Only the **root list** is canonicalized — normally a handful of paths —
 /// never every candidate file, so this adds no per-file traversal cost.
 /// Single-root invocations (the common case) return `paths` unchanged
 /// without canonicalizing anything, since one root cannot overlap itself.
+/// For multi-root invocations, canonical paths are **sorted** rather than
+/// compared all-pairs: `Path`'s `Ord` is lexicographic over components, the
+/// same property that makes "a path's descendants occupy a contiguous range
+/// immediately after it in sorted order, with nothing unrelated in between"
+/// hold — the standard prefix-dedup technique, letting one linear pass over
+/// the sorted list replace an O(n²) comparison (the latter measured at a 25×
+/// slowdown on 20,000 roots in review). The sort is stable, so exact
+/// duplicates keep their original relative order, which is what makes "keep
+/// the first occurrence" fall out for free.
 ///
 /// A root whose canonical form cannot be determined (e.g. it does not
 /// exist) is passed through unchanged rather than dropped, so the existing
 /// root-level error path (`root_errors`, ADR-0008 exit-code semantics) is
 /// unaffected — this function only ever removes roots it can *prove* are
 /// redundant.
-fn dedupe_roots(paths: &[PathBuf]) -> Vec<PathBuf> {
+fn dedupe_roots(paths: &[PathBuf], opts: &ScopeOptions) -> Vec<PathBuf> {
     if paths.len() <= 1 {
         return paths.to_vec();
     }
@@ -301,25 +327,48 @@ fn dedupe_roots(paths: &[PathBuf]) -> Vec<PathBuf> {
         .map(|p| std::fs::canonicalize(p).ok())
         .collect();
 
+    // Only successfully-canonicalized roots participate; `None` entries are
+    // always kept (handled by the final filter below) and never compared.
+    let mut resolved: Vec<usize> = (0..paths.len())
+        .filter(|&i| canonical[i].is_some())
+        .collect();
+    resolved.sort_by(|&a, &b| canonical[a].cmp(&canonical[b]));
+
+    let mut keep = vec![true; paths.len()];
+    let mut last_kept: Option<usize> = None;
+    for i in resolved {
+        let ci = canonical[i].as_ref().unwrap();
+        let redundant = match last_kept {
+            None => false,
+            Some(k) => {
+                let ck = canonical[k].as_ref().unwrap();
+                if ci == ck {
+                    // Exact duplicate: unconditionally redundant — there is
+                    // no scope rule under which walking the same path twice
+                    // discovers anything a first walk would not.
+                    true
+                } else if ci.starts_with(ck) {
+                    // A proper descendant of the last-kept root is only
+                    // redundant if that root's own walk would actually reach
+                    // it (see the two exceptions in the doc comment above).
+                    !opts.no_recurse && (opts.include_hidden || !is_hidden_relative_to(ck, ci))
+                } else {
+                    false
+                }
+            }
+        };
+
+        if redundant {
+            keep[i] = false;
+        } else {
+            last_kept = Some(i);
+        }
+    }
+
     paths
         .iter()
         .enumerate()
-        .filter(|&(i, _)| match &canonical[i] {
-            None => true,
-            Some(ci) => !canonical.iter().enumerate().any(|(j, cj)| {
-                if i == j {
-                    return false;
-                }
-                match cj {
-                    // `cj` makes root `i` redundant when it is a strict
-                    // ancestor of `ci` (covers it by walking further down),
-                    // or when it is the *same* root and appeared earlier
-                    // (exact duplicates: keep only the first occurrence).
-                    Some(cj) => ci.starts_with(cj) && (ci != cj || j < i),
-                    None => false,
-                }
-            }),
-        })
+        .filter(|&(i, _)| keep[i])
         .map(|(_, p)| p.clone())
         .collect()
 }
@@ -1212,6 +1261,80 @@ mod tests {
         );
 
         assert_eq!(candidate_names(&result), vec!["from_a.jpg", "from_b.png"]);
+    }
+
+    #[test]
+    fn no_recurse_nested_root_is_not_dropped_as_redundant() {
+        // TASK-0319 review finding: with --no-recurse, an ancestor root's
+        // walk is capped at its own immediate children (depth 1), so it
+        // never actually reaches a nested root's contents. Treating the
+        // nested root as "covered" and dropping it would silently exclude
+        // files the user explicitly asked to scan by naming that root.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "top.jpg");
+        touch(&dir, "sub/a.jpg");
+        touch(&dir, "sub/b.jpg");
+        let sub = dir.path().join("sub");
+
+        let opts = ScopeOptions {
+            no_recurse: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf(), sub], &opts);
+
+        assert_eq!(
+            candidate_names(&result),
+            vec!["a.jpg", "b.jpg", "top.jpg"],
+            "with --no-recurse, the nested root's own files must still be \
+             found — its ancestor's capped walk never reaches them"
+        );
+    }
+
+    #[test]
+    fn hidden_nested_root_named_explicitly_is_not_dropped_as_redundant() {
+        // TASK-0319 review finding: a hidden path passed explicitly as a
+        // scan root is always included (opt-in-by-explicit-root,
+        // docs/guide/scanning-and-scope.md), even without --hidden.
+        // Collapsing such a root into its ancestor (because the ancestor's
+        // walk "covers" it) would silently un-opt-in it, since the
+        // ancestor's own walk skips hidden entries by default.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "visible.jpg");
+        touch(&dir, ".hidden.jpg");
+
+        let opts = ScopeOptions::default_scope(); // include_hidden: false
+        let result = enumerate(
+            &[dir.path().to_path_buf(), dir.path().join(".hidden.jpg")],
+            &opts,
+        );
+
+        assert_eq!(
+            candidate_names(&result),
+            vec![".hidden.jpg", "visible.jpg"],
+            "an explicitly-named hidden root must survive dedup even though \
+             it is nested inside the other given root"
+        );
+    }
+
+    #[test]
+    fn hidden_nested_directory_root_named_explicitly_is_not_dropped() {
+        // Same as above, but the explicitly-named nested root is a hidden
+        // *directory*, not a hidden file — the whole subtree under it must
+        // still be reachable.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "visible.jpg");
+        touch(&dir, ".cache/x.jpg");
+        let hidden_dir = dir.path().join(".cache");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(&[dir.path().to_path_buf(), hidden_dir], &opts);
+
+        assert_eq!(
+            candidate_names(&result),
+            vec!["visible.jpg", "x.jpg"],
+            "an explicitly-named hidden directory root must survive dedup, \
+             and its contents must still be enumerated"
+        );
     }
 
     #[test]
