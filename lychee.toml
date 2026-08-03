@@ -21,6 +21,17 @@ max_retries = 3
 timeout = 20
 accept = [200, 206, 301, 302, 308, 429]
 
+# Files to skip entirely. CI's `linkcheck` job runs on a fresh checkout with
+# no `node_modules` (no `npm ci` step precedes it), so this exclusion is a
+# no-op there — but TASK-0327 folded local link-checking (`make links`,
+# `scripts/validate.sh`) onto this same config, and a contributor's working
+# tree very often *does* have `node_modules` present (e.g. after
+# `make release-dry-run`). Without this, the glob picks up thousands of
+# vendored markdown files with root-relative links lychee cannot resolve —
+# found by actually running `make validate` locally with `node_modules`
+# present, not by reading the config.
+exclude_path = ["node_modules"]
+
 # The repository is private and not yet pushed publicly; skip self-references
 # and common non-resolvable placeholders.
 #
