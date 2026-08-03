@@ -357,14 +357,18 @@ impl<W: Write> Progress<W> {
     /// Render one status line: `"<phase>: <x> of <y> (<p>%)"`, with a
     /// `(N candidates)` suffix for [`Phase::Verifying`] (so the run-wide
     /// problem size stays visible even though the counter has been reset to
-    /// the phase-local workload — see the module doc), or `"<phase>..."`
-    /// while the total is not yet known (indeterminate).
+    /// the phase-local workload — see the module doc), or `"<phase>... <x>
+    /// file(s) found"` while the total is not yet known (indeterminate,
+    /// TASK-0317) — `x` still animates live even though there is no
+    /// denominator yet to show a percentage against.
     ///
     /// Pure ASCII, deliberately: this is the only text the binary ever
     /// writes at runtime that could tempt a non-ASCII character (a
     /// `Phase::Verifying` "N candidates" aside), and a redirected log read
     /// under `LANG=C` or a non-UTF-8 code page would mojibake anything
-    /// outside that range — safer to just never emit it.
+    /// outside that range — safer to just never emit it. No thousands
+    /// separators either, for the same reason and for consistency with the
+    /// unadorned integers in the `x of y` form above.
     fn line(
         phase: Phase,
         current: u64,
@@ -373,7 +377,10 @@ impl<W: Write> Progress<W> {
         pct: Option<u64>,
     ) -> String {
         match pct {
-            None => format!("{}...", phase.label()),
+            None => {
+                let noun = if current == 1 { "file" } else { "files" };
+                format!("{}... {current} {noun} found", phase.label())
+            }
             Some(p) if phase == Phase::Verifying => format!(
                 "{}: {current} of {phase_total} ({p}%) ({run_total} candidates)",
                 phase.label()
@@ -409,7 +416,16 @@ impl<W: Write> Progress<W> {
         let phase = st.phase;
         let phase_total = st.phase_total;
         let run_total = st.run_total;
-        let current = self.current.load(Ordering::Relaxed).min(phase_total);
+        // Only clamp to the denominator once one is known (TASK-0317): before
+        // that, `phase_total` is still its zero-initialized default, and
+        // clamping against it would pin the indeterminate scanning count at
+        // 0 forever regardless of how many `advance` calls actually landed.
+        let raw_current = self.current.load(Ordering::Relaxed);
+        let current = if st.total_known {
+            raw_current.min(phase_total)
+        } else {
+            raw_current
+        };
         let pct = st.total_known.then(|| Self::percent(current, phase_total));
 
         if self.tty {
@@ -606,6 +622,44 @@ mod tests {
         assert!(
             out.contains("scanning...") && !out.contains(" of "),
             "expected an indeterminate scanning state, got: {out:?}"
+        );
+    }
+
+    // ── TASK-0317: live indeterminate count during Scanning ────────────────
+
+    #[test]
+    fn tty_indeterminate_scanning_shows_a_live_growing_count() {
+        // Before enumeration completes, y is unknown, but the count of files
+        // found so far can still animate live rather than sitting frozen at
+        // "scanning..." for the whole enumeration+sniff sub-phase.
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning... 3 files found"),
+            "expected the indeterminate scanning count to reach 3, got: {out:?}"
+        );
+        assert!(
+            !out.contains(" of "),
+            "must stay indeterminate (no percentage/denominator) until the \
+             total is known, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn tty_indeterminate_scanning_count_pluralizes_correctly() {
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+
+        assert!(
+            captured(&p).contains("scanning... 1 file found"),
+            "singular 'file' for a count of 1, got: {:?}",
+            captured(&p)
         );
     }
 
