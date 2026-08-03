@@ -329,7 +329,7 @@ is treated as the absolute stop line, not the aim.
 
 | Session | Unit | Tasks | Why grouped / order | Est. 5h % | Est. weekly |
 |---|---|---|---|---|---|
-| 10 | feature (perf), concurrency-sensitive | TASK-0321 — parallelize the scan stage (`sniff::filter_candidates`) | Solo: touches ADR-0010's concurrency model and is the throughput lever TASK-0317 depends on being measured correctly; budget the extra architect dispatch the concurrency-critical-code rule reserves | 55–75 | 7–9 |
+| 10 | feature (perf), concurrency-sensitive | TASK-0321 — parallelize the scan stage (`sniff::filter_candidates`) — **done, PR #62, actual 20%** | Solo: touches ADR-0010's concurrency model and is the throughput lever TASK-0317 depends on being measured correctly; budget the extra architect dispatch the concurrency-critical-code rule reserves | 55–75 | 7–9 |
 | 11 | fix + feature, small | TASK-0318 (sanitize control chars in stderr paths) + TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) | Both are stderr-output surface work; 318 is a quick security nit, 317 needs 321 landed first to size correctly (its own sizing note says the debug-build estimate was ~9× off) | 55–70 | 6–7 |
 | 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
 | 13 | fix, core-engine | TASK-0319 (dedupe enumerated paths by identity — same-tree-twice bug) | Solo: touches `engine.rs`'s hard-link/identity path, the safety-critical core; do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
@@ -356,6 +356,27 @@ window sizing, not the week. Only session 10 fits in the *current* window from
 a cold start (5h=0%); sessions 11–15 each start their own fresh window per the
 "prefer fewer, fuller sessions" rule, reconciling `/usage` actuals against
 these estimates at the end of every session as usual.
+
+**Session 10 (TASK-0321, PR #62), 2026-08-03 — 20% of the window against a
+55–75 estimate, comfortably under; the week moved 46% → 48% (~2 weekly
+points).** Landed inline with a single architect dispatch (blocker + 3
+should-fixes, converged in one round — see the ADR-0010 amendment and
+`status.md`'s session-10 entry). Two things worth carrying forward:
+
+1. **Concurrency-critical sizing is still running high.** This is the third
+   data point (after batch 1's security/supply-chain chores and batch 4's
+   TASK-0313) where a unit this repo classified as needing extra review care
+   landed at roughly a quarter of its estimate. The estimate reserved margin
+   for review rework that a well-scoped, single-function change didn't need —
+   worth remembering when sizing session 13 (TASK-0319, also concurrency/
+   safety-adjacent) rather than mechanically reapplying the 35–50% line.
+2. **Plenty of window remains for session 11 in the same window** (20% used,
+   target 60–70%, hard stop 75%) — the "sessions 11–15 each start their own
+   fresh window" framing above assumed session 10 alone would consume most of
+   a window, which did not happen. Per "prefer fewer, fuller sessions,"
+   session 11 (TASK-0318 + TASK-0317) continues in this window rather than
+   waiting for a fresh one, targeting a combined ~55–75% before the day's
+   cut line.
 
 ## Ordering constraints
 
