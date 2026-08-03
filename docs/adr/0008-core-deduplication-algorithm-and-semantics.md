@@ -414,6 +414,34 @@ No other current validation rule exists to exercise the second source beyond
 `--delete` without `--apply`, but any future one added to `cli::validate()`
 follows the same bucket by construction.
 
+## Amendment 2026-08-03 — overlapping/repeated scan roots are no longer double-enumerated (TASK-0319)
+
+The S3 review (Consequence note above, "Check 4") established that overlapping
+or repeated scan roots (`imgdedup ./d ./d`, `imgdedup ./d ./d/sub`) are **safe**
+— the apply-time identity check never removes a file just because it was
+walked twice. It did not make them **accurate**: before this fix, each
+occurrence of the same physical file became its own `Candidate` from
+`enumerate.rs`, so the engine's identity collapse (this document's hard-link
+handling) correctly-but-misleadingly reported a single file as a hard-link set
+of one file to itself — `hard-linked: a.png, a.png` — and the dry-run summary
+read "no duplicate groups to remove; 1 already-deduplicated hard-link set"
+even when the tree had never actually been compared against anything. Fail-safe
+(nothing was removed or at risk), but a user reading the dry-run report could
+reasonably conclude their tree was clean when it had not been checked.
+
+**Fix: deduplicate at the root list, before enumeration walks anything.**
+`enumerate::dedupe_roots` canonicalizes the (normally small) list of
+user-supplied scan roots and drops any root that is an exact duplicate of, or
+nested inside, another given root — regardless of argument order. This is
+enumeration-stage, not engine-stage: it operates on the handful of root
+arguments, never on individual candidate files, so it adds no per-file
+traversal cost and does not touch `collapse_identity`'s NFR-4 handle-scoping
+invariant. A root that cannot be canonicalized (e.g. it does not exist) is
+left untouched, so the existing root-error path is unaffected. Check 4 at
+apply time is now a second, independent safety net rather than the sole
+guard against this scenario — both are correct and neither depends on the
+other.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)

@@ -11,6 +11,36 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 14 (TASK-0319, dedupe overlapping/repeated scan roots) closes an
+  architect finding from the S3 review: `imgdedup ./d ./d` (or overlapping
+  roots like `./d ./d/sub`) walked the same physical file more than once,
+  so every file appeared hard-linked to itself in the dry-run report
+  (`hard-linked: a.png, a.png`; "no duplicate groups to remove; 1
+  already-deduplicated hard-link set") — fail-safe (apply-time Check 4,
+  ADR-0008, already made this safe to run) but misleading, since the tree
+  had never actually been compared against anything. Reproduced first with
+  the real binary (`./target/debug/imgdedup /tmp/tdup /tmp/tdup`) to confirm
+  the exact symptom before writing a failing test. **Fix is enumeration-stage,
+  not engine-stage:** new `enumerate::dedupe_roots` canonicalizes the
+  (normally small) list of user-supplied root arguments and drops any root
+  that is an exact duplicate of, or nested inside, another — regardless of
+  argument order — before any file is walked. Single-root invocations (the
+  common case) skip canonicalization entirely (`paths.len() <= 1` early
+  return), so this adds zero cost for the overwhelmingly common case and no
+  per-candidate cost even with multiple roots — deliberately avoiding
+  `same-file::Handle`-based dedup across the full candidate set, which would
+  violate `collapse_identity`'s NFR-4 invariant (bounded open-handle count)
+  at scale. A root that cannot be canonicalized (e.g. it does not exist)
+  passes through unchanged so the existing root-error path (ADR-0008
+  exit-code semantics) is untouched — verified by a regression test.
+  4 new `enumerate.rs` unit tests (exact-duplicate root, nested root in both
+  argument orders, non-overlapping roots unaffected, nonexistent duplicate
+  root still errors) plus 2 CLI-level regression tests confirming the exact
+  bug symptom is gone end-to-end and that a genuine duplicate elsewhere in
+  an overlapping-root scan is still correctly detected. Recorded in the
+  [2026-08-03 amendment to ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md#amendment-2026-08-03--overlappingrepeated-scan-roots-are-no-longer-double-enumerated-task-0319).
+  This PR._
+
 - _Session 13, follow-up fix (TASK-0327 regression) — found by actually
   running `make validate` locally, not by reading the config: TASK-0327
   folded `make links`/`scripts/validate.sh` onto lychee, using the exact same

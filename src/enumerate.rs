@@ -261,11 +261,67 @@ pub fn enumerate_with_progress(
 ) -> CandidateSet {
     let mut result = CandidateSet::default();
 
-    for root in paths {
+    for root in &dedupe_roots(paths) {
         enumerate_root(root, opts, &mut result, sink);
     }
 
     result
+}
+
+/// Remove input scan roots that are exact duplicates of, or nested inside,
+/// another given root (TASK-0319).
+///
+/// Without this, `imgdedup ./d ./d` or overlapping roots like
+/// `./d ./d/sub` walk the same physical file more than once. Each occurrence
+/// becomes its own [`Candidate`] with the same content, so the engine's
+/// identity collapse (`same-file::Handle`, ADR-0008) correctly recognizes
+/// them as the same physical file — and reports it as a hard-link set
+/// containing only that one file, silently absorbing what should be zero
+/// duplicate files into a false "already deduplicated" note (fail-safe, but
+/// misleading: a user could conclude a tree is clean when it was never
+/// checked against anything).
+///
+/// Only the **root list** is canonicalized — normally a handful of paths —
+/// never every candidate file, so this adds no per-file traversal cost.
+/// Single-root invocations (the common case) return `paths` unchanged
+/// without canonicalizing anything, since one root cannot overlap itself.
+///
+/// A root whose canonical form cannot be determined (e.g. it does not
+/// exist) is passed through unchanged rather than dropped, so the existing
+/// root-level error path (`root_errors`, ADR-0008 exit-code semantics) is
+/// unaffected — this function only ever removes roots it can *prove* are
+/// redundant.
+fn dedupe_roots(paths: &[PathBuf]) -> Vec<PathBuf> {
+    if paths.len() <= 1 {
+        return paths.to_vec();
+    }
+
+    let canonical: Vec<Option<PathBuf>> = paths
+        .iter()
+        .map(|p| std::fs::canonicalize(p).ok())
+        .collect();
+
+    paths
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| match &canonical[i] {
+            None => true,
+            Some(ci) => !canonical.iter().enumerate().any(|(j, cj)| {
+                if i == j {
+                    return false;
+                }
+                match cj {
+                    // `cj` makes root `i` redundant when it is a strict
+                    // ancestor of `ci` (covers it by walking further down),
+                    // or when it is the *same* root and appeared earlier
+                    // (exact duplicates: keep only the first occurrence).
+                    Some(cj) => ci.starts_with(cj) && (ci != cj || j < i),
+                    None => false,
+                }
+            }),
+        })
+        .map(|(_, p)| p.clone())
+        .collect()
 }
 
 /// Walk a single root path and accumulate candidates/warnings into `out`,
@@ -1087,6 +1143,92 @@ mod tests {
 
         let names = candidate_names(&result);
         assert_eq!(names, vec!["from_a.jpg", "from_b.png"]);
+    }
+
+    // ── TASK-0319: overlapping/duplicate roots are not double-counted ───────
+
+    #[test]
+    fn same_root_given_twice_is_not_double_counted() {
+        // TASK-0319: `imgdedup ./d ./d` must not walk the tree twice — a
+        // single physical file must yield exactly one candidate, not two
+        // (which downstream would look like the file is hard-linked to
+        // itself and mask real duplicates elsewhere).
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+
+        let opts = ScopeOptions::default_scope();
+        let root = dir.path().to_path_buf();
+        let result = enumerate(&[root.clone(), root], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "the same root given twice must not double the candidate count"
+        );
+    }
+
+    #[test]
+    fn nested_root_is_not_double_counted_regardless_of_argument_order() {
+        // TASK-0319: overlapping roots like `./d ./d/sub` must not walk
+        // `./d/sub`'s contents twice (once via `./d`, once via the explicit
+        // `./d/sub` root). Checked both argument orders since the fix must
+        // not depend on which root is listed first.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "top.jpg");
+        touch(&dir, "sub/nested.jpg");
+        let sub = dir.path().join("sub");
+
+        let opts = ScopeOptions::default_scope();
+
+        let ancestor_first = enumerate(&[dir.path().to_path_buf(), sub.clone()], &opts);
+        assert_eq!(
+            candidate_names(&ancestor_first),
+            vec!["nested.jpg", "top.jpg"],
+            "ancestor listed first: nested.jpg must appear exactly once"
+        );
+
+        let descendant_first = enumerate(&[sub, dir.path().to_path_buf()], &opts);
+        assert_eq!(
+            candidate_names(&descendant_first),
+            vec!["nested.jpg", "top.jpg"],
+            "descendant listed first: nested.jpg must still appear exactly once"
+        );
+    }
+
+    #[test]
+    fn distinct_non_overlapping_roots_are_unaffected() {
+        // The fix must not merge or drop genuinely distinct roots — this is
+        // the same shape as `multiple_roots_are_each_walked` but pinned here
+        // too as a regression guard alongside the new dedup behavior.
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        touch(&dir_a, "from_a.jpg");
+        touch(&dir_b, "from_b.png");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(
+            &[dir_a.path().to_path_buf(), dir_b.path().to_path_buf()],
+            &opts,
+        );
+
+        assert_eq!(candidate_names(&result), vec!["from_a.jpg", "from_b.png"]);
+    }
+
+    #[test]
+    fn duplicate_nonexistent_root_still_reports_a_root_error() {
+        // A root that cannot be canonicalized (doesn't exist) must not be
+        // silently dropped by the dedup pass — the existing root-level
+        // error path (ADR-0008 exit-code semantics) must still fire.
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("does-not-exist");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(&[bad.clone(), bad], &opts);
+
+        assert!(
+            !result.root_errors.is_empty(),
+            "a nonexistent root must still be reported as a root error"
+        );
     }
 
     // ── Candidate metadata ────────────────────────────────────────────────────
