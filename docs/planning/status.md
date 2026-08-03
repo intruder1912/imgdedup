@@ -33,8 +33,9 @@ docs pass → AI automation, batched within Claude usage limits.
   at scale. A root that cannot be canonicalized (e.g. it does not exist)
   passes through unchanged so the existing root-error path (ADR-0008
   exit-code semantics) is untouched — verified by a regression test.
-  **Two architect dispatches, not a clean pass either time — another session
-  in the run where review found real substance, not nits.**
+  **Three architect dispatches — the first two each found real, reproducible
+  blockers; the third converged clean.** Another session in the run where
+  review found real substance, not nits — until it finally didn't.
 
   **Round 1: 3 blockers + a should-fix.** (1) With `--no-recurse`, an
   ancestor root's walk is capped at depth 1, so it never reaches a nested
@@ -73,7 +74,29 @@ docs pass → AI automation, batched within Claude usage limits.
   and the ADR amendment. 3 more `enumerate.rs` unit tests reproduce both
   round-2 holes plus a multi-level-nesting case, on top of the round-1 tests
   (7 new tests total across both rounds) and the original 4. Both rounds'
-  fixes re-verified against the real binary. Recorded in the
+  fixes re-verified against the real binary.
+
+  **Round 3 (convergence check): approved, no blockers.** Independently
+  re-derived the "checking only the top of the stack is sufficient" proof
+  rather than trusting the code comment, then tried to falsify it with two
+  differential-testing sweeps against a brute-force oracle (`enumerate` of
+  the deduped roots must equal the set union of `enumerate` on every root
+  individually) — 65,520 configurations total across mixed hidden/non-hidden
+  multi-level trees and a 6-deep chain forcing 3–4 stack pops per iteration,
+  zero mismatches; the same harness found 13,020 failures when pointed at
+  the round-1 single-slot implementation, confirming the harness itself is
+  meaningful. Re-verified performance (no O(n²) reintroduced; ~7% flat
+  overhead from canonicalizing 20,000 roots, and 1.7× _faster_ than `main`
+  in the case where roots actually collapse, since redundant walks are
+  elided). Five non-blocking nits, all folded in: a garbled `covers()` doc
+  comment, a guide sentence that overstated the hidden-root exception
+  (`--hidden` does still collapse it), and two known-residual-gap notes
+  added to the ADR amendment and TASK-0320's backlog entry (an unreadable
+  ancestor directory fails loudly rather than silently, so out of scope; a
+  `--follow-symlinks` filesystem-aliasing case reproduces this task's exact
+  symptom with a single root and no repeated arguments at all, so it isn't
+  fixable at the root-list level and belongs with TASK-0320 instead).
+  Recorded in the
   [2026-08-03 amendment to ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md#amendment-2026-08-03--overlappingrepeated-scan-roots-are-no-longer-double-enumerated-task-0319).
   This PR._
 

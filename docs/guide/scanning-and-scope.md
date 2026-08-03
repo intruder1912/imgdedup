@@ -28,8 +28,10 @@ Two scope rules limit how much collapsing is safe:
   deeper inside one) is scanned independently, since the outer path's scan
   never reaches it.
 - A hidden path you name explicitly is always included (see below), even
-  when it sits inside another path you also passed, so it is never
-  collapsed into that outer path.
+  when it sits inside another path you also passed, so — without `--hidden`
+  — it is never collapsed into that outer path. (With `--hidden`, the outer
+  path's own scan already reaches it, so it collapses like any other nested
+  path; the result is the same either way.)
 
 ## Recursion: `--no-recurse`
 

@@ -369,9 +369,10 @@ fn dedupe_roots(paths: &[PathBuf], opts: &ScopeOptions) -> Vec<PathBuf> {
 
 /// Whether `ancestor`'s own walk (under `opts`) would reach `descendant` —
 /// i.e. whether `descendant` is redundant as a separate scan root. Both
-/// paths must already be canonicalized; `descendant == ancestor` or
-/// `descendant` need not literally be nested in `ancestor` for this to be
-/// called meaningfully, but the two non-exact branches below assume it is.
+/// paths must already be canonicalized; nesting is verified here, not
+/// assumed. Callers must pass the **deepest** kept ancestor still on the
+/// stack — `dedupe_roots`'s "checking only the top of the stack is
+/// sufficient" argument depends on that.
 fn covers(ancestor: &Path, descendant: &Path, opts: &ScopeOptions) -> bool {
     if ancestor == descendant {
         // Exact duplicate: unconditionally redundant — there is no scope

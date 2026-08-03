@@ -491,6 +491,23 @@ property — and does a single linear pass over the sorted list maintaining the
 ancestor stack above. The sort is stable, so exact duplicates keep their
 original relative order (first occurrence wins) for free.
 
+**Known residual gaps, both third-round review, neither a regression from
+this fix:**
+
+- An ancestor directory unreadable at scan time (e.g. `--x` permissions)
+  drops an explicitly-named nested root as redundant, then fails to open the
+  ancestor itself — the named file is never scanned, but the run exits `1`
+  with a clear stderr error, not a silent miss, so the class of harm this
+  fix targets does not occur. Pre-verifying ancestor readability before
+  dedup would be over-engineering for a case that already fails loudly.
+- `--follow-symlinks` can still reproduce the *symptom* this task fixes
+  (`hard-linked: <path>, <path>` for a real duplicate) via filesystem
+  aliasing rather than root-list redundancy — e.g. one scan root contains a
+  symlinked directory pointing at content also reachable another way. This
+  is reachable with a **single** root and no repeated/nested root arguments
+  at all, so no change to `dedupe_roots` can fix it; it belongs with
+  TASK-0320's `--follow-symlinks` candidacy ruling.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)
