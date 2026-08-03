@@ -37,7 +37,18 @@
 //! - No file content reads (magic-byte sniffing is TASK-0303).
 //! - No path canonicalization for keeper tie-breaks (TASK-0305/TASK-0306).
 //! - No deduplication or grouping logic.
+//!
+//! ## Progress (TASK-0317)
+//!
+//! [`enumerate_with_progress`] additionally depends on
+//! [`crate::progress::ProgressSink`], notifying it once per accepted
+//! candidate so `main.rs` can animate the indeterminate Scanning phase
+//! instead of leaving it frozen for the whole traversal. This is the only
+//! dependency this module has outside `walkdir`/`std`.
 
+#[cfg(test)]
+use crate::progress::NoProgress;
+use crate::progress::ProgressSink;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -221,18 +232,50 @@ impl ScopeOptions {
 /// warnings (NFR-6). A caller may treat the result as always-`Ok` — the
 /// returned `CandidateSet` may simply contain warnings describing what was
 /// skipped.
-pub fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet {
+///
+/// Progress-free variant of [`enumerate_with_progress`], kept
+/// `#[cfg(test)]`-only (mirrors `engine.rs`'s `find_duplicates` /
+/// `find_duplicates_with_progress` split, architect finding 6 there):
+/// `enumerate_with_progress` is this module's **sole production entry
+/// point** — the compiler proves it (no production code path can reach this
+/// function at all), rather than relying on a lint suppression. `pub(crate)`
+/// (rather than fully private) for parity with that same precedent, even
+/// though today only this module's own tests call it.
+#[cfg(test)]
+pub(crate) fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet {
+    enumerate_with_progress(paths, opts, &NoProgress)
+}
+
+/// Like [`enumerate`], additionally notifying `sink` as each candidate file
+/// is accepted (TASK-0317, FR-19): the total candidate count is not known
+/// until enumeration finishes, so `main.rs` shows a live, indeterminate
+/// count ("scanning... N files found") rather than a frozen "scanning..."
+/// for the whole enumeration sub-phase. `sink.advance(1)` is called exactly
+/// once per candidate that passes every scope rule — not once per directory
+/// entry walkdir visits — so the count only ever grows by files that will
+/// actually reach the next pipeline stage.
+pub fn enumerate_with_progress(
+    paths: &[PathBuf],
+    opts: &ScopeOptions,
+    sink: &dyn ProgressSink,
+) -> CandidateSet {
     let mut result = CandidateSet::default();
 
     for root in paths {
-        enumerate_root(root, opts, &mut result);
+        enumerate_root(root, opts, &mut result, sink);
     }
 
     result
 }
 
-/// Walk a single root path and accumulate candidates/warnings into `out`.
-fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
+/// Walk a single root path and accumulate candidates/warnings into `out`,
+/// notifying `sink` once per accepted candidate (TASK-0317).
+fn enumerate_root(
+    root: &Path,
+    opts: &ScopeOptions,
+    out: &mut CandidateSet,
+    sink: &dyn ProgressSink,
+) {
     // Determine max depth: depth 1 = immediate children only (no-recurse).
     // walkdir depth 0 is the root itself; depth 1 includes direct children.
     let max_depth = if opts.no_recurse { 1usize } else { usize::MAX };
@@ -315,6 +358,7 @@ fn enumerate_root(root: &Path, opts: &ScopeOptions, out: &mut CandidateSet) {
                 });
 
                 out.candidates.push(Candidate::new(path, size, mtime));
+                sink.advance(1);
             }
         }
     }
@@ -377,7 +421,26 @@ fn extension_matches(path: &Path, opts: &ScopeOptions) -> bool {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use tempfile::TempDir;
+
+    /// Minimal spy `ProgressSink` (TASK-0317): counts the total advanced,
+    /// nothing else — enumeration only ever calls `advance`, never
+    /// `set_total`/`retotal`/`set_phase`/`finish`, so those are no-ops here.
+    #[derive(Default)]
+    struct CountingSink {
+        advanced: AtomicU64,
+    }
+
+    impl crate::progress::ProgressSink for CountingSink {
+        fn set_total(&self, _total: u64) {}
+        fn set_phase(&self, _phase: crate::progress::Phase) {}
+        fn advance(&self, n: u64) {
+            self.advanced.fetch_add(n, Ordering::SeqCst);
+        }
+        fn retotal(&self, _total: u64) {}
+        fn finish(&self) {}
+    }
 
     // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -1109,5 +1172,43 @@ mod tests {
             mtime >= before && mtime <= after + 1,
             "mtime {mtime} should be within the write window [{before}, {after}]"
         );
+    }
+
+    // ── TASK-0317: progress advances during enumeration ────────────────────
+
+    #[test]
+    fn enumerate_with_progress_advances_once_per_candidate_found() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+        touch(&dir, "b.jpg");
+        touch(&dir, "c.jpg");
+        touch(&dir, "not-an-image.txt"); // excluded by the extension filter
+
+        let opts = ScopeOptions::default_scope();
+        let sink = CountingSink::default();
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+
+        assert_eq!(result.candidates.len(), 3, "3 images pass the scope rules");
+        assert_eq!(
+            sink.advanced.load(Ordering::SeqCst),
+            3,
+            "advance() must be called exactly once per accepted candidate, \
+             not per directory entry visited (the excluded .txt file must \
+             not advance the counter)"
+        );
+    }
+
+    #[test]
+    fn plain_enumerate_still_works_without_a_progress_sink() {
+        // enumerate() must stay usable by every existing call site/test
+        // unchanged — it is enumerate_with_progress with a NoProgress sink,
+        // not a breaking signature change.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+        let opts = ScopeOptions::default_scope();
+
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(result.candidates.len(), 1);
     }
 }

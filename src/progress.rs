@@ -163,7 +163,13 @@ impl Phase {
 pub trait ProgressSink: Sync + Send {
     /// Fix the run-wide denominator (`y`) once it is known — the number of
     /// confirmed candidate files (AC-21, FR-19(a)). Called once per
-    /// production run, before the phase that uses it.
+    /// production run, before the phase that uses it. **Resets the numerator
+    /// to zero** (TASK-0317), symmetric with [`retotal`](ProgressSink::retotal):
+    /// the indeterminate phase preceding this call (Scanning) may already
+    /// have advanced the counter with its own, unrelated meaning ("files
+    /// found so far", not measured against any denominator), and that count
+    /// must not leak into the phase this total is for — otherwise the very
+    /// next phase would render as already-complete.
     fn set_total(&self, total: u64);
 
     /// Switch to a new user-facing phase. Always renders immediately
@@ -179,10 +185,10 @@ pub trait ProgressSink: Sync + Send {
     /// counted exactly once, at the point its final disposition for that
     /// phase is reached, so the sum of `advance` calls during a phase
     /// equals that phase's denominator. This does **not** hold *across* a
-    /// `retotal` boundary — the numerator is deliberately reset there (see
-    /// `retotal`'s doc) — so global monotonicity of the displayed
-    /// percentage is guaranteed only *within* a phase, not across the whole
-    /// run.
+    /// `set_total` or `retotal` boundary — the numerator is deliberately
+    /// reset at both (see their docs) — so global monotonicity of the
+    /// displayed percentage is guaranteed only *within* a phase, not across
+    /// the whole run.
     fn advance(&self, n: u64);
 
     /// Reset the numerator to zero and fix a **new**, phase-local
@@ -357,22 +363,39 @@ impl<W: Write> Progress<W> {
     /// Render one status line: `"<phase>: <x> of <y> (<p>%)"`, with a
     /// `(N candidates)` suffix for [`Phase::Verifying`] (so the run-wide
     /// problem size stays visible even though the counter has been reset to
-    /// the phase-local workload — see the module doc), or `"<phase>..."`
-    /// while the total is not yet known (indeterminate).
+    /// the phase-local workload — see the module doc); `"<phase>... <x>
+    /// file(s) found"` while the total is not yet known **and** `show_count`
+    /// is set (indeterminate, TTY-only, TASK-0317) — `x` animates live even
+    /// though there is no denominator yet to show a percentage against; or a
+    /// bare `"<phase>..."` when indeterminate and `show_count` is unset.
+    ///
+    /// `show_count` is TTY-only by design (architect review, TASK-0317): a
+    /// non-TTY repaint of the indeterminate phase happens at most once (at
+    /// phase entry, before anything has been counted — see the module doc's
+    /// non-TTY repaint rules), so a count included there would render as a
+    /// permanently-frozen, false "0 files found" for the rest of the phase —
+    /// worse than the old bare "scanning...", which made no claim at all.
     ///
     /// Pure ASCII, deliberately: this is the only text the binary ever
     /// writes at runtime that could tempt a non-ASCII character (a
     /// `Phase::Verifying` "N candidates" aside), and a redirected log read
     /// under `LANG=C` or a non-UTF-8 code page would mojibake anything
-    /// outside that range — safer to just never emit it.
+    /// outside that range — safer to just never emit it. No thousands
+    /// separators either, for the same reason and for consistency with the
+    /// unadorned integers in the `x of y` form above.
     fn line(
         phase: Phase,
         current: u64,
         phase_total: u64,
         run_total: u64,
         pct: Option<u64>,
+        show_count: bool,
     ) -> String {
         match pct {
+            None if show_count => {
+                let noun = if current == 1 { "file" } else { "files" };
+                format!("{}... {current} {noun} found", phase.label())
+            }
             None => format!("{}...", phase.label()),
             Some(p) if phase == Phase::Verifying => format!(
                 "{}: {current} of {phase_total} ({p}%) ({run_total} candidates)",
@@ -409,11 +432,20 @@ impl<W: Write> Progress<W> {
         let phase = st.phase;
         let phase_total = st.phase_total;
         let run_total = st.run_total;
-        let current = self.current.load(Ordering::Relaxed).min(phase_total);
+        // Only clamp to the denominator once one is known (TASK-0317): before
+        // that, `phase_total` is still its zero-initialized default, and
+        // clamping against it would pin the indeterminate scanning count at
+        // 0 forever regardless of how many `advance` calls actually landed.
+        let raw_current = self.current.load(Ordering::Relaxed);
+        let current = if st.total_known {
+            raw_current.min(phase_total)
+        } else {
+            raw_current
+        };
         let pct = st.total_known.then(|| Self::percent(current, phase_total));
 
         if self.tty {
-            let line = Self::line(phase, current, phase_total, run_total, pct);
+            let line = Self::line(phase, current, phase_total, run_total, pct, true);
             let mut buf = String::with_capacity(line.len() + 4);
             buf.push('\r');
             buf.push_str(&line);
@@ -429,7 +461,7 @@ impl<W: Write> Progress<W> {
                 (Some(b), shown) if shown != Some(b)
             );
             if force || phase_changed || bucket_changed {
-                let mut buf = Self::line(phase, current, phase_total, run_total, pct);
+                let mut buf = Self::line(phase, current, phase_total, run_total, pct, false);
                 buf.push('\n');
                 let _ = st.writer.write_all(buf.as_bytes());
                 st.last_phase_shown = Some(phase);
@@ -447,6 +479,12 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         st.run_total = total;
         st.phase_total = total;
         st.total_known = true;
+        // TASK-0317 regression: the indeterminate Scanning phase may have
+        // already advanced the counter with its own "files found" meaning
+        // (unrelated to this new denominator) — without this reset, that
+        // count leaked straight into Hashing, pinning it at 100% for the
+        // entire phase (an architect-review-caught defect, not hypothetical).
+        self.current.store(0, Ordering::Relaxed);
         // Silent by design: paired with the `set_phase` call that follows
         // in production, which is what actually (and always) repaints.
     }
@@ -503,7 +541,10 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         self.current.store(run_total, Ordering::Relaxed);
 
         let pct = Some(Self::percent(run_total, run_total));
-        let line = Self::line(Phase::Done, run_total, run_total, run_total, pct);
+        // show_count is irrelevant here: pct is always Some for Phase::Done,
+        // so line()'s indeterminate branches (the only ones it affects) are
+        // never reached.
+        let line = Self::line(Phase::Done, run_total, run_total, run_total, pct, self.tty);
 
         if self.tty {
             let mut buf = String::with_capacity(line.len() + 6);
@@ -606,6 +647,72 @@ mod tests {
         assert!(
             out.contains("scanning...") && !out.contains(" of "),
             "expected an indeterminate scanning state, got: {out:?}"
+        );
+    }
+
+    // ── TASK-0317: live indeterminate count during Scanning ────────────────
+
+    #[test]
+    fn tty_indeterminate_scanning_shows_a_live_growing_count() {
+        // Before enumeration completes, y is unknown, but the count of files
+        // found so far can still animate live rather than sitting frozen at
+        // "scanning..." for the whole enumeration+sniff sub-phase.
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning... 3 files found"),
+            "expected the indeterminate scanning count to reach 3, got: {out:?}"
+        );
+        assert!(
+            !out.contains(" of "),
+            "must stay indeterminate (no percentage/denominator) until the \
+             total is known, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn tty_indeterminate_scanning_count_pluralizes_correctly() {
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning... 1 file found"),
+            "singular 'file' for a count of 1, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn set_total_resets_the_numerator_carried_from_scanning() {
+        // Architect-review-caught regression (TASK-0317): the Scanning phase
+        // advances the counter with its own "files found" meaning, unrelated
+        // to any denominator. Without resetting it in set_total, that count
+        // leaked straight into Hashing, pinning it at "100%" from the first
+        // repaint of the entire hashing phase — a real bug this test would
+        // have caught before merge.
+        let p = immediate(false);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+
+        p.set_total(10);
+        p.set_phase(Phase::Hashing);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("hashing: 0 of 10 (0%)"),
+            "hashing must start at 0, not carry Scanning's count forward; got: {out:?}"
+        );
+        assert!(
+            !out.contains("hashing: 3 of 10"),
+            "must not show the leaked Scanning count; got: {out:?}"
         );
     }
 
@@ -806,6 +913,32 @@ mod tests {
     }
 
     // ── Non-TTY fallback (AC-22) ─────────────────────────────────────────
+
+    #[test]
+    fn non_tty_indeterminate_scanning_stays_bare_no_count() {
+        // Architect review (TASK-0317): a non-TTY repaint of the
+        // indeterminate Scanning phase happens at most once — at phase
+        // entry, before anything has been counted (see the module doc's
+        // non-TTY repaint rules: no bucket concept applies when there is no
+        // percentage). Including the count there would freeze at a false
+        // "0 files found" for the rest of the phase, worse than the old
+        // neutral "scanning..." which made no claim. The count is TTY-only.
+        let p = immediate(false);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning...\n"),
+            "non-TTY scanning must stay the bare, neutral line; got: {out:?}"
+        );
+        assert!(
+            !out.contains("found"),
+            "non-TTY must never show the (necessarily stale) found-count; got: {out:?}"
+        );
+    }
 
     #[test]
     fn non_tty_never_emits_carriage_return_or_ansi() {
