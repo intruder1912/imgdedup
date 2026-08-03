@@ -334,7 +334,7 @@ is treated as the absolute stop line, not the aim.
 | 11b | feature | TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) — **done, PR #66, actual 26%** | Split out of session 11 (see actuals note): 43% of the window was already spent on 11a by the time it would start, too close to the 75% hard stop to begin a feature unit with its own re-sizing uncertainty | 35–55 | 5–6 |
 | 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) — **done, PR #68, actual 14%** + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — carried to session 13 | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
 | 13 | chore ×2 (carried from 12), plus one unplanned follow-up fix | TASK-0327 (fold `make links` onto lychee, wire into `validate`) — **done, PR #70** + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — **done, PR #71** + a TASK-0327 regression fix (`node_modules` polluting the local lychee glob) found while validating PR #71 — **done, PR #72** | TASK-0327 is docs/tooling-only, no write-permission CI — architect dispatch skipped per the ADR-0011 exception; TASK-0324/0325 touch `release.yml`'s write-permission job, so keep the second-dispatch precedent; the follow-up fix is the same low-risk shape as TASK-0327 itself | 10–20 (327 alone) + 15–25 (324/325) | 2–4 |
-| 14 | fix, core-engine-adjacent | TASK-0319 (dedupe overlapping/repeated scan roots — same-tree-twice bug) — **done, this PR** | Solo: touches `enumerate.rs`, the first stage feeding the safety-critical dedup pipeline (ADR-0008); do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
+| 14 | fix, core-engine-adjacent | TASK-0319 (dedupe overlapping/repeated scan roots — same-tree-twice bug) — **done, PR #74, actual 51%** | Solo: touches `enumerate.rs`, the first stage feeding the safety-critical dedup pipeline (ADR-0008); do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
 | 15 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
 | 16 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
 
@@ -485,6 +485,46 @@ Three things worth carrying forward:
    Cheap in practice (a few minutes each), but real: sequencing tightly-
    scoped chores through their own branches inside one session always pays
    this cost once per merge, not once per session.
+
+**Session 14 (TASK-0319, PR #74), 2026-08-03 — 51% of the window (23% → 74%)
+against a 35–50 estimate — landed just past the top of its own estimate, but
+comfortably under what three full architect-review rounds would suggest; the
+week moved 57% → 62% (~5 weekly points).** `fix:`-typed squash commit;
+`enumerate.rs` is product code, so this PR ran the full 3-OS CI matrix rather
+than the path-filtered docs/chore fast path. **Session closed at 74%, one
+point under the 75% hard stop** — no further unit started this window.
+
+1. **Three architect dispatches, not the usual one — and it was worth every
+   one of them.** Round 1 (author pass) returned 3 blockers on a fix that
+   looked mechanical from the outside (drop redundant scan roots): two were
+   silent-data-loss-adjacent scope-rule interactions (`--no-recurse` and the
+   explicit-hidden-root guarantee), one was a genuine O(n²) performance
+   regression (25× slower at 20,000 roots, measured). Round 2, reviewing
+   round 1's own fixes, found **two more** real holes in the same function —
+   both reproducing the exact original bug symptom again, both confirmed
+   against the release binary. Only round 3 converged clean, and it did so
+   by *proving* convergence (an independently-derived correctness argument,
+   then a 65,520-configuration differential test against a brute-force
+   oracle) rather than by re-running the two known repro commands and
+   declaring victory. This is the strongest data point yet for
+   [[imgdedup-architect-review-value]]: a single "looks small" root-cause fix
+   in `enumerate.rs` took three real review rounds to actually get right,
+   and every round before the last found something a human or a single pass
+   would very plausibly have shipped.
+2. **51% actual against a 35–50 estimate is a good outcome for what
+   happened, not a miss.** The estimate assumed roughly the concurrency-
+   critical-code shape (one review, budgeted extra margin) — this session
+   effectively did three. That it landed only 1 point over the top of the
+   estimate, rather than the multiples-of-estimate blowout seen in
+   subagent-heavy sessions (session 1's 100%), reinforces that **the
+   expensive part of a review-heavy session is round-trips, not tokens or
+   findings-count** — each round here was inline, focused, and resolved
+   findings immediately rather than accumulating a backlog.
+3. **The 75% hard stop did its job.** Landing at 74% with TASK-0322 (perf
+   evaluation, its own uncertain-outcome unit) queued next, the session
+   stops here per the governance in this file rather than starting a fourth
+   unit on fumes. TASK-0322 becomes the next session's first item, from a
+   fresh window.
 
 ## Ordering constraints
 
