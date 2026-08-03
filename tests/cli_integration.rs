@@ -455,6 +455,85 @@ fn all_scope_flags_accepted() {
         .code(0);
 }
 
+// ── TASK-0319: overlapping/duplicate scan roots ───────────────────────────
+
+/// `imgdedup <dir> <dir>` must not report the tree's own files as
+/// hard-linked to themselves. Before the fix, walking the same root twice
+/// gave every file two identical `Candidate`s, which the engine's identity
+/// collapse correctly (but misleadingly) reported as a hard-link set of one
+/// file to itself — masking the fact that nothing was actually checked
+/// against anything.
+#[test]
+fn same_root_given_twice_reports_no_duplicates_not_a_self_hard_link() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize(
+        dir.path(),
+        &[FileSpec {
+            rel_path: "a.png".into(),
+            bytes: image_bytes(ImageFormat::Png, 1, 64),
+            mtime: 1_700_000_000,
+        }],
+        &[],
+    );
+
+    cmd()
+        .arg(dir.path())
+        .arg(dir.path())
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("No duplicate groups found."))
+        .stdout(predicate::str::contains("hard-link").not());
+}
+
+/// Overlapping roots (`<dir> <dir>/sub`) must not double-count `sub`'s
+/// files, and a genuine duplicate elsewhere in the tree must still be
+/// detected — proving the root-level dedup neither creates false hard-link
+/// sets nor hides real ones.
+#[test]
+fn overlapping_roots_do_not_double_count_and_still_find_real_duplicates() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let payload = image_bytes(ImageFormat::Png, 1, 64);
+    materialize(
+        dir.path(),
+        &[
+            FileSpec {
+                rel_path: "top.png".into(),
+                bytes: payload.clone(),
+                mtime: 1_700_000_000,
+            },
+            FileSpec {
+                rel_path: "dup_of_top.png".into(),
+                bytes: payload,
+                mtime: 1_700_000_000,
+            },
+            FileSpec {
+                rel_path: "sub/nested.png".into(),
+                bytes: image_bytes(ImageFormat::Png, 2, 64),
+                mtime: 1_700_000_000,
+            },
+        ],
+        &[],
+    );
+
+    cmd()
+        .arg(dir.path())
+        .arg(dir.path().join("sub"))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "Summary: 1 duplicate group, 2 files, 64 bytes reclaimable.",
+        ))
+        // Review finding: this substring alone also matches the buggy
+        // behavior (main's summary reads "...; 1 already-deduplicated
+        // hard-link set (nothing to reclaim)." because sub/nested.png was
+        // walked twice and collapsed with itself). The exact trailing
+        // period above already rules that out, but assert the absence of
+        // any hard-link mention explicitly so this test actually pins the
+        // double-count bug rather than only the "real duplicates still
+        // found" half.
+        .stdout(predicate::str::contains("hard-link").not());
+}
+
 /// A nonexistent scan root must exit 1 AND explain itself on stderr
 /// (run-level error, ADR-0008; resilience review 2026-07 finding F1 —
 /// previously the run failed silently).

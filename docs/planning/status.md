@@ -11,6 +11,95 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 14 (TASK-0319, dedupe overlapping/repeated scan roots) closes an
+  architect finding from the S3 review: `imgdedup ./d ./d` (or overlapping
+  roots like `./d ./d/sub`) walked the same physical file more than once,
+  so every file appeared hard-linked to itself in the dry-run report
+  (`hard-linked: a.png, a.png`; "no duplicate groups to remove; 1
+  already-deduplicated hard-link set") — fail-safe (apply-time Check 4,
+  ADR-0008, already made this safe to run) but misleading, since the tree
+  had never actually been compared against anything. Reproduced first with
+  the real binary (`./target/debug/imgdedup /tmp/tdup /tmp/tdup`) to confirm
+  the exact symptom before writing a failing test. **Fix is enumeration-stage,
+  not engine-stage:** new `enumerate::dedupe_roots` canonicalizes the
+  (normally small) list of user-supplied root arguments and drops any root
+  that is an exact duplicate of, or nested inside, another — regardless of
+  argument order — before any file is walked. Single-root invocations (the
+  common case) skip canonicalization entirely (`paths.len() <= 1` early
+  return), so this adds zero cost for the overwhelmingly common case and no
+  per-candidate cost even with multiple roots — deliberately avoiding
+  `same-file::Handle`-based dedup across the full candidate set, which would
+  violate `collapse_identity`'s NFR-4 invariant (bounded open-handle count)
+  at scale. A root that cannot be canonicalized (e.g. it does not exist)
+  passes through unchanged so the existing root-error path (ADR-0008
+  exit-code semantics) is untouched — verified by a regression test.
+  **Three architect dispatches — the first two each found real, reproducible
+  blockers; the third converged clean.** Another session in the run where
+  review found real substance, not nits — until it finally didn't.
+
+  **Round 1: 3 blockers + a should-fix.** (1) With `--no-recurse`, an
+  ancestor root's walk is capped at depth 1, so it never reaches a nested
+  root's contents — collapsing the nested root as "covered" silently dropped
+  its files entirely. (2) A hidden path passed _explicitly_ as a scan root is
+  always included (opt-in-by-explicit-root,
+  `docs/guide/scanning-and-scope.md`) — collapsing an explicitly-named hidden
+  nested root into its ancestor silently un-opted it back out, since the
+  ancestor's own walk skips hidden entries by default. (3) The original
+  all-pairs `starts_with` comparison was O(n²) — review measured a 25×
+  slowdown at 20,000 roots (73s vs. `main`'s 2.97s). **Should-fix:** the
+  `overlapping_roots_do_not_double_count_and_still_find_real_duplicates` CLI
+  test's only assertion also matched the pre-fix buggy output, so it wasn't
+  actually pinning the bug it was named for.
+
+  **Round 1 fixes, and what round 2 found wrong with them.** The first pass
+  fixed the `--no-recurse` and hidden cases by disabling non-exact nesting
+  collapse under `--no-recurse` entirely and skipping collapse when the
+  nested root is hidden relative to its ancestor; the O(n²) comparison became
+  a sort (`Path`'s `Ord` is lexicographic over components, so a path's
+  descendants sit in a contiguous range right after it once sorted) plus a
+  linear pass tracking a single "last kept ancestor." **Round 2 found two
+  more real holes in that pass, both the exact TASK-0319 symptom again, both
+  reproduced against the release binary:** (1) a single "last kept" slot lets
+  a kept-but-not-collapsed nested root (e.g. an explicit hidden root) shadow
+  its _own_ ancestor from a later, unrelated sibling that sorts after it —
+  `imgdedup A A/.cache A/sub` masked a real duplicate in `A/sub` down to "0
+  bytes reclaimable." (2) Disabling nesting collapse entirely under
+  `--no-recurse` over-corrected: a depth-1 walk _does_ reach the ancestor's
+  own direct-child files, so a direct-child file given as its own root was
+  still double-walked. **Fixed:** `dedupe_roots` now tracks a **stack** of
+  still-relevant kept ancestors (not one slot), and the `--no-recurse`
+  coverage check is depth-aware (`descendant.parent() == Some(ancestor) &&
+  descendant.is_file()`) rather than a blanket disable — both changes proved
+  sufficient to check only the top of the stack, argued in the code comment
+  and the ADR amendment. 3 more `enumerate.rs` unit tests reproduce both
+  round-2 holes plus a multi-level-nesting case, on top of the round-1 tests
+  (7 new tests total across both rounds) and the original 4. Both rounds'
+  fixes re-verified against the real binary.
+
+  **Round 3 (convergence check): approved, no blockers.** Independently
+  re-derived the "checking only the top of the stack is sufficient" proof
+  rather than trusting the code comment, then tried to falsify it with two
+  differential-testing sweeps against a brute-force oracle (`enumerate` of
+  the deduped roots must equal the set union of `enumerate` on every root
+  individually) — 65,520 configurations total across mixed hidden/non-hidden
+  multi-level trees and a 6-deep chain forcing 3–4 stack pops per iteration,
+  zero mismatches; the same harness found 13,020 failures when pointed at
+  the round-1 single-slot implementation, confirming the harness itself is
+  meaningful. Re-verified performance (no O(n²) reintroduced; ~7% flat
+  overhead from canonicalizing 20,000 roots, and 1.7× _faster_ than `main`
+  in the case where roots actually collapse, since redundant walks are
+  elided). Five non-blocking nits, all folded in: a garbled `covers()` doc
+  comment, a guide sentence that overstated the hidden-root exception
+  (`--hidden` does still collapse it), and two known-residual-gap notes
+  added to the ADR amendment and TASK-0320's backlog entry (an unreadable
+  ancestor directory fails loudly rather than silently, so out of scope; a
+  `--follow-symlinks` filesystem-aliasing case reproduces this task's exact
+  symptom with a single root and no repeated arguments at all, so it isn't
+  fixable at the root-list level and belongs with TASK-0320 instead).
+  Recorded in the
+  [2026-08-03 amendment to ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md#amendment-2026-08-03--overlappingrepeated-scan-roots-are-no-longer-double-enumerated-task-0319).
+  This PR._
+
 - _Session 13, follow-up fix (TASK-0327 regression) — found by actually
   running `make validate` locally, not by reading the config: TASK-0327
   folded `make links`/`scripts/validate.sh` onto lychee, using the exact same

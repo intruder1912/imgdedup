@@ -414,6 +414,100 @@ No other current validation rule exists to exercise the second source beyond
 `--delete` without `--apply`, but any future one added to `cli::validate()`
 follows the same bucket by construction.
 
+## Amendment 2026-08-03 — overlapping/repeated scan roots are no longer double-enumerated (TASK-0319)
+
+The S3 review (Consequence note above, "Check 4") established that overlapping
+or repeated scan roots (`imgdedup ./d ./d`, `imgdedup ./d ./d/sub`) are **safe**
+— the apply-time identity check never removes a file just because it was
+walked twice. It did not make them **accurate**: before this fix, each
+occurrence of the same physical file became its own `Candidate` from
+`enumerate.rs`, so the engine's identity collapse (this document's hard-link
+handling) correctly-but-misleadingly reported a single file as a hard-link set
+of one file to itself — `hard-linked: a.png, a.png` — and the dry-run summary
+read "no duplicate groups to remove; 1 already-deduplicated hard-link set"
+even when the tree had never actually been compared against anything. Fail-safe
+(nothing was removed or at risk), but a user reading the dry-run report could
+reasonably conclude their tree was clean when it had not been checked.
+
+**Fix: deduplicate at the root list, before enumeration walks anything.**
+`enumerate::dedupe_roots` canonicalizes the (normally small) list of
+user-supplied scan roots and drops any root that is an exact duplicate of, or
+nested inside, another given root — regardless of argument order. This is
+enumeration-stage, not engine-stage: it operates on the handful of root
+arguments, never on individual candidate files, so it adds no per-file
+traversal cost and does not touch `collapse_identity`'s NFR-4 handle-scoping
+invariant. A root that cannot be canonicalized (e.g. it does not exist) is
+left untouched, so the existing root-error path is unaffected. Check 4 at
+apply time is now a second, independent safety net rather than the sole
+guard against this scenario — both are correct and neither depends on the
+other.
+
+**Nesting is only redundant if the ancestor's own walk actually reaches it**
+(architect review, same day, `covers()`). Two of this document's own scope
+rules can make that false, and treating a nested root as covered anyway would
+silently drop files the user explicitly named — the same class of harm this
+fix exists to prevent:
+
+- **`--no-recurse`** caps every root's walk at its own immediate children
+  (depth 1, "Scope rules" above). A depth-1 walk still reaches an ancestor's
+  direct-child *files*, so a nested root that is a real, existing file
+  directly inside its ancestor still collapses — but a nested *directory*
+  root, or a file two or more levels down, does not: the ancestor's capped
+  walk never reaches either, so both are kept and scanned independently.
+- **Hidden entries** are skipped by default (FR-6) — except a hidden path
+  passed *explicitly* as a scan root, which is always included
+  (`docs/guide/scanning-and-scope.md`). A nested root that is hidden relative
+  to its ancestor is kept rather than collapsed, unless `--hidden` is also
+  given — otherwise the ancestor's own walk would silently un-opt-in it.
+
+Both exceptions are keyed off the *shared* `ScopeOptions` already threaded
+through enumeration (`no_recurse`/`include_hidden` apply uniformly to every
+root in one invocation), so `dedupe_roots` takes `&ScopeOptions` alongside the
+root list rather than deciding blind.
+
+**A single "last kept ancestor" is not enough** (second architect review
+round, same day). A nested root that `covers()` correctly refuses to
+collapse — e.g. an explicit hidden root — must still be kept in mind as a
+potential ancestor for *its own* descendants, without shadowing the original,
+shallower ancestor from an unrelated later sibling. `dedupe_roots` tracks a
+**stack** of still-relevant kept ancestors (popped down to the ones that are
+still a prefix of the current path in sorted order) rather than a single
+slot, checking only the top entry — provably sufficient, since in
+`--no-recurse` mode only an exact parent can cover a path (no shallower stack
+entry could either), and in recurse mode the hidden-component search that
+`is_hidden_relative_to` performs only grows as the candidate ancestor gets
+shallower, so if the closest one fails the shallower ones would too.
+
+**Performance: sort, don't compare all pairs.** An initial all-pairs
+`starts_with` comparison across the root list is O(n²) — for the common case
+of a handful of roots this is free, but a shell glob like `imgdedup */` over a
+directory with thousands of subdirectories is a realistic invocation, and
+review measured a 25× slowdown at 20,000 roots (73 s vs. 2.97 s on `main`) from
+a purely mechanical pre-pass sitting behind a frozen `scanning...` indicator.
+`dedupe_roots` instead sorts the canonicalized roots once — `Path`'s `Ord` is
+lexicographic over components, so a path's descendants occupy a contiguous
+range immediately after it in sorted order, the standard prefix-dedup
+property — and does a single linear pass over the sorted list maintaining the
+ancestor stack above. The sort is stable, so exact duplicates keep their
+original relative order (first occurrence wins) for free.
+
+**Known residual gaps, both third-round review, neither a regression from
+this fix:**
+
+- An ancestor directory unreadable at scan time (e.g. `--x` permissions)
+  drops an explicitly-named nested root as redundant, then fails to open the
+  ancestor itself — the named file is never scanned, but the run exits `1`
+  with a clear stderr error, not a silent miss, so the class of harm this
+  fix targets does not occur. Pre-verifying ancestor readability before
+  dedup would be over-engineering for a case that already fails loudly.
+- `--follow-symlinks` can still reproduce the *symptom* this task fixes
+  (`hard-linked: <path>, <path>` for a real duplicate) via filesystem
+  aliasing rather than root-list redundancy — e.g. one scan root contains a
+  symlinked directory pointing at content also reachable another way. This
+  is reachable with a **single** root and no repeated/nested root arguments
+  at all, so no change to `dedupe_roots` can fix it; it belongs with
+  TASK-0320's `--follow-symlinks` candidacy ruling.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)
