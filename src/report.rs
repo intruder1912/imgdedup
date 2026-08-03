@@ -54,10 +54,19 @@
 use crate::apply::{ActionMode, ApplyOutcome};
 use crate::engine::{DedupOutcome, HardLinkNote};
 use crate::enumerate::EnumerateWarning;
+use crate::safe_text::escape_control_chars;
 use crate::sniff::SniffWarning;
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::path::{Path, PathBuf};
+
+/// [`escape_control_chars`] over a path's lossy display form (TASK-0318):
+/// every path printed in this report goes through this, not raw
+/// `Path::display()`, so a hostile filename cannot forge an extra report
+/// line or inject a terminal escape sequence.
+fn safe_path(path: &Path) -> String {
+    escape_control_chars(&path.display().to_string()).into_owned()
+}
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -98,13 +107,31 @@ pub fn render(
     if has_warnings {
         writeln!(out, "Warnings:").unwrap();
         for w in enumerate_warnings {
-            writeln!(out, "  SKIP  {}: {}", w.path.display(), w.reason).unwrap();
+            writeln!(
+                out,
+                "  SKIP  {}: {}",
+                safe_path(&w.path),
+                escape_control_chars(&w.reason)
+            )
+            .unwrap();
         }
         for w in sniff_warnings {
-            writeln!(out, "  SKIP  {}: {}", w.path.display(), w.reason).unwrap();
+            writeln!(
+                out,
+                "  SKIP  {}: {}",
+                safe_path(&w.path),
+                escape_control_chars(&w.reason)
+            )
+            .unwrap();
         }
         for w in &outcome.warnings {
-            writeln!(out, "  SKIP  {}: {}", w.path.display(), w.reason).unwrap();
+            writeln!(
+                out,
+                "  SKIP  {}: {}",
+                safe_path(&w.path),
+                escape_control_chars(&w.reason)
+            )
+            .unwrap();
         }
         writeln!(out).unwrap();
     }
@@ -175,9 +202,9 @@ pub fn render(
         )
         .unwrap();
 
-        writeln!(out, "  KEEP  {}", group.keeper.path.display()).unwrap();
+        writeln!(out, "  KEEP  {}", safe_path(&group.keeper.path)).unwrap();
         for removable in &group.removable {
-            writeln!(out, "  REMOVE {}", removable.path.display()).unwrap();
+            writeln!(out, "  REMOVE {}", safe_path(&removable.path)).unwrap();
         }
         // Protected anchors: hard-link representatives whose surviving in-scope
         // siblings pin the inode. Removing them would free 0 bytes.
@@ -186,7 +213,7 @@ pub fn render(
             writeln!(
                 out,
                 "  PROTECT {}  (hard-linked; removing it frees no space)",
-                protected.path.display()
+                safe_path(&protected.path)
             )
             .unwrap();
         }
@@ -204,10 +231,10 @@ pub fn render(
                 writeln!(
                     out,
                     "  NOTE  hard-link set: {} \u{2192} {}",
-                    note.representative.display(),
+                    safe_path(&note.representative),
                     note.siblings
                         .iter()
-                        .map(|p| p.display().to_string())
+                        .map(|p| safe_path(p))
                         .collect::<Vec<_>>()
                         .join(", "),
                 )
@@ -228,7 +255,7 @@ pub fn render(
         )
         .unwrap();
         for note in &already_dedup_notes {
-            writeln!(out, "  {}", note.representative.display()).unwrap();
+            writeln!(out, "  {}", safe_path(&note.representative)).unwrap();
             // Link set = representative + siblings, in canonical byte-wise order.
             let mut link_set: Vec<PathBuf> = std::iter::once(note.representative.clone())
                 .chain(note.siblings.iter().cloned())
@@ -236,7 +263,7 @@ pub fn render(
             link_set.sort();
             let link_set_str = link_set
                 .iter()
-                .map(|p| p.display().to_string())
+                .map(|p| safe_path(p))
                 .collect::<Vec<_>>()
                 .join(", ");
             writeln!(out, "    hard-linked: {link_set_str}").unwrap();
@@ -315,13 +342,19 @@ fn write_performed_actions(out: &mut String, mode: ActionMode, applied: &ApplyOu
     // of the trash, which matters most when several share a basename across
     // directories. Symmetric with the skip list below.
     for path in &applied.removed {
-        writeln!(out, "  {}", path.display()).unwrap();
+        writeln!(out, "  {}", safe_path(path)).unwrap();
     }
 
     if !applied.skipped.is_empty() {
         writeln!(out, "Skipped (left in place):").unwrap();
         for skip in &applied.skipped {
-            writeln!(out, "  {}: {}", skip.path.display(), skip.reason).unwrap();
+            writeln!(
+                out,
+                "  {}: {}",
+                safe_path(&skip.path),
+                escape_control_chars(&skip.reason.to_string())
+            )
+            .unwrap();
         }
     }
 }
@@ -776,6 +809,68 @@ mod tests {
     }
 
     // ── No duplicates ─────────────────────────────────────────────────────────
+
+    // ── TASK-0318: control-character escaping (line-forgery / terminal
+    // escape injection) ────────────────────────────────────────────────────
+
+    #[test]
+    fn hostile_warning_path_cannot_forge_an_extra_report_line() {
+        // A filename containing a raw '\n' would, unescaped, let a hostile
+        // file forge an extra line in this line-oriented report — e.g. a
+        // fake "Summary:" line. The escaped '\n' must render as the two
+        // visible characters `\` `n`, not a real newline, so the warning
+        // still occupies exactly one line.
+        let outcome = DedupOutcome::default();
+        let ew = vec![EnumerateWarning {
+            path: PathBuf::from("evil\nSummary: 0 duplicate groups, forged"),
+            reason: "skipped".to_owned(),
+        }];
+        let sw: Vec<SniffWarning> = vec![];
+
+        let report = render_dry(&outcome, &ew, &sw);
+
+        assert!(
+            report.contains("evil\\nSummary:"),
+            "the newline must render as the escape sequence \\n; got:\n{report}"
+        );
+        assert!(
+            !report.contains("evil\nSummary:"),
+            "a raw newline must never split the warning across two lines; got:\n{report}"
+        );
+    }
+
+    #[test]
+    fn hostile_keeper_path_control_characters_are_escaped_in_group_output() {
+        // Same channel, the group-rendering path (KEEP/REMOVE) rather than
+        // the warnings section. Constructs the outcome directly rather than
+        // writing a real file with an ESC byte in its name: Windows NTFS
+        // disallows control characters 0-31 in filenames, so a real file
+        // with this name could never exist on the 3-OS CI matrix — but
+        // report.rs never touches the filesystem, so this is a faithful,
+        // portable test of the formatter itself.
+        use crate::engine::{DuplicateGroup, FileRec};
+
+        let evil_path = PathBuf::from("/tmp/evil\u{1b}[2Jname.jpg");
+        let outcome = DedupOutcome {
+            groups: vec![DuplicateGroup {
+                keeper: FileRec::new_for_test(evil_path.clone(), 4, None),
+                removable: vec![FileRec::new_for_test(PathBuf::from("/tmp/b.jpg"), 4, None)],
+                protected: vec![],
+            }],
+            ..DedupOutcome::default()
+        };
+        let (ew, sw) = no_warnings();
+        let report = render_dry(&outcome, &ew, &sw);
+
+        assert!(
+            !report.contains('\u{1b}'),
+            "the raw ESC byte must never reach the report; got:\n{report:?}"
+        );
+        assert!(
+            report.contains("\\u{1b}"),
+            "the ESC must render as a visible escape instead; got:\n{report}"
+        );
+    }
 
     #[test]
     fn no_duplicates_shows_appropriate_message() {

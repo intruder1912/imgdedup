@@ -11,6 +11,25 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 11 (TASK-0318, control-character sanitization) closes a security
+  note from the TASK-0315 review: hostile filenames (or error messages that
+  embed one, e.g. `walkdir`'s and `trash`'s `Display` impls) could reach
+  stderr/stdout with raw control bytes — ANSI escapes injecting terminal
+  control sequences, or a raw `\n` forging an extra report line. New
+  `src/safe_text.rs::escape_control_chars` (Unicode `Cc` only — C0/DEL/C1 —
+  so non-Latin scripts/emoji/combining marks are never touched) is applied
+  at all 3 `main.rs` stderr sites and, once the CLI integration test caught
+  that the backlog's "stderr" wording undersold a scope already recorded in
+  [`reviews/apply-delete.md`](reviews/apply-delete.md) (finding 12–17), all
+  12 `report.rs` stdout sites too. One architect dispatch: 2 blockers (the
+  `report.rs` scope gap; this planning update itself hadn't landed) + 5
+  nits, all resolved and converged in one round — including a demonstrated
+  line-forgery repro (a warning path containing `\nSummary: 0 duplicate
+  groups, forged` rendered as two lines pre-fix, one post-fix) and a
+  verified claim about `trash::Error`'s `Debug`-based `Display` embedding
+  paths that `std::io::Error` normally would not. `json.rs` is an accepted
+  residual — serde already escapes C0 per RFC 8259. This PR._
+
 - _Session 10 (TASK-0321, scan-stage parallelization) parallelized
   `sniff::filter_candidates` with rayon — the throughput lever the TASK-0312
   NFR-4 measurement identified (a control fixture where no file is hashed

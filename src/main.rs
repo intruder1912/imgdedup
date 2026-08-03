@@ -11,6 +11,7 @@ mod json;
 mod keeper;
 mod progress;
 mod report;
+mod safe_text;
 mod sniff;
 
 fn main() {
@@ -119,7 +120,11 @@ fn run(args: cli::Cli) -> i32 {
     // (or any future stderr writer added during the run window — see the
     // rule in `progress.rs`'s module doc) may run before it returns.
     for err in &candidate_set.root_errors {
-        eprintln!("error: {}: {}", err.path.display(), err.reason);
+        eprintln!(
+            "error: {}: {}",
+            safe_text::escape_control_chars(&err.path.display().to_string()),
+            safe_text::escape_control_chars(&err.reason)
+        );
     }
 
     // Stage 4 — Destructive actions (TASK-0309 trash / TASK-0310 delete).
@@ -165,9 +170,18 @@ fn run(args: cli::Cli) -> i32 {
         // what was destroyed.
         let verb = mode.past_tense();
         let outcome = apply::apply(&dedup.groups, remover.as_ref(), &mut |event| match event {
-            apply::Event::Removed(path) => eprintln!("{verb}: {}", path.display()),
+            apply::Event::Removed(path) => {
+                eprintln!(
+                    "{verb}: {}",
+                    safe_text::escape_control_chars(&path.display().to_string())
+                )
+            }
             apply::Event::Skipped(path, reason) => {
-                eprintln!("warning: {}: {reason}", path.display())
+                eprintln!(
+                    "warning: {}: {}",
+                    safe_text::escape_control_chars(&path.display().to_string()),
+                    safe_text::escape_control_chars(&reason.to_string())
+                )
             }
         });
         (mode, outcome)

@@ -464,6 +464,37 @@ fn nonexistent_root_prints_error_to_stderr_and_exits_1() {
         .stderr(predicates::str::contains("not/a/real/path-imgdedup-f1"));
 }
 
+/// TASK-0318: a hostile path containing a raw control character must never
+/// reach the terminal verbatim via stderr — that would let a malicious
+/// argument (or, via the same code path, a malicious filename) inject
+/// terminal escape sequences. No filesystem write is needed: the nonexistent-
+/// root error path (above) already prints the path back on stderr, so a
+/// control character can ride directly in the CLI argument.
+#[test]
+fn nonexistent_root_with_control_char_is_escaped_not_raw_on_stderr() {
+    let evil_path = "/definitely/not/a/real/evil\u{1b}[2Jpath-imgdedup-f2";
+    let out = cmd().arg(evil_path).output().unwrap();
+
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Also relies on progress emitting no ANSI under `.output()` capture
+    // (stderr is not a TTY here, so `Progress` never writes `\x1b[K`,
+    // progress.rs). If that ever regressed, this assertion would fail too —
+    // noted so a future failure here is diagnosable rather than puzzling.
+    assert!(
+        !stderr.contains('\u{1b}'),
+        "the raw ESC byte must never reach stderr; got {stderr:?}"
+    );
+    assert!(
+        stderr.contains("\\u{1b}"),
+        "the ESC must render as a visible escape instead; got {stderr:?}"
+    );
+    assert!(
+        stderr.contains("evil") && stderr.contains("path-imgdedup-f2"),
+        "the rest of the path must still be visible; got {stderr:?}"
+    );
+}
+
 /// `--json` must emit a single valid JSON document on stdout (FR-14, AC-8),
 /// with the stable top-level fields present.
 #[test]
