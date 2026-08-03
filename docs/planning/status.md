@@ -11,6 +11,20 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 13 (TASK-0327, local link-check consistency) folds `make links`
+  and `scripts/validate.sh` onto lychee: both now run
+  `lychee --config lychee.toml --no-progress './**/*.md'`, the exact
+  invocation CI's required `linkcheck` job uses, instead of the old
+  `markdown-link-check`-based command (a different tool, a different config
+  file, and — until now — not wired into `validate` at all, so local
+  validation never actually checked what CI enforces). `.markdown-link-
+  check.json` is removed as unused. Verified locally: 0 errors, output
+  matches CI's last-known-good run. Docs-only tooling change verified
+  directly by the orchestrator (no product-code change, no write-permission
+  CI touched); architect dispatch skipped per the
+  [2026-08-02 ADR-0011 skip exception](../adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units).
+  This PR._
+
 - _Session 12 (TASK-0323, exit-code reconciliation) resolves the `--delete`
   without `--apply` exit-code disagreement found by the S4 acceptance suite:
   code exited `1`, the guide documented `2`. Owner ruling (2026-08-03): `2`
@@ -186,9 +200,8 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   check promoted to a required gate — **PR #56, merged**), and **TASK-0205**
   (cspell → typos migration — PR #57) are done.
 - TASK-0219 (public-release licensing readiness) still available in
-  parallel. New follow-up from TASK-0205: **TASK-0327** — `Makefile`'s
-  `links` target still uses `markdown-link-check`, diverging from CI's
-  lychee-based gate and not wired into `validate` at all.
+  parallel. **TASK-0327** (`Makefile`'s `links` target folded onto lychee,
+  wired into `validate`) — **done, this PR**.
 
 ## Done
 
