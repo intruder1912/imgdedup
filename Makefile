@@ -17,7 +17,7 @@ help: ## Show available targets
 
 # ── Composite gate ────────────────────────────────────────────────────────────
 
-validate: mdlint spell fmt lint test ## Run all local validation (run before every push)
+validate: mdlint spell links fmt lint test ## Run all local validation (run before every push)
 	@echo "✓ local validation passed"
 
 # ── Documentation checks ──────────────────────────────────────────────────────
@@ -28,8 +28,8 @@ mdlint: ## Lint Markdown
 spell: ## Spell-check documentation (needs: brew install typos-cli / cargo install typos-cli)
 	typos $$(git ls-files '*.md')
 
-links: ## Check links in Markdown (best-effort; CI runs the authoritative check)
-	npx -y markdown-link-check@3.14.2 --quiet --config .markdown-link-check.json $$(git ls-files '*.md')
+links: ## Check links in Markdown (needs: brew install lychee / cargo install lychee); matches CI's lychee.toml gate
+	lychee --config lychee.toml --no-progress './**/*.md'
 
 # ── Rust checks ───────────────────────────────────────────────────────────────
 

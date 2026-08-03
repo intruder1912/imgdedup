@@ -20,11 +20,20 @@ if ! command -v typos >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v lychee >/dev/null 2>&1; then
+  echo "error: lychee is required for local validation." >&2
+  echo "       Install via 'brew install lychee' or 'cargo install lychee', then re-run." >&2
+  exit 1
+fi
+
 echo "==> Markdown lint"
 npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
 echo "==> Spell check"
 typos $(git ls-files '*.md')
+
+echo "==> Link check"
+lychee --config lychee.toml --no-progress './**/*.md'
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "error: cargo is required for Rust validation." >&2
