@@ -312,6 +312,51 @@ release so they document and automate final behavior.
   golden manifest. If it turns out to be the engine path, it is its own unit
   and batch 5a slips to session 3, cascading the rest by one session.
 
+## Re-plan 2026-08-03 — post-v0.1.0 backlog cleanup (sessions 10+)
+
+New window opened 2026-08-03 at **5h=0%, 7d=46%**. All release-critical work
+(sessions 1–9, v0.1.0 through the AI automation plugin) is done; the remaining
+backlog is independent hardening/perf/nit items with no release gate forcing
+an order. Owner set an explicit priority: **321, 318, 317, 323, 327,
+324/325, 319, 322, 326, 320, 314** — used as the base ordering below, adjusted
+only where a real dependency requires it (TASK-0317's sizing note says to
+re-measure its indicator after the scan stage changes shape, so it stays
+directly after TASK-0321 rather than being reordered around it, matching the
+owner's list). Each session below targets the existing **60–70% fill / 75%
+hard-stop** governance from this file; the owner's instruction for this
+re-plan is a looser **90% ceiling**, so 75% remains the working target and 90%
+is treated as the absolute stop line, not the aim.
+
+| Session | Unit | Tasks | Why grouped / order | Est. 5h % | Est. weekly |
+|---|---|---|---|---|---|
+| 10 | feature (perf), concurrency-sensitive | TASK-0321 — parallelize the scan stage (`sniff::filter_candidates`) | Solo: touches ADR-0010's concurrency model and is the throughput lever TASK-0317 depends on being measured correctly; budget the extra architect dispatch the concurrency-critical-code rule reserves | 55–75 | 7–9 |
+| 11 | fix + feature, small | TASK-0318 (sanitize control chars in stderr paths) + TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) | Both are stderr-output surface work; 318 is a quick security nit, 317 needs 321 landed first to size correctly (its own sizing note says the debug-build estimate was ~9× off) | 55–70 | 6–7 |
+| 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
+| 13 | fix, core-engine | TASK-0319 (dedupe enumerated paths by identity — same-tree-twice bug) | Solo: touches `engine.rs`'s hard-link/identity path, the safety-critical core; do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
+| 14 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
+| 15 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
+
+**Not scheduled — blocked, not just ordered:**
+
+- **TASK-0326** (musl/aarch64 binary targets) — the backlog entry itself gates
+  this on "the public release, not before," and the repo is still private
+  with no public-release date set. Scheduling a session now would build
+  ahead of a decision only the owner can make (going public) and that
+  TASK-0219 also gates on. Revisit once TASK-0219 / the public-release
+  decision is active.
+- **TASK-0314** (real-photo field validation) — still blocked on the owner
+  supplying the ~500–1k photo corpus; unchanged since sessions 4/5. Cheap
+  when unblocked (test-only, read-only unit, ~20–30% / ~3 weekly) and can
+  slot into any later window without disturbing this order.
+
+At ~10 weekly points per full window, sessions 10–15 total roughly **30–40
+weekly points against the 46% already used this week** — comfortably inside
+the 7-day cap even without a reset, so the binding constraint stays per-session
+window sizing, not the week. Only session 10 fits in the *current* window from
+a cold start (5h=0%); sessions 11–15 each start their own fresh window per the
+"prefer fewer, fuller sessions" rule, reconciling `/usage` actuals against
+these estimates at the end of every session as usual.
+
 ## Ordering constraints
 
 - Batch 0 first — `main` is red (unpinned markdownlint drift) and blocks every
