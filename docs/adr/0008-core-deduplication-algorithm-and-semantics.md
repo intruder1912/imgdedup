@@ -327,12 +327,16 @@ A concrete, documented scheme:
 - **`0`** — success: a clean run, whether or not duplicates were found, including
   a successful `--apply`/`--delete` and a successful dry run. This is the default
   for any successful run regardless of findings.
-- **`1`** — **run-level error**: an invalid invocation (e.g. `--delete` without
-  `--apply`, AC-12), an unreadable scan root, or any failure that prevents the run
-  from completing meaningfully. Per-file errors are *skipped and reported*, not
-  run-level (NFR-6), and do not by themselves change the exit code from `0`.
-- **`2`** — reserved for clap's argument-parsing errors (its convention), kept
-  distinct from our `1`.
+- **`1`** — **run-level error**: an unreadable/nonexistent scan root, or any
+  filesystem-state failure that prevents the run from completing meaningfully.
+  Per-file errors are *skipped and reported*, not run-level (NFR-6), and do not
+  by themselves change the exit code from `0`. **Amended 2026-08-03 — see
+  below:** a refused flag combination (e.g. `--delete` without `--apply`) moved
+  to `2`; it is no longer an example of `1`.
+- **`2`** — **usage error**: clap's own argument-parsing errors (its
+  convention), and, as of the 2026-08-03 amendment below, this binary's own
+  post-parse semantic validation failures (a syntactically valid but refused
+  flag combination) — both mean "the invocation itself was wrong."
 - **`3`** — **duplicates found**, emitted **only** when the opt-in `--exit-code`
   flag is set and the run completed successfully with **at least one duplicate
   group** (`0` if none were found). Without `--exit-code`, a successful run is
@@ -383,6 +387,32 @@ standalone-plus-anchor groups, determinism, in-scope-only link counting) are
 recorded there. Implementation lands under TDD as a follow-up to TASK-0304 /
 TASK-0305 / TASK-0307; the in-scope-only limitation is documented in the user
 guide.
+
+## Amendment 2026-08-03 — a refused flag combination is a usage error (TASK-0323)
+
+The S4 acceptance suite found the code and the user guide disagreed:
+`imgdedup <path> --delete` (without `--apply`) exited `1` in the binary, but
+`docs/guide/output-and-exit-codes.md` had always documented this case as `2`
+("usage error — invalid arguments"). PRD-0001's AC-12 only requires
+"non-zero," so neither side was a spec violation — but the two disagreed with
+each other, and this ADR's original exit-code scheme above sided with the
+code, listing `--delete` without `--apply` as an example of `1`.
+
+**Owner ruling: `2`.** A refused flag *combination* is a usage error, the same
+bucket as clap's own parse-time argument errors — not a run-level failure like
+an unreadable scan root. The invocation itself was wrong in both cases; only
+one of them happens to be caught by clap's own parser rather than this
+binary's post-parse `cli::validate()`, and that implementation detail should
+not put the two cases in different exit-code buckets.
+
+**Consequence:** `1` narrows to genuine run-level/filesystem-state failures
+only (currently: an unreadable or nonexistent scan root). `2` now has two
+sources — clap's own errors and this binary's semantic validation — sharing
+one meaning ("usage error") rather than one mechanism. `exit_code::CLAP` was
+renamed to `exit_code::USAGE` to reflect that it is no longer clap-exclusive.
+No other current validation rule exists to exercise the second source beyond
+`--delete` without `--apply`, but any future one added to `cli::validate()`
+follows the same bucket by construction.
 
 ## Pros and cons of the options
 

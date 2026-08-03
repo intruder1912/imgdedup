@@ -47,7 +47,7 @@ pub struct Cli {
     pub apply: bool,
 
     /// Permanently delete non-keepers instead of trashing them. Only valid
-    /// together with `--apply`; exits 1 without it (AC-12).
+    /// together with `--apply`; exits 2 without it (AC-12).
     #[arg(long)]
     pub delete: bool,
 
