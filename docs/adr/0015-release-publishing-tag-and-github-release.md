@@ -301,6 +301,45 @@ which preserves the `release` job's outputs). No caching action runs in the
 `assets` job — a job holding `contents: write` should not restore a cache
 another job could have poisoned.
 
+## Amendment 2026-08-03 — non-deprecated plugin-option spelling and an explicit fork gate (TASK-0324/TASK-0325)
+
+Two nits from this ADR's own review, closed together as a small chore. The
+least-privilege *decision* recorded above is unchanged in both cases — only
+the spelling of one config and the legibility of one condition.
+
+**TASK-0324 — `.releaserc.json`'s `@semantic-release/github` options.** The
+least-privilege configuration above was written as `successComment: false`,
+`failTitle: false`; the currently-pinned `@semantic-release/github@12.0.9`
+already emits a runtime `DEPRECATION` warning for that form (verified against
+its source, `lib/success.js` / `lib/fail.js`) and recommends
+`successCommentCondition` / `failCommentCondition` instead. Checked directly
+against that same source that the replacement is behaviorally identical: both
+old and new spellings short-circuit the same "skip commenting on issues and
+pull requests" / "skip issue creation" branches, and the now-absent
+`failTitle` value is provably unreachable — its only use site is inside the
+branch `failCommentCondition: false` already returns from. `.releaserc.json`
+now reads `"successCommentCondition": false, "failCommentCondition": false`
+(`labels: false`, `releasedLabels: false` unchanged). This keeps the token at
+`contents: write` only, exactly as before — it removes a deprecation warning
+in the release job's log, nothing more.
+
+**TASK-0325 — the `release` job's trigger `if:`.** The four-clause condition
+above gained a fifth (in the `workflow_run` branch):
+`github.event.workflow_run.head_repository.full_name == github.repository`.
+This is **defense-in-depth, not a fix for a real hole**: the case it guards
+against — a forked pull request's CI run, which happens in *this* repository
+and can report `head_branch == 'main'` (the contributor's fork's own default
+branch name) — is already excluded today by `event == 'push'`, since a
+`push`-triggered `workflow_run` can only originate from a push to this
+repository. The added clause makes that safety property self-evident to a
+future reader without requiring them to re-derive `workflow_run`'s fork
+semantics from scratch. Confirmed `head_repository` is a required,
+non-nullable field on the `workflow_run` event (only `head_repository_id` can
+be null), so the comparison never silently evaluates in an unsafe direction:
+if the field were ever absent, the expression is `false`, and the job is
+skipped (recoverable via the existing `workflow_dispatch` backfill path), not
+run.
+
 **Manual backfill/recovery path.** `workflow_dispatch` gained an optional
 `tag` input: when set, the `release` job skips semantic-release entirely and
 reports that tag as `released`, letting the `assets` job (re-)build binaries

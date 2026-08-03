@@ -56,11 +56,20 @@ concurrency:
 jobs:
   release:
     name: release
+    # head_repository check: a fork PR's CI run happens in *this* repository
+    # and can report head_branch 'main' (the contributor's fork's own default
+    # branch name), not this repo's main. Already excluded today by
+    # `event == 'push'` — a push-triggered workflow_run can only originate
+    # from a push to this repository — so this clause is redundant, not
+    # load-bearing. It exists so that safety property is self-evident to a
+    # future reader, without needing to re-derive workflow_run's fork
+    # semantics from scratch.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main')
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       # Create the tag, the git notes ref and the GitHub Release. Nothing else:
