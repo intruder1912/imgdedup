@@ -11,8 +11,51 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Session 13 (TASK-0327, local link-check consistency) folds `make links`
-  and `scripts/validate.sh` onto lychee: both now run
+- _Session 13, second unit (TASK-0324 + TASK-0325, release.yml nits) closes
+  two architect-review nits from TASK-0203 against the write-permission
+  release job. **TASK-0324:** `.releaserc.json`'s `@semantic-release/github`
+  options used the deprecated `successComment: false` / `failTitle: false`
+  form; the backlog wording said to wait "for the next semantic-release
+  major bump," but checking the currently-pinned `@semantic-release/github@
+  12.0.9` source directly (`lib/success.js`, `lib/fail.js`) showed the
+  deprecation warning already fires today, and `successCommentCondition:
+  false` / `failCommentCondition: false` already short-circuit the same
+  commenting/issue-creation paths without it — no reason to wait, so this
+  landed now instead of being deferred again. `semantic-release --dry-run`
+  confirms the new config loads and validates cleanly; it does **not**
+  exercise the `success`/`fail` steps themselves (verified against
+  `semantic-release`'s own `lib/plugins/normalize.js`: those steps are
+  `dryRun: false` and are skipped in dry-run mode) — the source read is the
+  actual evidence for behavioral equivalence, the dry-run only rules out a
+  config-validation regression. **TASK-0325:** added
+  `github.event.workflow_run.head_repository.full_name == github.repository`
+  to `release.yml`'s trigger condition, with a comment explaining it's a
+  redundant-today, defense-in-depth gate (a forked PR's CI run happens in
+  _this_ repo and can report `head_branch == 'main'` — the fork's own
+  default branch — but `event == 'push'` already excludes that case) rather
+  than a load-bearing fix. `actionlint` shows no new findings (one
+  pre-existing, unrelated shellcheck style nit present on `main` too).
+  **Architect review: approve with one should-fix + 4 nits, all resolved.**
+  Both functional edits verified independently correct (equivalence proven
+  from `@semantic-release/github`'s source; `head_repository` confirmed a
+  required, non-nullable `workflow_run` field that fails closed if ever
+  absent). Should-fix: [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md)
+  — the ADR this task's own review originated from — had gone stale
+  (still described the deprecated option spelling and the four-clause
+  trigger); closed with a
+  [dated amendment](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-03--non-deprecated-plugin-option-spelling-and-an-explicit-fork-gate-task-0324task-0325)
+  per the ADR's own immutability rule. Nits: tightened the `release.yml`
+  comment's first sentence (it described the wrong mechanism), scoped the
+  dry-run claim above, and fixed two backlog wording issues (options live in
+  `.releaserc.json`, not `release.yml`; the superseded "wait for a major
+  bump" directive is now struck through rather than silently contradicted by
+  its own done-note). Second architect dispatch kept per the session-6
+  precedent: this is CI automation carrying `contents: write`, so the
+  security gate applies at this size too — and, as in every prior instance of
+  that precedent, it found real, if small, issues. This PR._
+
+- _Session 13, first unit (TASK-0327, local link-check consistency) folds
+  `make links` and `scripts/validate.sh` onto lychee: both now run
   `lychee --config lychee.toml --no-progress './**/*.md'`, the exact
   invocation CI's required `linkcheck` job uses, instead of the old
   `markdown-link-check`-based command (a different tool, a different config
@@ -23,7 +66,7 @@ docs pass → AI automation, batched within Claude usage limits.
   directly by the orchestrator (no product-code change, no write-permission
   CI touched); architect dispatch skipped per the
   [2026-08-02 ADR-0011 skip exception](../adr/0011-unit-of-work-cadence-and-planning-gate.md#amendment-2026-08-02--architect-review-skip-exception-for-verified-low-risk-units).
-  This PR._
+  Landed as PR #70._
 
 - _Session 12 (TASK-0323, exit-code reconciliation) resolves the `--delete`
   without `--apply` exit-code disagreement found by the S4 acceptance suite:
@@ -201,7 +244,8 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   (cspell → typos migration — PR #57) are done.
 - TASK-0219 (public-release licensing readiness) still available in
   parallel. **TASK-0327** (`Makefile`'s `links` target folded onto lychee,
-  wired into `validate`) — **done, this PR**.
+  wired into `validate`) — **done, PR #70**. **TASK-0324/TASK-0325**
+  (release.yml deprecation + trigger-condition nits) — **done, this PR**.
 
 ## Done
 
