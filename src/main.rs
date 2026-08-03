@@ -72,8 +72,11 @@ fn run(args: cli::Cli) -> i32 {
         s
     };
 
-    // Stage 1 — Enumerate candidate files (ADR-0008, TASK-0302).
-    let candidate_set = enumerate::enumerate(&args.paths, &scope);
+    // Stage 1 — Enumerate candidate files (ADR-0008, TASK-0302). Notifies
+    // `sink` as each candidate is found (TASK-0317) so the Scanning phase
+    // set above shows a live, growing count rather than a static
+    // "scanning..." for the whole enumeration sub-phase.
+    let candidate_set = enumerate::enumerate_with_progress(&args.paths, &scope, &*sink);
 
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
     // Hand the enumerated candidates (path + size) to the sniff predicate.

@@ -11,6 +11,22 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 11b (TASK-0317, animate the scanning phase) fixes the frozen
+  `scanning...` indicator: `progress.rs` had a latent bug where `paint()`
+  unconditionally clamped the numerator to `phase_total`, which is 0 until a
+  total is known, so any `advance()` call during the indeterminate phase was
+  invisible — the renderer's own tests never exercised advancing before
+  `set_total`. Fixed, and the indeterminate branch now renders `"scanning...
+  N file(s) found"`. New `enumerate::enumerate_with_progress` (mirrors
+  `engine.rs`'s progress-aware/progress-free split) advances the counter once
+  per accepted candidate during the serial walkdir traversal. Deliberately
+  scoped to enumeration only, not magic-byte sniffing (recorded in the
+  backlog row) — TASK-0321 already made sniff fast, and summing both stages
+  into one counter would double-count files. Non-TTY output shows the count
+  once, at phase entry (matching the existing coarse-milestone philosophy for
+  every other phase); the live-growing count is a TTY-only experience,
+  which is the interactive case this was written for. This PR._
+
 - _Session 11 (TASK-0318, control-character sanitization) closes a security
   note from the TASK-0315 review: hostile filenames (or error messages that
   embed one, e.g. `walkdir`'s and `trash`'s `Display` impls) could reach

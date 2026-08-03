@@ -639,6 +639,34 @@ fn progress_enabled_json_stdout_is_single_valid_json_with_no_progress_text() {
     );
 }
 
+/// TASK-0317: the Scanning phase renders a "files found" count instead of a
+/// bare, static "scanning...", proving the new indeterminate-count wiring
+/// (progress.rs's `line()` + `enumerate_with_progress`'s `advance` calls) is
+/// connected end to end through the real binary. Piped (non-TTY) capture, as
+/// with every other progress CLI test — the live in-place TTY animation
+/// itself is exercised directly against `Progress<Vec<u8>>` in
+/// `progress.rs`'s and `enumerate.rs`'s own unit tests, which can observe
+/// intermediate counts; a subprocess's captured output can only ever show
+/// the final state on each stream.
+#[test]
+fn scanning_phase_shows_a_files_found_count_not_a_static_ellipsis() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("files found"),
+        "expected the new indeterminate-count text on stderr; got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("scanning...\r") && !stderr.contains("scanning...\n"),
+        "the old static 'scanning...' with nothing after it must be gone; got:\n{stderr:?}"
+    );
+}
+
 /// AC-24 (FR-19, output-only), default report: for identical inputs/flags,
 /// stdout is **byte-identical** whether progress is on (default) or off
 /// (`--no-progress`). This is the load-bearing test for the whole unit —
