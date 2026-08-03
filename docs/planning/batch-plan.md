@@ -330,7 +330,8 @@ is treated as the absolute stop line, not the aim.
 | Session | Unit | Tasks | Why grouped / order | Est. 5h % | Est. weekly |
 |---|---|---|---|---|---|
 | 10 | feature (perf), concurrency-sensitive | TASK-0321 — parallelize the scan stage (`sniff::filter_candidates`) — **done, PR #62, actual 20%** | Solo: touches ADR-0010's concurrency model and is the throughput lever TASK-0317 depends on being measured correctly; budget the extra architect dispatch the concurrency-critical-code rule reserves | 55–75 | 7–9 |
-| 11 | fix + feature, small | TASK-0318 (sanitize control chars in stderr paths) + TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) | Both are stderr-output surface work; 318 is a quick security nit, 317 needs 321 landed first to size correctly (its own sizing note says the debug-build estimate was ~9× off) | 55–70 | 6–7 |
+| 11a | fix | TASK-0318 (sanitize control chars in stderr **and stdout** paths) — **done, PR #64, actual 23%** | Quick security nit — grew mid-review to cover `report.rs`'s stdout sites too (see the actuals note below), still landed cheaply | 20–35 | 3 |
+| 11b | feature | TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) | Split out of session 11 (see actuals note): 43% of the window was already spent on 11a by the time it would start, too close to the 75% hard stop to begin a feature unit with its own re-sizing uncertainty | 35–55 | 5–6 |
 | 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
 | 13 | fix, core-engine | TASK-0319 (dedupe enumerated paths by identity — same-tree-twice bug) | Solo: touches `engine.rs`'s hard-link/identity path, the safety-critical core; do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
 | 14 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
@@ -377,6 +378,30 @@ should-fixes, converged in one round — see the ADR-0010 amendment and
    session 11 (TASK-0318 + TASK-0317) continues in this window rather than
    waiting for a fresh one, targeting a combined ~55–75% before the day's
    cut line.
+
+**Session 11a (TASK-0318, PR #64), 2026-08-03 — 23% of the window (20% → 43%)
+against a share of the 55–70 combined estimate; the week moved 48% → 50% (~2
+weekly points).** Landed inline with a single architect dispatch (2 blockers +
+5 nits, converged in one round). Two things worth carrying forward:
+
+1. **Review-driven scope growth stayed cheap.** The architect found the fix's
+   real scope was roughly 4× the diff I opened with — `report.rs`'s 12 stdout
+   sites, not just `main.rs`'s 3 stderr sites — because a prior review
+   ([`reviews/apply-delete.md`](reviews/apply-delete.md)) had already recorded
+   that scope against this task and the backlog's "stderr" wording didn't
+   reflect it. Landing at 23% despite that expansion says the cost driver for
+   this class of fix is "how many call sites share one clear pattern," not
+   "how many findings the review returns" — matches the batch-4 lesson that
+   inline TDD absorbs rework cheaply when the fix itself is mechanical.
+2. **TASK-0317 split out of session 11 rather than attempted at 43%.** The
+   session-11 combined estimate (55–70%) assumed both halves; with 11a alone
+   already at 43%, starting 11b (a feature unit with its own re-sizing
+   uncertainty — see its backlog note) risked either the 75% hard stop or a
+   messy mid-unit cut line. Re-scoped as **11b**, its own row above,
+   deliberately left for a fresh-window decision rather than pushed into this
+   one. `git push`'s `fix:`-typed squash commit auto-published **v0.3.1** —
+   the automatic release path continues to fire correctly on every `feat:`/
+   `fix:` merge, at zero marginal session cost.
 
 ## Ordering constraints
 
