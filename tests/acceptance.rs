@@ -763,6 +763,8 @@ fn ac11_dry_run_intended_removals_match_what_apply_actually_removes() {
 #[test]
 fn ac12_exit_code_mapping_error_success_and_run_level_failure() {
     // `--delete` without `--apply`: non-zero, clear error, removes nothing.
+    // Exit 2 (usage error, TASK-0323, owner ruling 2026-08-03): a refused
+    // flag *combination* is a usage error, not a run-level one.
     let dir = tempfile::tempdir().expect("tempdir");
     let bytes = image_bytes(ImageFormat::Png, 23, 32);
     materialize(
@@ -776,7 +778,7 @@ fn ac12_exit_code_mapping_error_success_and_run_level_failure() {
         .arg("--no-progress")
         .assert()
         .failure()
-        .code(1)
+        .code(2)
         .stderr(predicate::str::contains("--apply"));
     assert!(dir.path().join("a.png").exists());
     assert!(dir.path().join("b.png").exists(), "nothing removed");

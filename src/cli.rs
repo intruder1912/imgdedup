@@ -75,10 +75,13 @@ impl Cli {
     /// Returns an error string if the parsed arguments form an invalid
     /// combination that clap's type system cannot catch. The caller is
     /// responsible for printing the message to stderr and exiting with
-    /// `exit_code::ERROR` (1).
+    /// `exit_code::USAGE` (2).
     ///
     /// Currently enforced: `--delete` requires `--apply` (AC-12, ADR-0008).
-    /// This is a *run-level* error (exit 1), not a parse error (exit 2).
+    /// This is a *usage* error (exit 2, TASK-0323) — not caught by clap's
+    /// own parser (the combination is syntactically valid), but the same
+    /// code clap's own parse errors use, since both mean "the invocation
+    /// itself was wrong."
     ///
     /// Returns the bare diagnostic, with no `"error: "` prefix — `main.rs`
     /// adds it uniformly at the single stderr call site, the same way every
@@ -241,9 +244,11 @@ mod tests {
 
     #[test]
     fn delete_without_apply_parses_ok_at_clap_level() {
-        // AC-12 / ADR-0008: --delete without --apply is a *run-level* error
-        // (exit 1), NOT a clap parse error (exit 2). Clap must accept this
-        // combination; post-parse validate() is responsible for the rejection.
+        // AC-12 / TASK-0323: --delete without --apply is a *usage* error
+        // (exit 2), but NOT one clap itself catches — the combination is
+        // syntactically valid. Clap must accept it; post-parse validate()
+        // is responsible for the rejection (main.rs maps it to the same
+        // exit_code::USAGE clap's own parse errors use).
         let cli = try_parse(&["imgdedup", ".", "--delete"]).unwrap();
         assert!(cli.delete);
         assert!(!cli.apply);
