@@ -7,9 +7,31 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-02
+**Last updated:** 2026-08-03
 
 ## In progress
+
+- _Session 10 (TASK-0321, scan-stage parallelization) parallelized
+  `sniff::filter_candidates` with rayon — the throughput lever the TASK-0312
+  NFR-4 measurement identified (a control fixture where no file is hashed
+  costs the same as one hashing ~1,800, because `enumerate`/`sniff` are
+  serial). Same pattern already used for hashing in `engine.rs`; rayon's
+  indexed `collect` preserves input order by construction, verified against
+  the crate source during architect review and pinned by a new unit test
+  asserting exact order (not just "the widths agree") at 1 vs. 8 threads.
+  Measured on a synthetic 60k-file all-rejected fixture, 10-core machine:
+  cold-cache 158.7s → 21.5s (~7.4x), warm-cache 6.1s → 1.8s (~3.3x). One
+  architect dispatch (budgeted for concurrency-critical code per the batch
+  plan): approved with one blocker (this ADR/planning doc set was
+  initially missing — now resolved in this same PR) and should-fixes
+  (strengthened the order test to assert exact input order rather than
+  just cross-width agreement; fixed an asymmetric `Vec::with_capacity`
+  call; corrected an inaccurate ordering comment in `engine.rs`). Recorded
+  in the [2026-08-03 amendment to ADR-0010](../adr/0010-concurrency-and-memory-model.md#consequence-note--the-scan-stage-is-no-longer-serial-2026-08-03-task-0321).
+  Follow-ups: TASK-0317's indicator work can now proceed against the
+  parallel scan stage (its debug-build sizing note is stale); `enumerate`
+  (still fully serial) is a plausible new dominant stage worth a future
+  control-fixture re-measurement, not confirmed here. This PR._
 
 - _Session 9 (AI automation support, TASK-0218) delivered the `imgdedup`
   Claude Code plugin (`claude-plugin/`): a skill (`using-imgdedup`) defining
