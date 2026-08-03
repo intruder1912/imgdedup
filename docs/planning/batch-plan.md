@@ -331,7 +331,7 @@ is treated as the absolute stop line, not the aim.
 |---|---|---|---|---|---|
 | 10 | feature (perf), concurrency-sensitive | TASK-0321 — parallelize the scan stage (`sniff::filter_candidates`) — **done, PR #62, actual 20%** | Solo: touches ADR-0010's concurrency model and is the throughput lever TASK-0317 depends on being measured correctly; budget the extra architect dispatch the concurrency-critical-code rule reserves | 55–75 | 7–9 |
 | 11a | fix | TASK-0318 (sanitize control chars in stderr **and stdout** paths) — **done, PR #64, actual 23%** | Quick security nit — grew mid-review to cover `report.rs`'s stdout sites too (see the actuals note below), still landed cheaply | 20–35 | 3 |
-| 11b | feature | TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) | Split out of session 11 (see actuals note): 43% of the window was already spent on 11a by the time it would start, too close to the 75% hard stop to begin a feature unit with its own re-sizing uncertainty | 35–55 | 5–6 |
+| 11b | feature | TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) — **done, PR #66, actual 26%** | Split out of session 11 (see actuals note): 43% of the window was already spent on 11a by the time it would start, too close to the 75% hard stop to begin a feature unit with its own re-sizing uncertainty | 35–55 | 5–6 |
 | 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
 | 13 | fix, core-engine | TASK-0319 (dedupe enumerated paths by identity — same-tree-twice bug) | Solo: touches `engine.rs`'s hard-link/identity path, the safety-critical core; do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
 | 14 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
@@ -402,6 +402,35 @@ weekly points).** Landed inline with a single architect dispatch (2 blockers +
    one. `git push`'s `fix:`-typed squash commit auto-published **v0.3.1** —
    the automatic release path continues to fire correctly on every `feat:`/
    `fix:` merge, at zero marginal session cost.
+
+**Session 11b (TASK-0317, PR #66), 2026-08-03 — 26% of the window (43% →
+69%) against a 35–55 estimate, comfortably inside it despite the extra
+review round; the week moved 50% → 53% (~3 weekly points).** `feat:`-typed
+squash commit auto-published **v0.3.2**. One architect dispatch, but not a
+clean approve: **2 blockers, both real defects, not nits.**
+
+1. **`set_total` never reset the numerator, so Scanning's "files found"
+   count leaked into Hashing** — the whole hashing phase rendered as
+   already-100%-complete from its first repaint, an AC-21 violation no
+   existing test caught (nothing combined "advance during an indeterminate
+   phase, then set_total"). This is the second session in a row (TASK-0321
+   was the first) where the review found something a green suite had missed
+   by construction, not by chance — worth treating "does any test combine
+   these two call sequences" as a standing question when touching shared,
+   stateful infrastructure like `progress.rs`.
+2. **My own scope-trim write-up was wrong on two counts**, not just
+   under-detailed: I claimed a technical constraint (double-counting) that
+   `retotal` already solves, and an unmeasured performance claim that
+   turned out backwards (sniff is ~90% of the scanning window post-TASK-0321,
+   not enumeration). Landing at 26% despite a full rewrite of two planning
+   docs plus a new backlog task (TASK-0328) says **honest-write-up rework is
+   cheap when caught in the same review round** — the expensive failure mode
+   would have been shipping the wrong justification and someone acting on it
+   later, not the cost of fixing it now.
+
+The window closed at 69%, at the top of the 60–70% target band — the
+session stops here rather than starting a third unit, per the "prefer
+fewer, fuller sessions" rule's own boundary.
 
 ## Ordering constraints
 
