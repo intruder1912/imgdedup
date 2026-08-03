@@ -33,31 +33,47 @@ docs pass → AI automation, batched within Claude usage limits.
   at scale. A root that cannot be canonicalized (e.g. it does not exist)
   passes through unchanged so the existing root-error path (ADR-0008
   exit-code semantics) is untouched — verified by a regression test.
-  **One architect dispatch, not a clean pass: 3 blockers, all real, plus a
-  should-fix on the tests.** (1) With `--no-recurse`, an ancestor root's walk
-  is capped at depth 1, so it never reaches a nested root's contents —
-  collapsing the nested root as "covered" silently dropped its files
-  entirely. (2) A hidden path passed _explicitly_ as a scan root is always
-  included (opt-in-by-explicit-root, `docs/guide/scanning-and-scope.md`) —
-  collapsing an explicitly-named hidden nested root into its ancestor
-  silently un-opted it back out, since the ancestor's own walk skips hidden
-  entries by default. Both are now guarded: nesting is only ever treated as
-  redundant when the ancestor's own walk provably reaches the descendant
-  under the run's actual `ScopeOptions`. (3) The original all-pairs
-  `starts_with` comparison was O(n²) — review measured a 25× slowdown at
-  20,000 roots (73s vs. `main`'s 2.97s) — replaced with a single sort-then-
-  linear-pass (`Path`'s `Ord` is lexicographic over components, so a path's
-  descendants sit in a contiguous range right after it once sorted; verified
-  back down to 2.49s on the same fixture). **Should-fix:** the
+  **Two architect dispatches, not a clean pass either time — another session
+  in the run where review found real substance, not nits.**
+
+  **Round 1: 3 blockers + a should-fix.** (1) With `--no-recurse`, an
+  ancestor root's walk is capped at depth 1, so it never reaches a nested
+  root's contents — collapsing the nested root as "covered" silently dropped
+  its files entirely. (2) A hidden path passed _explicitly_ as a scan root is
+  always included (opt-in-by-explicit-root,
+  `docs/guide/scanning-and-scope.md`) — collapsing an explicitly-named hidden
+  nested root into its ancestor silently un-opted it back out, since the
+  ancestor's own walk skips hidden entries by default. (3) The original
+  all-pairs `starts_with` comparison was O(n²) — review measured a 25×
+  slowdown at 20,000 roots (73s vs. `main`'s 2.97s). **Should-fix:** the
   `overlapping_roots_do_not_double_count_and_still_find_real_duplicates` CLI
   test's only assertion also matched the pre-fix buggy output, so it wasn't
-  actually pinning the bug it was named for — strengthened with an explicit
-  `hard-link`-absence assertion. 3 new `enumerate.rs` unit tests added for
-  the two scope-rule exceptions (`--no-recurse`, hidden file root, hidden
-  directory root) on top of the original 4 (exact-duplicate root, nested
-  root in both argument orders, non-overlapping roots unaffected, nonexistent
-  duplicate root still errors); both CLI-level regression tests re-verified
-  against the real binary after the fixes. Recorded in the
+  actually pinning the bug it was named for.
+
+  **Round 1 fixes, and what round 2 found wrong with them.** The first pass
+  fixed the `--no-recurse` and hidden cases by disabling non-exact nesting
+  collapse under `--no-recurse` entirely and skipping collapse when the
+  nested root is hidden relative to its ancestor; the O(n²) comparison became
+  a sort (`Path`'s `Ord` is lexicographic over components, so a path's
+  descendants sit in a contiguous range right after it once sorted) plus a
+  linear pass tracking a single "last kept ancestor." **Round 2 found two
+  more real holes in that pass, both the exact TASK-0319 symptom again, both
+  reproduced against the release binary:** (1) a single "last kept" slot lets
+  a kept-but-not-collapsed nested root (e.g. an explicit hidden root) shadow
+  its _own_ ancestor from a later, unrelated sibling that sorts after it —
+  `imgdedup A A/.cache A/sub` masked a real duplicate in `A/sub` down to "0
+  bytes reclaimable." (2) Disabling nesting collapse entirely under
+  `--no-recurse` over-corrected: a depth-1 walk _does_ reach the ancestor's
+  own direct-child files, so a direct-child file given as its own root was
+  still double-walked. **Fixed:** `dedupe_roots` now tracks a **stack** of
+  still-relevant kept ancestors (not one slot), and the `--no-recurse`
+  coverage check is depth-aware (`descendant.parent() == Some(ancestor) &&
+  descendant.is_file()`) rather than a blanket disable — both changes proved
+  sufficient to check only the top of the stack, argued in the code comment
+  and the ADR amendment. 3 more `enumerate.rs` unit tests reproduce both
+  round-2 holes plus a multi-level-nesting case, on top of the round-1 tests
+  (7 new tests total across both rounds) and the original 4. Both rounds'
+  fixes re-verified against the real binary. Recorded in the
   [2026-08-03 amendment to ADR-0008](../adr/0008-core-deduplication-algorithm-and-semantics.md#amendment-2026-08-03--overlappingrepeated-scan-roots-are-no-longer-double-enumerated-task-0319).
   This PR._
 

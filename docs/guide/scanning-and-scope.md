@@ -20,11 +20,16 @@ Passing the same path twice, or one path nested inside another
 outer path once — nothing is walked twice, and nothing is reported as
 duplicate or hard-linked to itself just because you named it more than once.
 
-The one case this doesn't collapse is a nested path that `--no-recurse` or the
-hidden-file rule would otherwise exclude: with `--no-recurse`, an outer path's
-scan never reaches a nested path's contents at all, so both are still scanned
-independently; and a hidden path you name explicitly is always included (see
-below), even when it sits inside another path you also passed.
+Two scope rules limit how much collapsing is safe:
+
+- With `--no-recurse`, a path's scan only reaches its own direct-child
+  *files* — a nested path that is itself a file directly inside another path
+  you passed is still collapsed, but a nested *directory* (or anything
+  deeper inside one) is scanned independently, since the outer path's scan
+  never reaches it.
+- A hidden path you name explicitly is always included (see below), even
+  when it sits inside another path you also passed, so it is never
+  collapsed into that outer path.
 
 ## Recursion: `--no-recurse`
 

@@ -443,15 +443,17 @@ guard against this scenario — both are correct and neither depends on the
 other.
 
 **Nesting is only redundant if the ancestor's own walk actually reaches it**
-(architect review, same day). Two of this document's own scope rules can make
-that false, and treating a nested root as covered anyway would silently drop
-files the user explicitly named — the same class of harm this fix exists to
-prevent:
+(architect review, same day, `covers()`). Two of this document's own scope
+rules can make that false, and treating a nested root as covered anyway would
+silently drop files the user explicitly named — the same class of harm this
+fix exists to prevent:
 
 - **`--no-recurse`** caps every root's walk at its own immediate children
-  (depth 1, "Scope rules" above), so an ancestor root never reaches a nested
-  root's contents at all. Under `--no-recurse`, `dedupe_roots` only collapses
-  *exact*-duplicate roots; nesting is never treated as coverage.
+  (depth 1, "Scope rules" above). A depth-1 walk still reaches an ancestor's
+  direct-child *files*, so a nested root that is a real, existing file
+  directly inside its ancestor still collapses — but a nested *directory*
+  root, or a file two or more levels down, does not: the ancestor's capped
+  walk never reaches either, so both are kept and scanned independently.
 - **Hidden entries** are skipped by default (FR-6) — except a hidden path
   passed *explicitly* as a scan root, which is always included
   (`docs/guide/scanning-and-scope.md`). A nested root that is hidden relative
@@ -463,6 +465,19 @@ through enumeration (`no_recurse`/`include_hidden` apply uniformly to every
 root in one invocation), so `dedupe_roots` takes `&ScopeOptions` alongside the
 root list rather than deciding blind.
 
+**A single "last kept ancestor" is not enough** (second architect review
+round, same day). A nested root that `covers()` correctly refuses to
+collapse — e.g. an explicit hidden root — must still be kept in mind as a
+potential ancestor for *its own* descendants, without shadowing the original,
+shallower ancestor from an unrelated later sibling. `dedupe_roots` tracks a
+**stack** of still-relevant kept ancestors (popped down to the ones that are
+still a prefix of the current path in sorted order) rather than a single
+slot, checking only the top entry — provably sufficient, since in
+`--no-recurse` mode only an exact parent can cover a path (no shallower stack
+entry could either), and in recurse mode the hidden-component search that
+`is_hidden_relative_to` performs only grows as the candidate ancestor gets
+shallower, so if the closest one fails the shallower ones would too.
+
 **Performance: sort, don't compare all pairs.** An initial all-pairs
 `starts_with` comparison across the root list is O(n²) — for the common case
 of a handful of roots this is free, but a shell glob like `imgdedup */` over a
@@ -472,9 +487,9 @@ a purely mechanical pre-pass sitting behind a frozen `scanning...` indicator.
 `dedupe_roots` instead sorts the canonicalized roots once — `Path`'s `Ord` is
 lexicographic over components, so a path's descendants occupy a contiguous
 range immediately after it in sorted order, the standard prefix-dedup
-property — and does a single linear pass comparing each root only to the last
-*kept* one. The sort is stable, so exact duplicates keep their original
-relative order (first occurrence wins) for free.
+property — and does a single linear pass over the sorted list maintaining the
+ancestor stack above. The sort is stable, so exact duplicates keep their
+original relative order (first occurrence wins) for free.
 
 ## Pros and cons of the options
 

@@ -282,21 +282,9 @@ pub fn enumerate_with_progress(
 /// checked against anything).
 ///
 /// **A nested root is only redundant if the ancestor's walk actually reaches
-/// it.** Two scope rules can make that false, and treating a nested root as
-/// redundant anyway would silently drop files the user explicitly asked to
-/// scan — the same class of harm this fix exists to prevent:
-///
-/// - `--no-recurse` caps every root's walk at its own immediate children
-///   (depth 1), so an ancestor root never reaches a nested root's contents
-///   at all. Under `--no-recurse`, only *exact*-duplicate roots are
-///   collapsed; nesting is never treated as coverage.
-/// - Hidden entries are skipped unless `--hidden` is given — **except** a
-///   hidden path passed *explicitly* as a scan root, which is always
-///   included (`docs/guide/scanning-and-scope.md`). Collapsing an
-///   explicitly-given hidden root into its ancestor would silently
-///   un-opt-in it, since the ancestor's own walk *would* then skip it as a
-///   hidden descendant. So a nested root that is hidden relative to its
-///   ancestor is kept, unless `--hidden` is also set.
+/// it** ([`covers`]) — treating one as redundant anyway would silently drop
+/// files the user explicitly asked to scan, the same class of harm this fix
+/// exists to prevent. Exact duplicates always collapse, unconditionally.
 ///
 /// Only the **root list** is canonicalized — normally a handful of paths —
 /// never every candidate file, so this adds no per-file traversal cost.
@@ -311,6 +299,19 @@ pub fn enumerate_with_progress(
 /// slowdown on 20,000 roots in review). The sort is stable, so exact
 /// duplicates keep their original relative order, which is what makes "keep
 /// the first occurrence" fall out for free.
+///
+/// The linear pass tracks a **stack** of kept roots still in scope as
+/// potential ancestors, not a single "last kept" slot (review finding: a
+/// single slot lets a kept-but-not-collapsed nested root — e.g. an explicit
+/// hidden root that [`covers`] correctly refuses to absorb — shadow its own
+/// ancestor from a later sibling, letting the exact TASK-0319 bug back in
+/// for that sibling). Checking only the top of the stack, after popping
+/// entries that are not a prefix of the current path, is sufficient: in
+/// `--no-recurse` mode only an *exact* parent can cover a path, so no
+/// shallower stack entry could either; in recurse mode, [`is_hidden_relative_to`]'s
+/// hidden-component search only grows as the candidate ancestor gets
+/// shallower, so if the closest ancestor fails the hidden check, every
+/// shallower one on the stack would too.
 ///
 /// A root whose canonical form cannot be determined (e.g. it does not
 /// exist) is passed through unchanged rather than dropped, so the existing
@@ -335,33 +336,26 @@ fn dedupe_roots(paths: &[PathBuf], opts: &ScopeOptions) -> Vec<PathBuf> {
     resolved.sort_by(|&a, &b| canonical[a].cmp(&canonical[b]));
 
     let mut keep = vec![true; paths.len()];
-    let mut last_kept: Option<usize> = None;
+    let mut ancestors: Vec<usize> = Vec::new();
     for i in resolved {
         let ci = canonical[i].as_ref().unwrap();
-        let redundant = match last_kept {
-            None => false,
-            Some(k) => {
-                let ck = canonical[k].as_ref().unwrap();
-                if ci == ck {
-                    // Exact duplicate: unconditionally redundant — there is
-                    // no scope rule under which walking the same path twice
-                    // discovers anything a first walk would not.
-                    true
-                } else if ci.starts_with(ck) {
-                    // A proper descendant of the last-kept root is only
-                    // redundant if that root's own walk would actually reach
-                    // it (see the two exceptions in the doc comment above).
-                    !opts.no_recurse && (opts.include_hidden || !is_hidden_relative_to(ck, ci))
-                } else {
-                    false
-                }
+
+        while let Some(&top) = ancestors.last() {
+            if ci.starts_with(canonical[top].as_ref().unwrap()) {
+                break;
             }
+            ancestors.pop();
+        }
+
+        let redundant = match ancestors.last() {
+            None => false,
+            Some(&top) => covers(canonical[top].as_ref().unwrap(), ci, opts),
         };
 
         if redundant {
             keep[i] = false;
         } else {
-            last_kept = Some(i);
+            ancestors.push(i);
         }
     }
 
@@ -371,6 +365,42 @@ fn dedupe_roots(paths: &[PathBuf], opts: &ScopeOptions) -> Vec<PathBuf> {
         .filter(|&(i, _)| keep[i])
         .map(|(_, p)| p.clone())
         .collect()
+}
+
+/// Whether `ancestor`'s own walk (under `opts`) would reach `descendant` —
+/// i.e. whether `descendant` is redundant as a separate scan root. Both
+/// paths must already be canonicalized; `descendant == ancestor` or
+/// `descendant` need not literally be nested in `ancestor` for this to be
+/// called meaningfully, but the two non-exact branches below assume it is.
+fn covers(ancestor: &Path, descendant: &Path, opts: &ScopeOptions) -> bool {
+    if ancestor == descendant {
+        // Exact duplicate: unconditionally redundant — there is no scope
+        // rule under which walking the same path twice discovers anything
+        // a first walk would not.
+        return true;
+    }
+    if !descendant.starts_with(ancestor) {
+        return false;
+    }
+    if !opts.include_hidden && is_hidden_relative_to(ancestor, descendant) {
+        // A hidden path named explicitly as a root is always included
+        // (opt-in-by-explicit-root, docs/guide/scanning-and-scope.md); the
+        // ancestor's own walk would skip it as a hidden descendant, so
+        // collapsing it here would silently un-opt it back out.
+        return false;
+    }
+    if opts.no_recurse {
+        // A depth-1 walk from `ancestor` reaches only its direct-child
+        // *files* — never a nested directory's contents, and never a file
+        // two or more levels down. `descendant` is already known to be a
+        // real, canonicalized path, so a metadata check here is one stat on
+        // the (normally tiny) root list, not a per-candidate cost.
+        return descendant.parent() == Some(ancestor)
+            && std::fs::metadata(descendant)
+                .map(|m| m.is_file())
+                .unwrap_or(false);
+    }
+    true
 }
 
 /// Walk a single root path and accumulate candidates/warnings into `out`,
@@ -1335,6 +1365,93 @@ mod tests {
             "an explicitly-named hidden directory root must survive dedup, \
              and its contents must still be enumerated"
         );
+    }
+
+    #[test]
+    fn kept_hidden_root_does_not_shadow_its_own_ancestor_from_a_later_sibling() {
+        // Second-round review finding: a single "last kept ancestor" slot
+        // is not enough. `dir/.cache` is nested in `dir` but kept (not
+        // collapsed) because it is hidden — if that then becomes the sole
+        // tracked ancestor, `dir/sub` (a later, non-hidden sibling that
+        // sorts after `.cache`) would wrongly compare itself against
+        // `dir/.cache` instead of `dir`, see "not covered", and survive as
+        // its own root — double-walking `dir/sub/nested.jpg` via both
+        // `dir` and `dir/sub`. A stack of still-relevant ancestors (not a
+        // single slot) is required to get this right.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "top.jpg");
+        touch(&dir, ".cache/cachefile.jpg");
+        touch(&dir, "sub/nested.jpg");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(
+            &[
+                dir.path().to_path_buf(),
+                dir.path().join(".cache"),
+                dir.path().join("sub"),
+            ],
+            &opts,
+        );
+
+        assert_eq!(
+            candidate_names(&result),
+            vec!["cachefile.jpg", "nested.jpg", "top.jpg"],
+            "the hidden root being kept must not shadow the top-level `dir` \
+             ancestor from the later `dir/sub` sibling; got: {:?}",
+            result.candidates
+        );
+    }
+
+    #[test]
+    fn no_recurse_direct_child_file_root_is_still_collapsed_into_its_ancestor() {
+        // Second-round review finding: the first fix disabled nesting
+        // collapse entirely under --no-recurse, but a depth-1 walk from the
+        // ancestor *does* reach its own direct-child files (just not a
+        // nested directory's contents or anything deeper). A direct-child
+        // file given as its own explicit root must still collapse.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "pic.jpg");
+        let pic = dir.path().join("pic.jpg");
+
+        let opts = ScopeOptions {
+            no_recurse: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf(), pic], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "a direct-child file root must collapse into its ancestor even \
+             under --no-recurse (the ancestor's depth-1 walk already reaches \
+             it); got: {:?}",
+            result.candidates
+        );
+    }
+
+    #[test]
+    fn multi_level_nested_root_under_a_kept_hidden_root_still_collapses() {
+        // A root nested inside an already-kept (hidden, explicitly-named)
+        // root must still be recognized as redundant relative to *that*
+        // root — the stack must track it as the current relevant ancestor
+        // once it's kept, not just the original top-level root.
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, ".h/x.jpg");
+        touch(&dir, ".h/inner/y.jpg");
+        let hidden = dir.path().join(".h");
+        let inner = hidden.join("inner");
+
+        let opts = ScopeOptions::default_scope();
+        let result = enumerate(&[dir.path().to_path_buf(), hidden, inner], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            2,
+            "inner.jpg must not be double-counted just because `inner` was \
+             also given as its own (redundant) root; got: {:?}",
+            result.candidates
+        );
+        assert_eq!(candidate_names(&result), vec!["x.jpg", "y.jpg"]);
     }
 
     #[test]
