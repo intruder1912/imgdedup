@@ -332,7 +332,7 @@ is treated as the absolute stop line, not the aim.
 | 10 | feature (perf), concurrency-sensitive | TASK-0321 — parallelize the scan stage (`sniff::filter_candidates`) — **done, PR #62, actual 20%** | Solo: touches ADR-0010's concurrency model and is the throughput lever TASK-0317 depends on being measured correctly; budget the extra architect dispatch the concurrency-critical-code rule reserves | 55–75 | 7–9 |
 | 11a | fix | TASK-0318 (sanitize control chars in stderr **and stdout** paths) — **done, PR #64, actual 23%** | Quick security nit — grew mid-review to cover `report.rs`'s stdout sites too (see the actuals note below), still landed cheaply | 20–35 | 3 |
 | 11b | feature | TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) — **done, PR #66, actual 26%** | Split out of session 11 (see actuals note): 43% of the window was already spent on 11a by the time it would start, too close to the 75% hard stop to begin a feature unit with its own re-sizing uncertainty | 35–55 | 5–6 |
-| 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
+| 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) — **done, PR #68, actual 14%** + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — **not started, next session** | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
 | 13 | fix, core-engine | TASK-0319 (dedupe enumerated paths by identity — same-tree-twice bug) | Solo: touches `engine.rs`'s hard-link/identity path, the safety-critical core; do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
 | 14 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
 | 15 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
@@ -431,6 +431,23 @@ clean approve: **2 blockers, both real defects, not nits.**
 The window closed at 69%, at the top of the 60–70% target band — the
 session stops here rather than starting a third unit, per the "prefer
 fewer, fuller sessions" rule's own boundary.
+
+**Session 12 (TASK-0323, PR #68), 2026-08-03 — 14% of the window (69% →
+83%) against a share of the 45–65 combined estimate; the week moved 53% →
+54% (~1 weekly point).** `fix:`-typed squash commit auto-published
+**v0.4.1**. The owner explicitly chose to continue past session 11b's
+stated stopping point (top of the 60–70% target band) rather than wait for
+a fresh window — a real-time override of the default governance, not a
+process miss; recorded here so the trigger reads as "the default, absent
+other direction" rather than a hard rule. One architect dispatch: **2
+blockers, both completeness misses** (stale `--help` text rendered from a
+`clap` doc comment; ADR-0008, the exit-code scheme's own cited authority,
+still describing the pre-ruling behavior) — the same pattern as sessions
+10/11b: architect review keeps finding real gaps on small, mechanical-
+looking fixes, not just nits. **Session closes at 83%/54%, past the 75%
+hard stop** — the owner's own signal ("waiting for next window") is the
+actual stop here, not a model-computed one. TASK-0327/TASK-0324/TASK-0325
+(session 12's other two planned items) did not start; carry to session 13.
 
 ## Ordering constraints
 
