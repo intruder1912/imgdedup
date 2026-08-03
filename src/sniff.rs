@@ -223,7 +223,7 @@ pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec
         })
         .collect();
 
-    let mut confirmed = Vec::with_capacity(results.len());
+    let mut confirmed = Vec::new();
     let mut warnings = Vec::new();
     for result in results {
         match result {
@@ -674,17 +674,27 @@ mod tests {
         // Interleave confirmed and rejected candidates so a parallel
         // implementation that loses track of input position (e.g. pushing
         // into a shared Vec in completion order instead of collecting by
-        // index) would reorder them.
+        // index, or one that happens to reorder deterministically — e.g.
+        // lexicographically — instead of by input position) would reorder
+        // them. 200 candidates rather than a handful: detecting a real race
+        // depends on the race actually manifesting across enough concurrent
+        // header reads.
         let mut candidates = Vec::new();
-        for i in 0..40 {
+        let mut expected_confirmed = Vec::new();
+        let mut expected_warnings = Vec::new();
+        for i in 0..200 {
             let path = if i % 2 == 0 {
-                write_fixture(&dir, &format!("real{i}.jpg"), jpeg_header)
+                let p = write_fixture(&dir, &format!("real{i}.jpg"), jpeg_header);
+                expected_confirmed.push(p.clone());
+                p
             } else {
-                write_fixture(
+                let p = write_fixture(
                     &dir,
                     &format!("fake{i}.jpg"),
                     format!("not an image {i}").as_bytes(),
-                )
+                );
+                expected_warnings.push(p.clone());
+                p
             };
             candidates.push(candidate(path));
         }
@@ -697,19 +707,19 @@ mod tests {
                 .install(|| filter_candidates(candidates.clone()))
         };
 
-        let (confirmed_single, warnings_single) = run(1);
-        let (confirmed_multi, warnings_multi) = run(8);
-
-        assert_eq!(
-            confirmed_single, confirmed_multi,
-            "confirmed order must not depend on thread pool width"
-        );
-        assert_eq!(
-            warnings_single, warnings_multi,
-            "warnings order must not depend on thread pool width"
-        );
-        assert_eq!(confirmed_single.len(), 20, "half the candidates confirm");
-        assert_eq!(warnings_single.len(), 20, "half the candidates warn");
+        for threads in [1, 8] {
+            let (confirmed, warnings) = run(threads);
+            let confirmed_paths: Vec<PathBuf> = confirmed.into_iter().map(|c| c.path).collect();
+            let warning_paths: Vec<PathBuf> = warnings.into_iter().map(|w| w.path).collect();
+            assert_eq!(
+                confirmed_paths, expected_confirmed,
+                "confirmed must come back in exact input order at {threads} thread(s)"
+            );
+            assert_eq!(
+                warning_paths, expected_warnings,
+                "warnings must come back in exact input order at {threads} thread(s)"
+            );
+        }
     }
 
     #[test]

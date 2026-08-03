@@ -196,6 +196,59 @@ this shape rather than the original streaming one. Recorded because a display
 concern changed the engine's execution shape, which TASK-0315 otherwise warned
 against.
 
+### Consequence note — the scan stage is no longer serial (2026-08-03, TASK-0321)
+
+The prior note above named `sniff::filter_candidates`'s serial loop as an
+unexploited throughput lever. It is now parallelized with rayon
+(`into_par_iter().map().collect()`, the same pattern this ADR already documents
+for hashing), so **this ADR's "Parallelism is confined to hashing" framing is
+now out of date**: the scan stage (magic-byte confirmation) is parallel too, and
+`RAYON_NUM_THREADS` bounds its concurrency exactly as it already bounded
+hashing's.
+
+**Measured, external, on a synthetic 60k-file fixture built so every candidate
+fails confirmation** (isolates scan cost from hashing, mirroring the "no file is
+hashed" control fixture the prior note used) — before/after release-build
+binaries, 10-core machine:
+
+| Cache state | Before (serial) | After (parallel) | Speedup |
+|---|---|---|---|
+| Cold | 158.7 s | 21.5 s | ~7.4x |
+| Warm | 6.1 s | 1.8 s | ~3.3x |
+
+The larger cold-cache speedup is expected: concurrent I/O submissions overlap
+their wait time, so the win exceeds what core count alone would predict.
+
+**Determinism mechanism, and why it is a second, distinct one from the rest of
+this ADR:** the canonical sort (this ADR's stated determinism source) applies to
+the dedup engine's output, not to `filter_candidates`, whose contract is
+**input-order preservation** — confirmed files and warnings must come back in
+exactly the order they were supplied (the human report in `report.rs` prints
+warnings unsorted, in this order; only the `--json` path sorts). This is
+guaranteed by construction, not by luck: `Vec::into_par_iter()` is an
+`IndexedParallelIterator`, and rayon's `collect` into a `Vec` from an indexed
+iterator splits the destination by index and writes each worker's slice
+in-place — the result is ordered by input position regardless of which worker
+finishes first. Verified directly against the crate source during architect
+review, and pinned by a unit test
+(`filter_candidates_order_is_identical_at_single_and_multi_thread_widths`) that
+asserts *exact* input order (not just "the two widths agree with each other") at
+1 and 8 threads.
+
+**The seek-thrashing risk this ADR reserved the right to bound (above) is live
+here for the first time.** Until today the scan stage was width-1 by
+construction; it is now `cores`-wide concurrent random opens across a directory
+tree, and the measurement above ran entirely on flash. Spinning-disk behavior is
+untested and unmeasured — `RAYON_NUM_THREADS` remains the escape hatch, exactly
+as for hashing, if that ever needs bounding.
+
+**One throughput lever this measurement plausibly surfaces but does not
+confirm:** with sniff's cost cut ~3-7x, `enumerate` (walkdir, still fully
+serial) is a plausible new dominant serial stage in the small-file regime — the
+TASK-0312 finding named enumeration and sniff together as the dominant pair, and
+only sniff has been addressed. Not re-measured here; worth a control-fixture
+re-run before deciding whether it is worth its own task.
+
 ## Pros and cons of the options
 
 ### Option 1 — `rayon` (chosen)

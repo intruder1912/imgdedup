@@ -380,9 +380,13 @@ where
 
     for cohort in cohorts {
         // Stage 2 — hash each file in the cohort in parallel (ADR-0010, rayon).
-        // par_iter produces (ConfirmedFile, Result<hash>) pairs preserving no
-        // particular order; we collect all results and then split into recs
-        // and warnings so each per-file outcome is atomic. Every file's
+        // par_iter's collect into a Vec actually does preserve input order
+        // (indexed collect splits the destination by index, regardless of
+        // completion order — see sniff.rs's TASK-0321 doc comment for the
+        // full argument); the safety property here doesn't rely on that,
+        // though, since the outcome is canonically sorted below anyway. We
+        // collect all results and then split into recs and warnings so each
+        // per-file outcome is atomic. Every file's
         // hashing disposition is final the instant it is hashed — success or
         // failure — so it is advanced right here, inside the parallel
         // closure, via the thread-safe sink (FR-19: this is what makes the
