@@ -333,7 +333,7 @@ is treated as the absolute stop line, not the aim.
 | 11a | fix | TASK-0318 (sanitize control chars in stderr **and stdout** paths) — **done, PR #64, actual 23%** | Quick security nit — grew mid-review to cover `report.rs`'s stdout sites too (see the actuals note below), still landed cheaply | 20–35 | 3 |
 | 11b | feature | TASK-0317 (animate the `scanning` phase, sized post-321 on a release build) — **done, PR #66, actual 26%** | Split out of session 11 (see actuals note): 43% of the window was already spent on 11a by the time it would start, too close to the 75% hard stop to begin a feature unit with its own re-sizing uncertainty | 35–55 | 5–6 |
 | 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) — **done, PR #68, actual 14%** + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — carried to session 13 | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
-| 13 | chore ×2 (carried from 12) | TASK-0327 (fold `make links` onto lychee, wire into `validate`) — **done, PR #70** + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — **done, this PR** | TASK-0327 is docs/tooling-only, no write-permission CI — architect dispatch skipped per the ADR-0011 exception; TASK-0324/0325 touch `release.yml`'s write-permission job, so keep the second-dispatch precedent | 10–20 (327 alone) + 15–25 (324/325) | 2–4 |
+| 13 | chore ×2 (carried from 12), plus one unplanned follow-up fix | TASK-0327 (fold `make links` onto lychee, wire into `validate`) — **done, PR #70** + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — **done, PR #71** + a TASK-0327 regression fix (`node_modules` polluting the local lychee glob) found while validating PR #71 — **done, PR #72** | TASK-0327 is docs/tooling-only, no write-permission CI — architect dispatch skipped per the ADR-0011 exception; TASK-0324/0325 touch `release.yml`'s write-permission job, so keep the second-dispatch precedent; the follow-up fix is the same low-risk shape as TASK-0327 itself | 10–20 (327 alone) + 15–25 (324/325) | 2–4 |
 | 14 | fix, core-engine | TASK-0319 (dedupe enumerated paths by identity — same-tree-twice bug) | Solo: touches `engine.rs`'s hard-link/identity path, the safety-critical core; do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
 | 15 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
 | 16 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
@@ -450,6 +450,41 @@ looking fixes, not just nits. **Session closes at 83%/54%, past the 75%
 hard stop** — the owner's own signal ("waiting for next window") is the
 actual stop here, not a model-computed one. TASK-0327/TASK-0324/TASK-0325
 (session 12's other two planned items) did not start; carry to session 13.
+
+**Session 13 (TASK-0327 + TASK-0324/0325 + an unplanned follow-up fix, PRs 70,
+71, 72), 2026-08-03 — fresh window, closed at 22% against a 45–65 combined
+estimate for the two planned items; the week moved 55% → 57% (~2 weekly
+points).** Comfortably under estimate despite three merged PRs instead
+of the two planned, and a full architect-review round with real findings.
+Three things worth carrying forward:
+
+1. **The second-dispatch-for-write-permission-CI precedent (session 6) paid
+   off again.** TASK-0324/0325's review (PR #71) came back approve-with-one-
+   should-fix-plus-4-nits, not a clean pass: [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md)
+   — the very ADR this task's own backlog entries originated from — had gone
+   stale (still described the deprecated option spelling and the
+   three-clause trigger this session replaced). This is now a 5-for-5 run of
+   "architect review finds real substance on a small, mechanical-looking
+   fix" across sessions 10–13; [[imgdedup-architect-review-value]] holds.
+2. **Verifying one unit surfaced a latent defect in a sibling, already-merged
+   one.** TASK-0327 (PR #70) merged clean at session start. Mid-session,
+   running `npm ci --ignore-scripts` to dry-run-verify TASK-0324's
+   `semantic-release` config change left `node_modules` on disk — and the
+   next `make validate` run showed TASK-0327's lychee glob picking up 1,645
+   spurious errors from vendored markdown, a defect CI's job (which never
+   runs `npm ci` first) can never see. Caught and fixed same-session (PR
+   #72) purely because local validation was actually re-run rather than
+   assumed still green. Worth a standing habit: re-run `make validate` after
+   any command that changes the working tree's installed-package state, not
+   just after source edits.
+3. **Two small chores landing in quick succession mid-session costs a rebase
+   each time, not just at session end.** PR #70 merged while PR #71 was
+   already open, and PR #71 merged while PR #72 was open — both times a
+   docs-only conflict in `status.md`/`backlog.md` (concurrent "In progress"
+   entries), resolved by rebasing and re-ordering the entries newest-first.
+   Cheap in practice (a few minutes each), but real: sequencing tightly-
+   scoped chores through their own branches inside one session always pays
+   this cost once per merge, not once per session.
 
 ## Ordering constraints
 
