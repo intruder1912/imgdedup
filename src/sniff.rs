@@ -69,6 +69,7 @@
 //! TASK-0307 will surface these warnings in the human-readable report.
 
 use crate::enumerate::Candidate;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -91,7 +92,7 @@ pub const HEADER_LEN: usize = 64;
 /// Mirrors the shape of [`enumerate::EnumerateWarning`] but is defined here so
 /// that `sniff` stays decoupled from `enumerate`'s internals. Surfaced by the
 /// report stage (TASK-0307).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SniffWarning {
     /// The path of the file that failed confirmation.
     pub path: PathBuf,
@@ -185,31 +186,49 @@ pub fn confirm_image(path: &Path) -> bool {
 ///
 /// The header is read **once per file**; both the confirm decision and the
 /// rejection reason are derived from that single read.
+///
+/// ## Concurrency (TASK-0321, ADR-0010)
+///
+/// Each candidate's header read + confirmation is independent of every other,
+/// so this stage is parallelized with rayon — the same lever ADR-0010 already
+/// applies to hashing (`engine.rs`). Per-candidate work is collected into a
+/// single `Vec<Result<..>>` first; `rayon`'s `collect` on an indexed parallel
+/// iterator (a `Vec`'s) always returns results in original input order
+/// regardless of which worker finishes first, so the confirmed/warnings split
+/// below preserves order exactly as the prior sequential loop did (see
+/// `filter_candidates_order_is_identical_at_single_and_multi_thread_widths`).
 pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
-    let mut confirmed = Vec::new();
-    let mut warnings = Vec::new();
-
-    for candidate in candidates {
-        let Candidate { path, size, mtime } = candidate;
-        match read_header(&path) {
-            Err(e) => {
-                warnings.push(SniffWarning::new(
+    let results: Vec<Result<ConfirmedFile, SniffWarning>> = candidates
+        .into_par_iter()
+        .map(|candidate| {
+            let Candidate { path, size, mtime } = candidate;
+            match read_header(&path) {
+                Err(e) => Err(SniffWarning::new(
                     path,
                     format!("could not read file header: {e}"),
-                ));
-            }
-            Ok(buf) => {
-                if is_image_header(&buf) {
-                    confirmed.push(ConfirmedFile::new(path, size, mtime));
-                } else {
-                    let reason = if buf.is_empty() {
-                        "file is empty".to_owned()
+                )),
+                Ok(buf) => {
+                    if is_image_header(&buf) {
+                        Ok(ConfirmedFile::new(path, size, mtime))
                     } else {
-                        "content not recognized as a supported image format".to_owned()
-                    };
-                    warnings.push(SniffWarning::new(path, reason));
+                        let reason = if buf.is_empty() {
+                            "file is empty".to_owned()
+                        } else {
+                            "content not recognized as a supported image format".to_owned()
+                        };
+                        Err(SniffWarning::new(path, reason))
+                    }
                 }
             }
+        })
+        .collect();
+
+    let mut confirmed = Vec::with_capacity(results.len());
+    let mut warnings = Vec::new();
+    for result in results {
+        match result {
+            Ok(cf) => confirmed.push(cf),
+            Err(w) => warnings.push(w),
         }
     }
 
@@ -632,6 +651,65 @@ mod tests {
             "I/O error reason expected; got: {:?}",
             warnings[0].reason
         );
+    }
+
+    // ── TASK-0321: determinism at different concurrency widths ────────────────
+
+    #[test]
+    fn filter_candidates_order_is_identical_at_single_and_multi_thread_widths() {
+        // filter_candidates is parallelized with rayon (TASK-0321, the same
+        // lever ADR-0010 already applies to hashing). Regardless of how many
+        // worker threads race to read headers, the confirmed and warnings
+        // vectors must come back in the exact order the candidates were
+        // supplied — mirrors engine.rs's
+        // `outcome_identical_at_single_and_multi_thread_widths` (AC-16).
+        use rayon::ThreadPoolBuilder;
+
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_header: &[u8] = &[
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ];
+
+        // Interleave confirmed and rejected candidates so a parallel
+        // implementation that loses track of input position (e.g. pushing
+        // into a shared Vec in completion order instead of collecting by
+        // index) would reorder them.
+        let mut candidates = Vec::new();
+        for i in 0..40 {
+            let path = if i % 2 == 0 {
+                write_fixture(&dir, &format!("real{i}.jpg"), jpeg_header)
+            } else {
+                write_fixture(
+                    &dir,
+                    &format!("fake{i}.jpg"),
+                    format!("not an image {i}").as_bytes(),
+                )
+            };
+            candidates.push(candidate(path));
+        }
+
+        let run = |threads: usize| {
+            ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+                .install(|| filter_candidates(candidates.clone()))
+        };
+
+        let (confirmed_single, warnings_single) = run(1);
+        let (confirmed_multi, warnings_multi) = run(8);
+
+        assert_eq!(
+            confirmed_single, confirmed_multi,
+            "confirmed order must not depend on thread pool width"
+        );
+        assert_eq!(
+            warnings_single, warnings_multi,
+            "warnings order must not depend on thread pool width"
+        );
+        assert_eq!(confirmed_single.len(), 20, "half the candidates confirm");
+        assert_eq!(warnings_single.len(), 20, "half the candidates warn");
     }
 
     #[test]
