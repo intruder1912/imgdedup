@@ -81,6 +81,12 @@ fn relativize(value: &mut Value, prefix: &str) {
 /// with paths left absolute. Multiple roots need not share one common
 /// prefix, so there is no single string [`run_json`]'s relativization could
 /// strip; callers compare against roots' own joined paths instead.
+///
+/// `cfg(unix)`-gated because its only callers today are the `--follow-symlinks`
+/// cross-root tests, which are themselves Unix-only (`std::os::unix::fs::symlink`)
+/// — not because anything here is platform-specific. Drop the `cfg` if a
+/// portable caller appears.
+#[cfg(unix)]
 pub fn run_multi_root_json(roots: &[&Path], extra_args: &[&str]) -> Value {
     let output = run_raw(roots, extra_args);
     serde_json::from_slice(&output.stdout).expect("--json stdout must be valid JSON")

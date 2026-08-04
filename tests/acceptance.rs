@@ -48,7 +48,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::PathBuf;
 use support::images::{ImageFormat, image_bytes};
-use support::oracle::{run_json, run_json_raw, run_multi_root_json};
+#[cfg(unix)]
+use support::oracle::run_multi_root_json;
+use support::oracle::{run_json, run_json_raw};
 use support::tree::{FileSpec, LinkSpec, materialize};
 
 fn cmd() -> Command {
