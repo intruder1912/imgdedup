@@ -335,7 +335,7 @@ is treated as the absolute stop line, not the aim.
 | 12 | product-owner fix + chore ×2 | TASK-0323 (exit-code doc/code reconciliation) — **done, PR #68, actual 14%** + TASK-0327 (fold `make links` onto lychee) + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — carried to session 13 | Three small, independent, low-risk items; 324/325 touch the write-permission release job so keep the second-dispatch precedent from session 6 even at this size | 45–65 | 5–6 |
 | 13 | chore ×2 (carried from 12), plus one unplanned follow-up fix | TASK-0327 (fold `make links` onto lychee, wire into `validate`) — **done, PR #70** + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — **done, PR #71** + a TASK-0327 regression fix (`node_modules` polluting the local lychee glob) found while validating PR #71 — **done, PR #72** | TASK-0327 is docs/tooling-only, no write-permission CI — architect dispatch skipped per the ADR-0011 exception; TASK-0324/0325 touch `release.yml`'s write-permission job, so keep the second-dispatch precedent; the follow-up fix is the same low-risk shape as TASK-0327 itself | 10–20 (327 alone) + 15–25 (324/325) | 2–4 |
 | 14 | fix, core-engine-adjacent | TASK-0319 (dedupe overlapping/repeated scan roots — same-tree-twice bug) — **done, PR #74, actual 51%** | Solo: touches `enumerate.rs`, the first stage feeding the safety-critical dedup pipeline (ADR-0008); do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
-| 15 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) — **done, this PR** | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
+| 15 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) — **done, PR #76, actual 29%** | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
 | 16 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
 
 **Not scheduled — blocked, not just ordered:**
@@ -526,18 +526,18 @@ point under the 75% hard stop** — no further unit started this window.
    unit on fumes. TASK-0322 becomes the next session's first item, from a
    fresh window.
 
-**Session 15 (TASK-0322), 2026-08-04 — fresh window (5h=0%, 7d=62% at start).**
-Landed inline, no subagent dispatches for the measurement/implementation phase
-(an architect review dispatch follows before this PR opens, per the
-concurrency-critical-code budget this file already reserves). Two things
-worth carrying forward:
+**Session 15 (TASK-0322, PR #76), 2026-08-04 — fresh window (5h=0%, 7d=62% at
+start), closed at 5h=29%/7d=65%: 29% of the window against a 35–50 estimate,
+comfortably under; the week moved 62% → 65% (~3 weekly points).** `perf:`-typed
+squash commit auto-published **v0.4.4**, `assets` job fully automatic (all
+four legs green). Three things worth carrying forward:
 
 1. **"Measure before adopting" earned its keep as a literal instruction, not a
    formality.** ADR-0010 had already asserted in Phase 2 that "we use the
    blake3 crate's parallel update" — a design decision that quietly never got
    implemented and would have been wrong to assume true. Running the actual
    benchmark (not just reading the crate docs) surfaced a real, non-obvious
-   shape: the answer depends on *nested* parallelism (outer per-cohort rayon
+   shape: the answer depends on nested parallelism (outer per-cohort rayon
    vs. inner intra-file rayon), which only a benchmark that simulated the
    real call pattern — not a standalone single-file microbenchmark — would
    have shown. A naive single-file-only measurement would have said "always
@@ -550,6 +550,21 @@ worth carrying forward:
    adopting" backlog items (TASK-0320 is not one — it's a semantics ruling,
    not a perf question — but future perf-evaluation tasks should default to
    this).
+3. **The single reserved architect dispatch (concurrency-critical-code budget)
+   found two real issues, not nits, continuing the run from sessions 10–14.**
+   A fixed 4 MiB buffer over-allocated for files just above the threshold
+   (measured both slower under cohort contention and ~2.8x heavier in peak
+   RSS at 1 MiB) — capped at `min(file size, buffer)` instead. More
+   significantly, the review caught that ADR-0010's own inherited memory
+   claim ("buffer count bounded by pool width") was wrong for this change: a
+   rayon worker blocked inside `update_rayon`'s internal `join` can steal
+   another file's outer task and hold a second buffer live, so live buffers
+   run ~1.5–2x pool width, not 1x — re-measured on the real release binary
+   (3 × 100 MiB duplicates: 7.6 MB → 20.4 MB) rather than left as an assertion.
+   This is now a 6-for-6 run across sessions 10–15 of "the reserved
+   concurrency-critical review dispatch finds real substance" —
+   [[imgdedup-architect-review-value]] keeps holding, including on units the
+   author (in this case, the same session) already measured carefully.
 
 ## Ordering constraints
 
