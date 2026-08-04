@@ -972,39 +972,21 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- **Owner action, with TASK-0330's PR, not after it — swap `main`'s required
-  status checks.** That PR consolidates `markdownlint`, `spellcheck`,
-  `structure`, `linkcheck` and `pr-title` into a single `checks` job, so those
-  five context names stop existing. Branch protection still requires them by
-  exact string, and a required check that never reports sits at "Expected —
-  waiting for status to be reported" forever, on this PR and every later one.
-  `enforce_admins` is `false`, so the owner can still merge through it, but the
-  swap belongs at merge time. Verified live via the API on 2026-08-04, the
-  current list is `markdownlint`, `spellcheck`, `structure`, `pr-title`,
-  `secret-scan`, `ci-gate`, `cargo-deny`, `linkcheck` (`strict: true`). The
-  replacement — four names, since `checks` also absorbs `linkcheck`:
+None currently open.
 
-  ```sh
-  gh api -X PATCH \
-    /repos/intruder1912/imgdedup/branches/main/protection/required_status_checks \
-    -F strict=true \
-    -f 'contexts[]=checks' \
-    -f 'contexts[]=ci-gate' \
-    -f 'contexts[]=secret-scan' \
-    -f 'contexts[]=cargo-deny'
-  ```
-
-  Same shape as the manual rename TASK-0206 needed. Resolve this entry once the
-  API read-back confirms the new list.
-
-- `main`'s required checks, verified live via the GitHub
-  API on 2026-08-02: `ci-gate`, `markdownlint`, `spellcheck`, `structure`,
-  `pr-title`, `secret-scan`, `cargo-deny`, `linkcheck` — the last two added by
-  the owner live during TASK-0206 (2026-08-02), correcting a prior status.md
-  claim that `cargo-deny` had already been required since 2026-07-19 (it had
-  not). The owner also renamed the `linkcheck (informational)` context to
-  `linkcheck` to match TASK-0206's job rename, resolving what was briefly a
-  blocker here.
+- `main`'s required checks, verified live via the GitHub API on 2026-08-04
+  (post-TASK-0330): `secret-scan`, `ci-gate`, `cargo-deny`, `checks`
+  (`strict: true`) — the owner swapped in the consolidated `checks` context
+  (absorbing `markdownlint`, `spellcheck`, `structure`, `pr-title`,
+  `linkcheck`) at merge time, exactly as TASK-0330 requested, resolving what
+  was a blocker here.
+- Prior history: required checks as of 2026-08-02 were `ci-gate`,
+  `markdownlint`, `spellcheck`, `structure`, `pr-title`, `secret-scan`,
+  `cargo-deny`, `linkcheck` — the last two added by the owner live during
+  TASK-0206 (2026-08-02), correcting a prior status.md claim that
+  `cargo-deny` had already been required since 2026-07-19 (it had not). The
+  owner also renamed the `linkcheck (informational)` context to `linkcheck`
+  to match TASK-0206's job rename, resolving what was briefly a blocker here.
 
 ## Deferred from Phase 0 — tracked as backlog tasks
 
