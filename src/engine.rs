@@ -47,6 +47,30 @@ use std::path::{Path, PathBuf};
 /// whole in memory (ADR-0010, NFR-1).
 const STREAM_BUF_LEN: usize = 64 * 1024;
 
+/// Files at or above this size are hashed via BLAKE3's rayon-parallel
+/// `update_rayon` ([`RAYON_HASH_BUF_LEN`]-sized reads) instead of serial
+/// `update()` ([`STREAM_BUF_LEN`]-sized reads).
+///
+/// TASK-0322 (see the ADR-0010 amendment for the full measurement): below
+/// this size, `update_rayon`'s per-call join overhead is a wash at best and a
+/// real regression at small sizes (measured ~2x slower at 32 KiB in
+/// isolation); at and above it, `update_rayon` wins whenever the *outer*
+/// per-cohort rayon parallelism (the file-level loop in
+/// [`dedup_core_with_sink`]) has spare cores — up to ~3.9x on a single large
+/// file — and even in the worst measured case (hundreds of same-size files
+/// saturating every core at once, so the outer level already has no spare
+/// capacity) the regression stays within a few percent, never a real loss.
+/// 1 MiB sits comfortably past the measured breakeven point (~128 KiB) with
+/// margin.
+const RAYON_HASH_THRESHOLD: u64 = 1024 * 1024;
+
+/// Streaming buffer size for the `update_rayon` path (see
+/// [`RAYON_HASH_THRESHOLD`]). Chosen from the measured sweet spot (4 MiB gave
+/// the best throughput at 200-500 MiB file sizes); still bounded per ADR-0010
+/// ("buffer count is bounded by worker-pool width, not data volume") — at
+/// rayon's default pool width this adds tens of MB at most, not hundreds.
+const RAYON_HASH_BUF_LEN: usize = 4 * 1024 * 1024;
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// Per-file metadata carried through the engine. **Never** holds file contents
@@ -784,17 +808,35 @@ fn group_by_size(files: Vec<ConfirmedFile>) -> Vec<Vec<ConfirmedFile>> {
 
 /// Stream `path` through a fixed buffer and return its BLAKE3 digest.
 ///
-/// Never holds the whole file in memory (ADR-0010).
+/// Never holds the whole file in memory (ADR-0010). Files at or above
+/// [`RAYON_HASH_THRESHOLD`] are hashed via BLAKE3's intra-file parallel
+/// `update_rayon` (TASK-0322); smaller files use the plain serial `update()`
+/// path, where `update_rayon`'s per-call overhead is not worth paying. Both
+/// paths are equivalent by BLAKE3's own guarantee: the digest depends only on
+/// the bytes, never on how they were chunked (pinned by
+/// `hash_file_matches_reference_hash_across_threshold_boundary`).
 fn hash_file(path: &Path) -> io::Result<[u8; 32]> {
     let mut file = File::open(path)?;
+    let size = file.metadata()?.len();
     let mut hasher = blake3::Hasher::new();
-    let mut buf = vec![0u8; STREAM_BUF_LEN];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
+    if size >= RAYON_HASH_THRESHOLD {
+        let mut buf = vec![0u8; RAYON_HASH_BUF_LEN];
+        loop {
+            let n = file.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update_rayon(&buf[..n]);
         }
-        hasher.update(&buf[..n]);
+    } else {
+        let mut buf = vec![0u8; STREAM_BUF_LEN];
+        loop {
+            let n = file.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
     }
     Ok(*hasher.finalize().as_bytes())
 }
@@ -944,6 +986,54 @@ mod tests {
             hash_file(&b).unwrap(),
             "identical content must hash identically"
         );
+    }
+
+    // ── TASK-0322: intra-file parallel hashing via update_rayon ───────────────
+
+    /// Deterministic pseudo-random payload of `len` bytes (xorshift), so large
+    /// test payloads don't depend on any external RNG crate.
+    fn pseudo_random_payload(len: usize) -> Vec<u8> {
+        let mut state: u64 = 0x9E3779B97F4A7C15;
+        let mut out = Vec::with_capacity(len);
+        while out.len() < len {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            out.extend_from_slice(&state.to_le_bytes());
+        }
+        out.truncate(len);
+        out
+    }
+
+    /// `hash_file` must agree with BLAKE3's own one-shot hasher regardless of
+    /// which internal streaming path (serial `update()` below the threshold,
+    /// `update_rayon()` at/above it) handles a given size — BLAKE3 guarantees
+    /// the same digest for the same bytes no matter how they are chunked, so
+    /// any mismatch here would point at this module's own buffering logic,
+    /// not the library. Covers just below, exactly at, and just above
+    /// `RAYON_HASH_THRESHOLD` to pin the branch boundary.
+    #[test]
+    fn hash_file_matches_reference_hash_across_threshold_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let sizes = [
+            0usize,
+            1,
+            (RAYON_HASH_THRESHOLD as usize) - 1,
+            RAYON_HASH_THRESHOLD as usize,
+            (RAYON_HASH_THRESHOLD as usize) + 1,
+            (RAYON_HASH_THRESHOLD as usize) * 2 + 12345, // above threshold, not buffer-aligned
+        ];
+        for (i, &size) in sizes.iter().enumerate() {
+            let payload = pseudo_random_payload(size);
+            let path = write(&dir, &format!("payload_{i}.bin"), &payload);
+
+            let expected = *blake3::hash(&payload).as_bytes();
+            let actual = hash_file(&path).unwrap();
+            assert_eq!(
+                actual, expected,
+                "hash_file must match the reference one-shot hash at size {size}"
+            );
+        }
     }
 
     // ── files_equal ───────────────────────────────────────────────────────────
