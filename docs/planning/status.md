@@ -13,37 +13,60 @@ docs pass → AI automation, batched within Claude usage limits.
 
 - _Session 17 (TASK-0330, CI-minutes optimization, Kaizen chore) — spare-cycle
   tooling maintenance flagged by the owner: GitHub Actions usage was tracking
-  toward exhausting the Pro plan's 3000 included minutes/month with only 4
-  days into the billing cycle. Measured directly from the API (job
-  start/completed timestamps across 240 workflow runs since 2026-08-01,
-  GitHub's own OS billing multipliers applied — Linux 1x, Windows 2x, macOS
-  10x) rather than estimated: ~2069 billed minutes (69% of the cap). Two
-  root causes, both fixed in one PR: **(1) no build caching anywhere**
-  (confirmed via the cache-usage API returning 0 active caches) — `ci.yml`'s
-  3-OS `rust` matrix and `release.yml`'s 4-target `assets` job together
-  accounted for 62% of spend, recompiling the entire dependency tree from
-  scratch on every single run, with the cost concentrated on macOS/Windows by
-  the multiplier. Fixed with `actions/cache` (first-party, no new
-  supply-chain surface, SHA-pinned per TASK-0204's existing convention)
-  keyed on `rust-toolchain.toml` + `Cargo.lock` hashes. The `assets` job's
-  key deliberately uses `matrix.target`, not `runner.os` — `macos-latest`
-  (Apple Silicon) and `macos-15-intel` both report `runner.os == "macOS"`
-  despite being different architectures, so an `os`-only key would have let
-  one leg's cache satisfy the other's restore and silently poison a release
-  binary with the wrong architecture's build artifacts. **(2) 31% of spend
-  was pure per-job overhead, not work:** 6 separate ubuntu jobs
-  (`markdownlint`, `spellcheck`, `structure`, `linkcheck`, `changes`,
-  `pr-title`) each did 4-15 seconds of real work but still paid a full
-  rounded-up-to-a-minute runner spin-up every run. Combined into one
-  `checks` job; `rust` and `ci-gate` now depend on `checks` instead of the
-  removed `changes` job. `cargo-deny` (5% of spend) deliberately left
-  uncached — a smaller win, kept out of scope to keep this unit focused.
-  Projected new total: roughly 30-40% of the monthly cap, down from 69%.
-  **Requires a manual owner action, the same shape as TASK-0206's precedent:**
-  `main`'s branch-protection required-status-checks list must be updated to
-  drop `markdownlint`/`spellcheck`/`structure`/`linkcheck`/`pr-title` and add
-  `checks` — until that happens the old names will show as permanently
-  "expected" on future PRs and block merging. This PR._
+  toward exhausting the Pro plan's 3000 included minutes/month with only 4 days
+  into the billing cycle. Measured from the Actions API rather than estimated —
+  932 jobs across 210 workflow runs since 2026-08-01, per-job
+  `started_at`/`completed_at`, billed rounded up to the whole minute per job,
+  GitHub's own OS multipliers applied (Linux 1x, Windows 2x, macOS 10x):
+  **~1790 billed minutes in four days**, 60% of the monthly cap in ~13% of the
+  month. No caches existed anywhere (cache-usage API: 0 active). The finding
+  that reshaped the fix, and which the first cut of this unit had missed:
+  **~1000 of those 1790 minutes are the per-job one-minute billing floor**, so
+  56% of the bill is bought by how many jobs run, not by how long any job
+  takes — which caps what any speed-up can reach and makes removing whole jobs
+  worth more than making jobs faster. Shipped accordingly:_
+  - _**Six ubuntu jobs consolidated into one `checks` job** (`markdownlint`,
+    `spellcheck`, `structure`, `linkcheck`, `changes`, `pr-title`): 378 billed
+    min (21% of spend) for 4-15 seconds of real work each. Removing five floor
+    charges is the unit's largest certain win, ~280-310 min per four days.
+    `rust`/`ci-gate` now depend on `checks`. Two consequences handled
+    explicitly: every step carries `if: ${{ !cancelled() }}`, because GitHub
+    otherwise abandons a job at its first failing step and one markdown error
+    would hide the other five checks — turning a single red run into up to
+    five sequential ones and costing more than the consolidation saves; and
+    `dorny/paths-filter` moved first so `rust`'s gating output exists even
+    when a later check fails. A lint failure now does skip the `rust` matrix
+    (a job with `needs:` and a plain `if:` still requires success), which is
+    kept deliberately — the matrix is the biggest line item and nothing is
+    hidden by deferring it one run._
+  - _**`actions/cache` on `ci.yml`'s `rust` job, Linux and Windows only.**
+    Excluding macOS is the counter-intuitive part and is what the measurement
+    forced: `rust (macos-latest)` is the single most expensive job in the
+    repository (390 billed min) precisely because of the 10x multiplier, but it
+    finishes in 53s — already well inside the one-minute floor, so at most 70 of
+    its 390 minutes are recoverable, while restoring a several-hundred-megabyte
+    `target` on a macOS runner would push it past 60s and double the bill.
+    Caching there would have made the largest line item worse. Cache contents
+    are narrowed to the checksum-verified parts of `CARGO_HOME`
+    (`registry/index`, `registry/cache`, `git/db`) plus `target` — never
+    `registry/src`, which cargo does not re-verify once unpacked — with
+    `CARGO_INCREMENTAL=0` to keep ~1 GB of runner-local junk out of the
+    repository's 10 GB cache budget._
+  - _**`release.yml`'s `assets` job deliberately left uncached.** Two of its
+    four legs already finish inside the floor, and on the other two the fixed
+    costs (checkout, `rustup show` installing the pinned toolchain, packaging,
+    `gh release upload`) plus a cache restore leave the job in the same billing
+    minute — expected saving ~0. Against that, a restored `target` would sit on
+    the path that produces the published binaries, which this repository
+    SHA-pins and cargo-deny-gates specifically to keep auditable. Not a trade
+    worth making for no measured gain._
+  - _Realistic effect: **~1790 → ~1420-1450 billed minutes per four days, a
+    ~20% cut** — materially less than the "30-40% of cap" the unit's first cut
+    projected, because the floor is not reachable by caching. The levers that
+    are actually larger than this whole unit (chiefly `rust (macos-latest)`'s
+    390 min and `assets`' 485 min, both a function of run count and release
+    cadence rather than job speed) are written up with numbers as **TASK-0331**
+    rather than half-done here. `cargo-deny` untouched. This PR._
 
 - _Session 16 (TASK-0320, `--follow-symlinks` candidacy ruling) closes a
   residual gap TASK-0319 explicitly named as out of its own scope:
@@ -949,7 +972,32 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- _None currently._ `main`'s required checks, verified live via the GitHub
+- **Owner action, with TASK-0330's PR, not after it — swap `main`'s required
+  status checks.** That PR consolidates `markdownlint`, `spellcheck`,
+  `structure`, `linkcheck` and `pr-title` into a single `checks` job, so those
+  five context names stop existing. Branch protection still requires them by
+  exact string, and a required check that never reports sits at "Expected —
+  waiting for status to be reported" forever, on this PR and every later one.
+  `enforce_admins` is `false`, so the owner can still merge through it, but the
+  swap belongs at merge time. Verified live via the API on 2026-08-04, the
+  current list is `markdownlint`, `spellcheck`, `structure`, `pr-title`,
+  `secret-scan`, `ci-gate`, `cargo-deny`, `linkcheck` (`strict: true`). The
+  replacement — four names, since `checks` also absorbs `linkcheck`:
+
+  ```sh
+  gh api -X PATCH \
+    /repos/intruder1912/imgdedup/branches/main/protection/required_status_checks \
+    -F strict=true \
+    -f 'contexts[]=checks' \
+    -f 'contexts[]=ci-gate' \
+    -f 'contexts[]=secret-scan' \
+    -f 'contexts[]=cargo-deny'
+  ```
+
+  Same shape as the manual rename TASK-0206 needed. Resolve this entry once the
+  API read-back confirms the new list.
+
+- `main`'s required checks, verified live via the GitHub
   API on 2026-08-02: `ci-gate`, `markdownlint`, `spellcheck`, `structure`,
   `pr-title`, `secret-scan`, `cargo-deny`, `linkcheck` — the last two added by
   the owner live during TASK-0206 (2026-08-02), correcting a prior status.md

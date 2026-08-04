@@ -244,28 +244,26 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show # reads rust-toolchain.toml; installs the pinned channel + components
 
-      # TASK-0330 (CI-minutes optimization): measured at ~23% of total CI
-      # spend with zero caching previously in place — a full from-scratch
-      # dependency compile on every release, on top of the ci.yml `rust`
-      # matrix's own from-scratch compile for the same commit. Keyed on
-      # `matrix.target`, not `runner.os`: two of these four legs share the
-      # same `runner.os` value ("macOS", for both `macos-latest`/Apple
-      # Silicon and `macos-15-intel`) but are different architectures —
-      # keying on `os` alone would let one leg's cache satisfy the other's
-      # restore, poisoning it with wrong-architecture build artifacts.
-      # Computed from the pre-stamp `Cargo.lock` (the version stamp below
-      # only rewrites `imgdedup`'s own entry, not the dependency graph).
-      - name: Cache cargo registry and build artifacts
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ matrix.target }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
-          restore-keys: |
-            ${{ matrix.target }}-cargo-
-
+      # Deliberately NOT cargo-cached, unlike ci.yml's `rust` job (TASK-0330).
+      # Measured 2026-08-01..04 (per-job durations from the Actions API, billed
+      # rounded up to the minute, OS multipliers applied):
+      #
+      #   leg                       runs  avg dur  billed min  floor at 1 min
+      #   x86_64-unknown-linux-gnu    12      59s          13              12
+      #   aarch64-apple-darwin        12      50s         160             120
+      #   x86_64-apple-darwin         12      91s         250             120
+      #   x86_64-pc-windows-msvc      12     122s          62              24
+      #
+      # Two legs already finish inside the one-minute floor, and on the other
+      # two the non-build fixed costs alone (checkout, `rustup show` installing
+      # the pinned toolchain, packaging, `gh release upload`) plus a cache
+      # restore land the job in the same billing minute it occupies today — so
+      # the expected saving is roughly zero. Against that: a restored `target`
+      # would sit on the path that produces the *published binaries*, and this
+      # repository pins every action by SHA and gates on cargo-deny precisely to
+      # keep that path auditable. Not a trade worth making for no measured gain.
+      # Revisit only with a measured before/after, and even then prefer caching
+      # only the checksum-verified parts of CARGO_HOME (never `registry/src`).
       - name: Verify the runner's architecture matches this leg's target triple
         # Guards against a GitHub-hosted runner label silently changing
         # architecture (as macos-latest already has once) and shipping an
