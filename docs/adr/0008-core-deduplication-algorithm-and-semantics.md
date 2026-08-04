@@ -617,6 +617,125 @@ the pre-existing dry-run/apply parity exception still applies; it is safe
 reachable only via an opt-in flag — accepted rather than fixed here, per the
 product-owner ruling. New acceptance criterion: **AC-14a** (PRD-0001).
 
+## Amendment 2026-08-04 — `--follow-symlinks` alias collisions are no longer misreported as hard links across scan roots either (TASK-0329)
+
+**This closes residual gap (1) of the amendment immediately above** (TASK-0320,
+2026-08-04): the same defect, reproduced there during architect review —
+`imgdedup --follow-symlinks A B` with `A/l -> B/deep` reporting
+`hard_link_sets: [B/deep/photo.png, A/l/deep/photo.png]` and
+`reclaimable_bytes: 0` while 498 bytes were genuinely reclaimable — is fixed
+here for aliasing that crosses a scan-root boundary, not just aliasing within
+one root's own walk.
+
+**Product-owner ruling (2026-08-04):** fix now, not leave as a documented
+residual. The deciding factor: the prior root-scoped boundary is not
+explainable in the user's model. Users think in terms of *a scan*, not
+per-root walks — "the alias is counted once if the symlink stays inside one
+path you passed, but is misreported as a hard-link set if it crosses between
+two paths you passed" is an implementation-shaped rule, not a product-shaped
+one. The guide's own workaround for the residual ("scan the paths separately")
+was self-defeating — it destroys the cross-root duplicate detection that is
+the entire reason a user passes two roots. Multi-root invocation is a
+first-class documented use case, and a symlink from a working directory into
+an archive directory is an ordinary layout, not an exotic one.
+
+**Fix: widen the pass from one root's own candidates to every deduped root's
+candidates in one pass, grouped by canonical path; "direct" (no symlink hop)
+is still evaluated per candidate against *its own* root, not a single global
+root.** `enumerate::dedupe_symlink_aliases_across_roots` replaces the
+root-scoped `dedupe_symlink_aliases` as the pass `enumerate_with_progress`
+calls (the single-root function survives only as a thin test-only wrapper,
+regression-pinning TASK-0320's original unit tests unchanged). Every prior
+invariant holds: true hard links (two independent directory entries, each
+canonicalizing to itself) are never grouped and continue through the
+unmodified anchor-protection path; a candidate whose canonical form cannot be
+determined is kept unchanged (fail-open, mirroring `dedupe_roots`); the pass
+runs at all only when at least one deduped root's walk actually saw a symlink,
+so the default path and an all-symlink-free multi-root run both pay nothing,
+unchanged from before this widening.
+
+**Performance was the product ruling's explicit constraint on this widening,
+not an afterthought: a root whose own walk saw no symlink must not pay
+materially more than it did when the pass was still root-scoped**, since
+otherwise a 10-file root containing one symlink would force a full
+per-candidate canonicalize sweep of an unrelated, much larger sibling root
+that has none — a user-visible regression on exactly the setup this fix
+targets. The fix meets this without a special case: a symlink-free root's
+candidate canonical path is *derivable arithmetically* —
+`root_canonical.join(suffix)`, no syscall — because no component below that
+root was ever a symlink; only a root that itself saw a symlink still pays the
+real per-candidate `Path::canonicalize` syscall, exactly as before.
+
+Measured directly, isolating the constraint rather than burying it in an
+end-to-end run (release binary, warm cache, 7 runs each, 30,000-file
+symlink-free root, architect review): **pass runs (root shares a run with a
+one-file symlink-containing sibling, arithmetic path taken): median 1.697 s
+(min 1.681 s, max 1.727 s). Identical fixture, pass skipped entirely (no
+sibling has a symlink): median 1.699 s (min 1.667 s, max 1.729 s). Delta:
+−0.001 s (−0.1%), below the noise floor** — the constraint holds. For
+contrast, what the arithmetic split specifically avoids: routing that same
+30,000-file root through the expensive per-candidate `Path::canonicalize`
+sweep (by placing a symlink inside it instead of a sibling) costs **median
+1.908 s vs. 1.699 s — +0.21 s, +12%**, which is the number that justifies the
+`saw_symlink` split existing at all. Not yet measured: the pass's transient
+per-run memory (an `Option<PathBuf>` plus a small `HashMap`/`Vec` entry per
+candidate, now materialized for every candidate in the run rather than only a
+symlink-containing root's) — tens of MB at NFR-4's 100k-image scale, expected
+acceptable but outside what "must not pay materially more" was measured to
+cover. If it ever does bite, the pass can be restructured to build the group
+map from `saw_symlink` roots only and *probe* symlink-free candidates against
+it without storing their keys (arithmetic keys are injective within a root
+and across symlink-free roots, so nothing is lost) — not needed now, named
+here as the available lever.
+
+**Root-argument order was made a hard requirement, not assumed.** The
+existing survivor rule (direct-route preference per candidate's own root,
+then `keeper::cmp_shortest_by`) is already a pure function of a group's
+members, independent of which root supplied them or in what order roots were
+walked — but this is now asserted directly: `imgdedup --follow-symlinks A B`
+and `... B A` are verified to produce identical `--json` output, down to
+which physical path survives.
+
+**Verified before widening, not inherited:** the claim in the previous
+amendment's `enumerate_root` doc comment — a symlinked root itself need not
+set `saw_symlink`, because every candidate in that root's own walk shares the
+one hop — was re-checked against the cross-root case rather than assumed to
+still hold. It does, for three distinct reasons covering every way
+`dedupe_roots` can leave two roots standing: (1) a root that canonically
+coincides with or nests inside another is already collapsed by `dedupe_roots`
+before this pass ever runs; (2) the two cases where it deliberately keeps
+roots separate anyway — `--no-recurse` coverage, an explicit hidden root —
+both produce provably non-overlapping walks by construction (a depth-1 walk
+never reaches a nested directory's contents; a hidden nested root's files all
+carry a hidden path component the ancestor's own walk excludes by default);
+and (3) a root whose canonical form cannot be determined is kept
+unconditionally and never compared against any other root — its candidates
+simply get `None` keys and pass through ungrouped, so this case holds
+fail-open rather than by any non-overlap argument. Together, a symlinked
+root's own indirection, resolved once via its single `root.canonicalize()`
+call, can never coincide with a *different* kept root's contents by virtue of
+the root relationship alone. The only source of cross-root aliasing is an
+explicit symlink placed within one root's tree pointing into another's, which
+is exactly what this amendment fixes — including the one configuration where
+two deliberately-kept roots' walks *can* still meet at one physical file: an
+explicit hidden root plus an ordinary (non-hidden) symlink in its ancestor
+pointing at it (`d` and `d/.h`, with `d/s -> d/.h`), pinned by a dedicated
+unit test since it is the case the non-overlap argument above does not cover
+by itself.
+
+Widened to **N roots, not 2**: three roots where two separately symlink into
+a third are collapsed to the one real file, pinned by a dedicated unit test —
+a rule that worked for two roots but not three would not have been
+defensible.
+
+New PRD-0001 **AC-14b**, closing AC-14a's residual (a). Guide
+(`docs/guide/scanning-and-scope.md`) updated: the cross-root caveat and its
+"scan separately" workaround are removed; the alias-collapse behavior is now
+described as holding regardless of how many paths are passed.
+
+**Unit classification: `fix:`** (defect, not a feature) — one function's
+scope, its tests, and the doc reconciliation, in one PR.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)

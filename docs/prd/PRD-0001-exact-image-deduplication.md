@@ -317,16 +317,30 @@ Behavior:
   genuine duplicate existed alongside it, the anchor rule protected it from
   removal — reporting `0` reclaimable bytes when real space was reclaimable. A
   true hard link (two independent directory entries) is unaffected and keeps
-  going through the existing anchor-protection path (AC-18/AC-18a). Two
-  residual cases are explicitly **out of** this criterion, unchanged from prior
-  behavior and both accepted rather than fixed here: (a) the same aliasing
-  **between two different scan roots** (e.g. `imgdedup --follow-symlinks A B`
-  with a symlink in `A` pointing into `B`), which the product ruling scoped out
-  and which TASK-0329 tracks for a follow-up call; and (b) a leaf
-  symlink whose target is **not** independently in scope (outside every scan
-  root, or filtered out by `--ext`/hidden rules) — still a candidate at the
-  link path, still declined at apply with
-  the existing skip reasons, safe (nothing is ever removed for it).
+  going through the existing anchor-protection path (AC-18/AC-18a). Two cases
+  were explicitly **out of** this criterion's scope when it was written: (a)
+  the same aliasing **between two different scan roots**, now covered by
+  AC-14b (product-owner ruling 2026-08-04, TASK-0329); and (b) a leaf symlink
+  whose target is **not** independently in scope (outside every scan root, or
+  filtered out by `--ext`/hidden rules) — still a candidate at the link path,
+  still declined at apply with the existing skip reasons, safe (nothing is
+  ever removed for it), and still accepted rather than fixed.
+- **AC-14b (FR-6, FR-13, FR-17; added 2026-08-04, TASK-0329):** Given
+  `--follow-symlinks` and **two or more scan roots**, where a symlink under one
+  root (a symlinked ancestor directory or a leaf symlink) gives a physical file
+  under another root a second route, when scanned, then that file appears
+  exactly once, at its non-symlink-routed path — it is not reported as a
+  hard-link set, and a genuine byte-identical copy anywhere in the scan is
+  still reported as removable with its true reclaimable size. The result,
+  including *which* path survives, is identical regardless of the order the
+  roots are given on the command line and regardless of how many roots are
+  passed (three or more behave as two) — NFR-3/AC-16. True hard links are
+  unaffected and keep going through the anchor-protection path (AC-18/AC-18a);
+  a candidate whose canonical path cannot be determined is never dropped. This
+  closes the residual named in AC-14a: before the fix, `imgdedup
+  --follow-symlinks A B` with `A/l -> B/deep` reported the one physical file as
+  a two-member hard-link set and `reclaimable_bytes: 0` while a genuine copy
+  under `A` was truly reclaimable.
 - **AC-15 (FR-1):** Given duplicates nested in subdirectories, when run with
   defaults they are found; when run with `--no-recurse` only top-level files of
   each path are considered.
