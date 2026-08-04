@@ -11,6 +11,81 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 15 (TASK-0322, intra-file parallel hashing) closes the second
+  unexploited throughput lever the TASK-0312 NFR-4 measurement surfaced (the
+  first, the scan stage, was TASK-0321): `blake3` was compiled without its
+  `rayon` feature, and `engine.rs`'s `hash_file` called the serial `update()`
+  unconditionally, so one large file was hashed by exactly one core no matter
+  how many idle cores the run had. This ADR (0010) had already asserted "we use
+  the blake3 crate's parallel update" as a design decision back in Phase 2 —
+  never actually implemented, and this task's brief was explicitly "measure
+  before adopting," not to assume that framing was still right by the time
+  Phase 3 got here.
+  **Measured on a 10-core machine, isolating the real question: nested rayon
+  parallelism.** `engine.rs` already runs one rayon parallel iterator over
+  each same-size cohort (outer level); the open question was whether adding a
+  second, intra-file rayon call (inner level, `update_rayon`) inside that
+  closure helps, hurts, or does nothing — and how that depends on how many
+  files the outer level currently has in flight. Four scenarios: (1) single
+  large file with no outer contention (the case ADR-0010 originally named) —
+  `update_rayon` (4 MiB buffer) sustained ~3.1–3.9x the throughput of serial
+  `update()` (64 KiB buffer) from 10–500 MiB. (2) Small files in isolation —
+  below ~128 KiB the per-call join overhead isn't recovered (measured ~2x
+  slower at 32 KiB); from 256 KiB up it's already a net win. (3) A cohort of
+  N same-size large (200 MiB) files, outer rayon spreading them across
+  cores — wins at N=1–4 (fewer files than cores), converges to parity by
+  N=8–16 (at/past core count), never regressing beyond ~6%. (4) A cohort of N
+  same-size medium (4 MiB) files — the realistic case, since most duplicate
+  groups are a handful of ordinary photos, not dozens of huge files — wins
+  outright at N=2–8, bounded ≤6% regression even at the extreme N=512.
+  **Adopted, threshold-gated, not unconditional:** `hash_file` now branches on
+  a new `RAYON_HASH_THRESHOLD` (1 MiB, comfortably past the measured ~128–256
+  KiB breakeven) — below it, the original serial/64 KiB path is untouched
+  (where the per-call overhead is a real if small loss, and where the
+  overwhelming majority of ordinary photo files live); at/above it,
+  `update_rayon` with a `min(file size, 4 MiB)` buffer (the measured
+  throughput knee, capped so a file just over the threshold doesn't pay a
+  4 MiB buffer to hash 1 MiB). This keeps the
+  common case byte-for-byte on the previously-measured path while capturing
+  the upside for the case ADR-0010 flagged as unaddressed: a handful of large
+  duplicate files (RAW/TIFF/PSD/video) sharing one core when idle cores were
+  available. **Architect review (one dispatch, converged) re-ran the
+  measurement independently and changed two things:** the buffer is now capped
+  at the file size (fixed 4 MiB measured both slower under cohort contention
+  and ~2.8x heavier in peak RSS for 1 MiB files), and ADR-0010's memory claim
+  is corrected rather than merely inherited — a rayon worker blocked inside
+  `update_rayon`'s `join` can steal another file's outer task and hold a
+  second buffer live, so live buffers run ~1.5–2x pool width (measured peak
+  RSS 70–91 MB at 10 workers vs ~12 MB on the serial path). Still bounded by
+  machine width, never by data volume, so NFR-4 holds — but materially larger
+  than before and now written down as `O(2 × pool width × buffer)`, which
+  supersedes the TASK-0312 "300 MB over 3 files costs 7.5 MB" figure for files
+  at/above the threshold: re-measured on the real release binary, 3 × 100 MiB
+  duplicates went 7.6 MB → 20.4 MB and 8 × 100 MiB went 7.9 MB → 41.4 MB
+  (exactly one buffer per file in flight), with **byte-identical JSON** from
+  the `main` and branch binaries on both fixtures and no wall-time regression.
+  `tests/scale.rs`'s recorded comparison was corrected to match. The review
+  also measured the missing control (serial `update()` using a 4 MiB buffer:
+  1.02–1.06x), confirming the win is `update_rayon` and not the bigger read,
+  and noted that the headline single-file 3.9x is benchmark-only — the engine
+  never hashes a size-singleton, so the reachable best case is a cohort of 2.
+  `blake3`'s `rayon` feature enabled in `Cargo.toml` (adds
+  `rayon-core` as a transitive dep of `blake3` — already present transitively
+  via the crate's own top-level `rayon` dependency; `cargo-deny` clean, same
+  pre-existing duplicate-crate warnings as `main`, none new). Byte-verification
+  (`files_equal`, ADR-0008's sole removal authority) is a raw comparison, not
+  a hash, so out of scope — TASK-0322 named hashing specifically. Correctness
+  pinned by a new regression test
+  (`hash_file_matches_reference_hash_across_threshold_boundary`) asserting
+  `hash_file` agrees with BLAKE3's own one-shot hasher just below, exactly at,
+  and just above the threshold, plus (review addition) at a size past the
+  buffer length so the parallel path is exercised with more than one
+  `update_rayon` call and an unaligned tail — BLAKE3 guarantees the digest
+  depends only on the bytes, never on chunking, so the risk was this module's
+  own buffering logic, not the algorithm. Recorded in the
+  [2026-08-04 amendment to ADR-0010](../adr/0010-concurrency-and-memory-model.md#consequence-note--intra-file-parallel-hashing-adopted-threshold-gated-2026-08-04-task-0322).
+  This PR._
+
 - _Session 14 (TASK-0319, dedupe overlapping/repeated scan roots) closes an
   architect finding from the S3 review: `imgdedup ./d ./d` (or overlapping
   roots like `./d ./d/sub`) walked the same physical file more than once,

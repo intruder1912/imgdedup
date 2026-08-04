@@ -205,8 +205,12 @@ fn memory_fixture_large_files() {
     // outside the process (`/usr/bin/time -l` on macOS, `-v` on Linux). Three
     // files holding roughly the same total bytes as the 100k-file fixture is
     // the comparison that matters: if memory scaled with data volume the two
-    // would be similar. Measured, they are not — 7.5 MiB here against 43 MiB
-    // there. Numbers and method are recorded in the review log.
+    // would be similar. Measured, they are not — 43 MiB there against 7.5 MiB
+    // here before TASK-0322 and ~20 MiB after it (the parallel-hash path adds
+    // one `min(file size, 4 MiB)` buffer per file in flight, so three 100 MiB
+    // files add ~12 MiB; still bounded by worker-pool width, not by the 300 MiB
+    // of data). Numbers and method are recorded in the review log and in the
+    // 2026-08-04 amendment to ADR-0010.
     let root_dir = scale_root("large");
     let root = root_dir.path();
     build_few_large(root, 3, 100);
