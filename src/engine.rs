@@ -56,19 +56,37 @@ const STREAM_BUF_LEN: usize = 64 * 1024;
 /// real regression at small sizes (measured ~2x slower at 32 KiB in
 /// isolation); at and above it, `update_rayon` wins whenever the *outer*
 /// per-cohort rayon parallelism (the file-level loop in
-/// [`dedup_core_with_sink`]) has spare cores — up to ~3.9x on a single large
-/// file — and even in the worst measured case (hundreds of same-size files
+/// [`dedup_core_with_sink`]) has spare cores — up to ~3.9x in isolation, and
+/// 1.5–3.2x for the smallest cohort the engine can actually hash (two
+/// same-size files; [`group_by_size`] drops size-singletons without hashing
+/// them, so a cohort of one never reaches here) — and even in the worst
+/// measured case (hundreds of same-size files
 /// saturating every core at once, so the outer level already has no spare
 /// capacity) the regression stays within a few percent, never a real loss.
 /// 1 MiB sits comfortably past the measured breakeven point (~128 KiB) with
 /// margin.
 const RAYON_HASH_THRESHOLD: u64 = 1024 * 1024;
 
-/// Streaming buffer size for the `update_rayon` path (see
-/// [`RAYON_HASH_THRESHOLD`]). Chosen from the measured sweet spot (4 MiB gave
-/// the best throughput at 200-500 MiB file sizes); still bounded per ADR-0010
-/// ("buffer count is bounded by worker-pool width, not data volume") — at
-/// rayon's default pool width this adds tens of MB at most, not hundreds.
+/// Upper bound on the streaming buffer used by the `update_rayon` path (see
+/// [`RAYON_HASH_THRESHOLD`]). Chosen from the measured sweet spot: throughput
+/// on a single large file climbs steeply to 2–4 MiB and then flattens (3.0x at
+/// 2 MiB, 3.3x at 4 MiB, 3.6x at 8 MiB on a 200 MiB file), while *contended*
+/// cohorts get slightly worse as the buffer grows (0.97x at 4 MiB, 0.90x at
+/// 8 MiB with 10 same-size files on 10 cores) — 4 MiB is the knee.
+///
+/// [`hash_file`] allocates `min(file size, RAYON_HASH_BUF_LEN)`, never the
+/// full constant for a file smaller than it: a 1 MiB file (exactly at the
+/// threshold) would otherwise pay a 4 MiB buffer to hash 1 MiB of data, which
+/// measured both slower under cohort contention and ~2.8x heavier in peak RSS.
+///
+/// **Memory (ADR-0010, NFR-4).** The bound stays proportional to the *worker
+/// pool width*, never to data volume — but it is *not* exactly one buffer per
+/// worker: a rayon worker blocked inside `update_rayon`'s internal `join` may
+/// steal another file's outer task and hold a second buffer live, so the live
+/// buffer count runs above the pool width (measured ~1.5–2x it). Budget
+/// `O(2 × pool width × 4 MiB)` — about 80–90 MB at 10 workers, and
+/// proportionally more on wider machines. See the 2026-08-04 amendment to
+/// ADR-0010.
 const RAYON_HASH_BUF_LEN: usize = 4 * 1024 * 1024;
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -815,12 +833,30 @@ fn group_by_size(files: Vec<ConfirmedFile>) -> Vec<Vec<ConfirmedFile>> {
 /// paths are equivalent by BLAKE3's own guarantee: the digest depends only on
 /// the bytes, never on how they were chunked (pinned by
 /// `hash_file_matches_reference_hash_across_threshold_boundary`).
+///
+/// The size used to pick the branch is read from the **already-open handle**
+/// (`File::metadata`), not from the path a second time, so it cannot be
+/// re-resolved to a different file. It selects a strategy and a buffer length
+/// and nothing else: if the file changes size between that stat and the read
+/// loop, both paths still stream to EOF and hash exactly the bytes they read.
+/// A file mutated mid-run may therefore hash to something that no longer
+/// matches its enumerated size — a pre-existing scan-time TOCTOU that
+/// ADR-0008's byte-for-byte verification (and TASK-0309's apply-time
+/// re-validation) remains the authority over; hashing is only a pre-filter.
 fn hash_file(path: &Path) -> io::Result<[u8; 32]> {
     let mut file = File::open(path)?;
     let size = file.metadata()?.len();
     let mut hasher = blake3::Hasher::new();
     if size >= RAYON_HASH_THRESHOLD {
-        let mut buf = vec![0u8; RAYON_HASH_BUF_LEN];
+        // Never allocate more buffer than the file can fill: a file just over
+        // the threshold would otherwise pay the full 4 MiB. `size` is at least
+        // RAYON_HASH_THRESHOLD here, so the buffer is never empty (an empty
+        // buffer would make `read` return 0 and hash nothing). The cap is a
+        // memory/throughput optimization only — if the file grows between this
+        // stat and the reads below, the loop simply takes more iterations and
+        // still hashes every byte it can read.
+        let buf_len = RAYON_HASH_BUF_LEN.min(usize::try_from(size).unwrap_or(usize::MAX));
+        let mut buf = vec![0u8; buf_len];
         loop {
             let n = file.read(&mut buf)?;
             if n == 0 {
@@ -1011,7 +1047,11 @@ mod tests {
     /// the same digest for the same bytes no matter how they are chunked, so
     /// any mismatch here would point at this module's own buffering logic,
     /// not the library. Covers just below, exactly at, and just above
-    /// `RAYON_HASH_THRESHOLD` to pin the branch boundary.
+    /// `RAYON_HASH_THRESHOLD` to pin the branch boundary, plus a size past
+    /// `RAYON_HASH_BUF_LEN` so the parallel path is exercised with **more than
+    /// one** `update_rayon` call and an unaligned tail — the buffer is capped
+    /// at the file size, so every smaller case fills it in a single read and
+    /// would not catch a multi-chunk buffering bug on its own.
     #[test]
     fn hash_file_matches_reference_hash_across_threshold_boundary() {
         let dir = tempfile::tempdir().unwrap();
@@ -1022,6 +1062,7 @@ mod tests {
             RAYON_HASH_THRESHOLD as usize,
             (RAYON_HASH_THRESHOLD as usize) + 1,
             (RAYON_HASH_THRESHOLD as usize) * 2 + 12345, // above threshold, not buffer-aligned
+            RAYON_HASH_BUF_LEN + 12345, // > one full rayon buffer: multi-chunk + tail
         ];
         for (i, &size) in sizes.iter().enumerate() {
             let payload = pseudo_random_payload(size);
