@@ -11,6 +11,40 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 17 (TASK-0330, CI-minutes optimization, Kaizen chore) — spare-cycle
+  tooling maintenance flagged by the owner: GitHub Actions usage was tracking
+  toward exhausting the Pro plan's 3000 included minutes/month with only 4
+  days into the billing cycle. Measured directly from the API (job
+  start/completed timestamps across 240 workflow runs since 2026-08-01,
+  GitHub's own OS billing multipliers applied — Linux 1x, Windows 2x, macOS
+  10x) rather than estimated: ~2069 billed minutes (69% of the cap). Two
+  root causes, both fixed in one PR: **(1) no build caching anywhere**
+  (confirmed via the cache-usage API returning 0 active caches) — `ci.yml`'s
+  3-OS `rust` matrix and `release.yml`'s 4-target `assets` job together
+  accounted for 62% of spend, recompiling the entire dependency tree from
+  scratch on every single run, with the cost concentrated on macOS/Windows by
+  the multiplier. Fixed with `actions/cache` (first-party, no new
+  supply-chain surface, SHA-pinned per TASK-0204's existing convention)
+  keyed on `rust-toolchain.toml` + `Cargo.lock` hashes. The `assets` job's
+  key deliberately uses `matrix.target`, not `runner.os` — `macos-latest`
+  (Apple Silicon) and `macos-15-intel` both report `runner.os == "macOS"`
+  despite being different architectures, so an `os`-only key would have let
+  one leg's cache satisfy the other's restore and silently poison a release
+  binary with the wrong architecture's build artifacts. **(2) 31% of spend
+  was pure per-job overhead, not work:** 6 separate ubuntu jobs
+  (`markdownlint`, `spellcheck`, `structure`, `linkcheck`, `changes`,
+  `pr-title`) each did 4-15 seconds of real work but still paid a full
+  rounded-up-to-a-minute runner spin-up every run. Combined into one
+  `checks` job; `rust` and `ci-gate` now depend on `checks` instead of the
+  removed `changes` job. `cargo-deny` (5% of spend) deliberately left
+  uncached — a smaller win, kept out of scope to keep this unit focused.
+  Projected new total: roughly 30-40% of the monthly cap, down from 69%.
+  **Requires a manual owner action, the same shape as TASK-0206's precedent:**
+  `main`'s branch-protection required-status-checks list must be updated to
+  drop `markdownlint`/`spellcheck`/`structure`/`linkcheck`/`pr-title` and add
+  `checks` — until that happens the old names will show as permanently
+  "expected" on future PRs and block merging. This PR._
+
 - _Session 16 (TASK-0320, `--follow-symlinks` candidacy ruling) closes a
   residual gap TASK-0319 explicitly named as out of its own scope:
   overlapping/repeated scan roots were fixed at the root-list level, but

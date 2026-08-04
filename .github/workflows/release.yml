@@ -244,6 +244,28 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show # reads rust-toolchain.toml; installs the pinned channel + components
 
+      # TASK-0330 (CI-minutes optimization): measured at ~23% of total CI
+      # spend with zero caching previously in place — a full from-scratch
+      # dependency compile on every release, on top of the ci.yml `rust`
+      # matrix's own from-scratch compile for the same commit. Keyed on
+      # `matrix.target`, not `runner.os`: two of these four legs share the
+      # same `runner.os` value ("macOS", for both `macos-latest`/Apple
+      # Silicon and `macos-15-intel`) but are different architectures —
+      # keying on `os` alone would let one leg's cache satisfy the other's
+      # restore, poisoning it with wrong-architecture build artifacts.
+      # Computed from the pre-stamp `Cargo.lock` (the version stamp below
+      # only rewrites `imgdedup`'s own entry, not the dependency graph).
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.target }}-cargo-
+
       - name: Verify the runner's architecture matches this leg's target triple
         # Guards against a GitHub-hosted runner label silently changing
         # architecture (as macos-latest already has once) and shipping an

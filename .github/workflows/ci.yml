@@ -14,20 +14,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  markdownlint:
-    name: markdownlint
+  # Combines what were previously 6 separate ubuntu jobs (markdownlint,
+  # spellcheck, structure, linkcheck, changes, pr-title) into one (TASK-0330,
+  # CI-minutes optimization). Each of those did 4-15 seconds of real work but
+  # still paid a full rounded-up-to-a-minute runner spin-up — measured at
+  # ~640 of ~2069 billed minutes/month (31%), almost entirely that overhead,
+  # not the work itself. Combining trades a few seconds of wall-clock (these
+  # checks now run sequentially instead of in parallel) for one job-minimum
+  # instead of six, with no change to what is checked or how strictly.
+  #
+  # NOTE FOR THE REPO OWNER: this job is named `checks`, replacing the
+  # individual `markdownlint`/`spellcheck`/`structure`/`linkcheck`/`pr-title`
+  # required-status-check names. `main`'s branch protection required-checks
+  # list must be updated to swap those five names for `checks` after this
+  # merges — the same manual step TASK-0206 needed for its `linkcheck`
+  # rename. Until that update happens, the old names will show as
+  # permanently "expected" and block merges.
+  checks:
+    name: checks
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-      - name: Lint Markdown
-        run: npx -y markdownlint-cli2@0.23.1 "**/*.md"
-
-  spellcheck:
-    name: spellcheck
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
     env:
       TYPOS_VERSION: "1.48.0"
       # sha256 of typos-v1.48.0-x86_64-unknown-linux-musl.tar.gz, computed and
@@ -39,6 +49,13 @@ jobs:
       TYPOS_SHA256: "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Lint Markdown
+        run: npx -y markdownlint-cli2@0.23.1 "**/*.md"
+
       - name: Install pinned typos
         run: |
           set -euo pipefail
@@ -49,11 +66,6 @@ jobs:
       - name: Spell-check docs
         run: typos $(git ls-files '*.md')
 
-  structure:
-    name: structure
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify required repository structure
         run: |
           set -euo pipefail
@@ -91,16 +103,29 @@ jobs:
           fi
           echo "Repository structure OK."
 
-  pr-title:
-    name: pr-title
-    runs-on: ubuntu-latest
-    # PR-title lint only applies to pull requests (squash uses the title as the
-    # commit on main and drives the release).
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: read
-    steps:
+      - name: Check links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: "--config lychee.toml --no-progress './**/*.md'"
+          fail: true
+
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'build.rs'
+              - 'src/**'
+              - 'tests/**'
+              - '.github/workflows/ci.yml'
+
+      # PR-title lint only applies to pull requests (squash uses the title as
+      # the commit on main and drives the release).
       - name: Validate PR title is a Conventional Commit
+        if: github.event_name == 'pull_request'
         uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -118,44 +143,10 @@ jobs:
             style
             revert
 
-  linkcheck:
-    name: linkcheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check links
-        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
-        with:
-          args: "--config lychee.toml --no-progress './**/*.md'"
-          fail: true
-
-  changes:
-    name: changes
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
-        id: filter
-        with:
-          filters: |
-            code:
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'build.rs'
-              - 'src/**'
-              - 'tests/**'
-              - '.github/workflows/ci.yml'
-
   rust:
     name: rust (${{ matrix.os }})
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
+    needs: checks
+    if: needs.checks.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -168,6 +159,28 @@ jobs:
 
       - name: Install pinned Rust toolchain
         run: rustup show  # reads rust-toolchain.toml; installs the pinned channel + components
+
+      # TASK-0330 (CI-minutes optimization): this job previously compiled the
+      # full dependency tree from scratch on every run, with zero caching
+      # anywhere in the repo — measured as ~38% of total CI spend, the single
+      # largest line item, disproportionately so on macOS/Windows where
+      # GitHub's per-minute billing multiplier (10x / 2x) makes every second
+      # of compile time cost far more than on Linux. The key includes
+      # `rust-toolchain.toml` (a toolchain bump invalidates stale artifacts)
+      # and `Cargo.lock` (a dependency change invalidates only what changed —
+      # cargo's own incremental compilation handles the rest). Single `os`-
+      # keyed cache is safe here (unlike the `assets` job below): this
+      # matrix only ever builds one architecture per OS.
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: cargo fmt --check
         run: cargo fmt --check
@@ -190,18 +203,18 @@ jobs:
 
   ci-gate:
     name: ci-gate
-    needs: [changes, rust]
+    needs: [checks, rust]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate required jobs
         run: |
           set -euo pipefail
-          changes_result="${{ needs.changes.result }}"
+          checks_result="${{ needs.checks.result }}"
           rust_result="${{ needs.rust.result }}"
-          echo "changes: $changes_result | rust: $rust_result"
-          if [[ "$changes_result" == "failure" || "$changes_result" == "cancelled" ]]; then
-            echo "::error::path-filter job did not succeed"; exit 1
+          echo "checks: $checks_result | rust: $rust_result"
+          if [[ "$checks_result" == "failure" || "$checks_result" == "cancelled" ]]; then
+            echo "::error::checks job did not succeed"; exit 1
           fi
           if [[ "$rust_result" == "failure" || "$rust_result" == "cancelled" ]]; then
             echo "::error::Rust checks failed"; exit 1
