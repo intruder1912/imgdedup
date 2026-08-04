@@ -48,7 +48,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::PathBuf;
 use support::images::{ImageFormat, image_bytes};
-use support::oracle::{run_json, run_json_raw};
+use support::oracle::{run_json, run_json_raw, run_multi_root_json};
 use support::tree::{FileSpec, LinkSpec, materialize};
 
 fn cmd() -> Command {
@@ -1047,6 +1047,125 @@ fn ac14a_follow_symlinks_alias_is_counted_once_and_never_masks_a_real_duplicate(
     assert_eq!(
         BTreeSet::from_iter(all_paths),
         BTreeSet::from(["real_dir/photo.png", "genuine_dup.png"]),
+    );
+}
+
+/// AC-14b (FR-6, FR-13, FR-17; TASK-0329): "Given `--follow-symlinks` and two
+/// or more scan roots, where a symlink under one root gives a physical file
+/// under another root a second route, when scanned, then that file appears
+/// exactly once, at its non-symlink-routed path; it is not reported as a
+/// hard-link set; and a genuine byte-identical copy elsewhere in the scan is
+/// still reported as removable with its true reclaimable size."
+///
+/// Reproduces the exact defect TASK-0320's own architect review found left
+/// open by its root-scoped fix: `A/l -> B/deep` gives `B/deep/photo.png` a
+/// second route via root `A`, and the anchor rule protected both aliased
+/// representatives, masking a genuine duplicate (`A/g.png`) as unreclaimable.
+#[cfg(unix)]
+#[test]
+fn ac14b_follow_symlinks_alias_across_two_roots_is_counted_once_and_never_masks_a_real_duplicate() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let content = image_bytes(ImageFormat::Png, 31, 498);
+
+    materialize(
+        dir.path(),
+        &[
+            // A genuine second physical copy, under root A — the real,
+            // reclaimable duplicate the fix must still find.
+            spec("A/g.png", content.clone(), T),
+            spec("B/deep/photo.png", content, T),
+        ],
+        &[],
+    );
+    // A symlink under root A gives B/deep/photo.png a second route,
+    // crossing from one scan root into another.
+    symlink(dir.path().join("B/deep"), dir.path().join("A/l")).unwrap();
+
+    let root_a = dir.path().join("A");
+    let root_b = dir.path().join("B");
+    let doc = run_multi_root_json(&[&root_a, &root_b], &["--follow-symlinks", "--no-progress"]);
+
+    assert_eq!(
+        doc["already_deduplicated"].as_array().unwrap().len(),
+        0,
+        "the cross-root alias must not be reported as a hard-link set; got {doc:#}"
+    );
+    assert_eq!(
+        doc["groups"].as_array().unwrap().len(),
+        1,
+        "the genuine duplicate must still form exactly one group; got {doc:#}"
+    );
+    let group = &doc["groups"][0];
+    assert_eq!(
+        group["hard_link_sets"].as_array().unwrap().len(),
+        0,
+        "no hard-link set belongs to this group; got {doc:#}"
+    );
+    assert_eq!(
+        group["removable"].as_array().unwrap().len(),
+        1,
+        "exactly one file must be removable: the real duplicate; got {doc:#}"
+    );
+    assert_eq!(
+        group["reclaimable_bytes"], 498,
+        "the 498 real bytes must be reported reclaimable, not masked as 0; got {doc:#}"
+    );
+
+    let mut all_paths: Vec<String> = vec![group["keeper"]["path"].as_str().unwrap().to_string()];
+    all_paths.extend(
+        group["removable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["path"].as_str().unwrap().to_string()),
+    );
+    let symlink_routed = root_a.join("l/photo.png").to_str().unwrap().to_string();
+    assert!(
+        all_paths.iter().all(|p| *p != symlink_routed),
+        "the symlink-routed alias must never appear in the report; got {all_paths:?}"
+    );
+    assert_eq!(
+        BTreeSet::from_iter(all_paths),
+        BTreeSet::from([
+            root_a.join("g.png").to_str().unwrap().to_string(),
+            root_b.join("deep/photo.png").to_str().unwrap().to_string(),
+        ]),
+    );
+}
+
+/// AC-14b / NFR-3 (AC-16): the cross-root alias result — including which
+/// physical path survives — does not depend on the order the roots are
+/// given on the command line.
+#[cfg(unix)]
+#[test]
+fn ac14b_cross_root_alias_result_is_independent_of_root_argument_order() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let content = image_bytes(ImageFormat::Png, 31, 498);
+
+    materialize(
+        dir.path(),
+        &[
+            spec("A/g.png", content.clone(), T),
+            spec("B/deep/photo.png", content, T),
+        ],
+        &[],
+    );
+    symlink(dir.path().join("B/deep"), dir.path().join("A/l")).unwrap();
+
+    let root_a = dir.path().join("A");
+    let root_b = dir.path().join("B");
+    let extra = ["--follow-symlinks", "--no-progress"];
+
+    let forward = run_multi_root_json(&[&root_a, &root_b], &extra);
+    let backward = run_multi_root_json(&[&root_b, &root_a], &extra);
+
+    assert_eq!(
+        forward, backward,
+        "root argument order must not change the result"
     );
 }
 

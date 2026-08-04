@@ -7,9 +7,60 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-03
+**Last updated:** 2026-08-04
 
 ## In progress
+
+- _Session 18 (TASK-0329, cross-root `--follow-symlinks` alias collisions)
+  closes the residual TASK-0320's own architect review left open: the same
+  anchor-rule-masking-a-real-duplicate defect, reachable across two scan
+  roots instead of within one. Reproduced fresh with the real release binary
+  before any dispatch, matching this project's practice: `A/g.png` (a genuine
+  duplicate) + `B/deep/photo.png`, aliased a second time as `A/l/photo.png`
+  via `A/l -> B/deep`, reported `hard_link_sets: [A/l/photo.png,
+  B/deep/photo.png]` and `reclaimable_bytes: 0` when 498 real bytes were
+  reclaimable. **Product-owner ruling (2026-08-04): fix now, not leave as a
+  documented residual** — dispatched with the reproduction and the two
+  backlog options. The deciding factor: the root-scoped boundary isn't
+  explainable in the user's model (a user thinks in terms of *a scan*, not
+  per-root walks), and the guide's own workaround for the residual ("scan the
+  paths separately") was self-defeating, since it destroys the very
+  cross-root duplicate detection a user passes multiple roots to get. The
+  ruling also set an explicit, non-negotiable performance constraint before
+  any code was written: a root whose own walk saw no symlink must not pay
+  materially more than it did when the pass was still root-scoped, since a
+  naive widening would otherwise force a full canonicalize sweep of an
+  unrelated large sibling root the moment any other root has a symlink.
+  **Fix:** `enumerate::dedupe_symlink_aliases` widened into
+  `enumerate::dedupe_symlink_aliases_across_roots` — one pass over every
+  deduped root's candidates, grouped by canonical path, "direct" (no symlink
+  hop) evaluated per candidate against *its own* root rather than a single
+  global one. The performance constraint is met without a special case: a
+  symlink-free root's candidate canonical path is derived arithmetically
+  (`root_canonical.join(suffix)`, no syscall) since no component below such a
+  root can differ from that form, while a root that itself saw a symlink
+  still pays the real per-candidate `Path::canonicalize` syscall, exactly as
+  before this widening. Measured directly (release binary, warm cache,
+  30,000-file symlink-free root sharing a run with a one-file
+  symlink-containing sibling): ~5.7 s, against a pre-widening `main` baseline
+  of ~5.6 s and a no-sibling run at ~5.63 s over the identical fixture — the
+  three are within measurement noise of each other. Generalized to **N
+  roots, not 2** (pinned by a 3-root unit test — a rule that worked for two
+  roots but not three would not have been defensible) and root-argument order
+  is asserted, not assumed, to leave the result — including which physical
+  path survives — unchanged (AC-14b/NFR-3/AC-16). The single-root
+  `dedupe_symlink_aliases` survives as a thin test-only wrapper so TASK-0320's
+  own unit tests remain exact regression pins. Also verified, per the
+  product-owner's explicit instruction not to inherit the claim: the prior
+  `enumerate_root` doc comment's justification for not flagging a symlinked
+  root itself as `saw_symlink` (every candidate in that root's walk shares
+  the one hop) still holds under the cross-root widening, because
+  `dedupe_roots` already guarantees any two deliberately-kept roots have
+  non-overlapping walks. New PRD-0001 AC-14b; new ADR-0008 amendment closing
+  TASK-0320's residual (1); `docs/guide/scanning-and-scope.md`'s cross-root
+  caveat and "scan separately" workaround removed — the alias-collapse
+  behavior now holds regardless of how many paths are passed. Classified
+  `fix:` (defect), not a feature. This PR._
 
 - _Session 17 (TASK-0330, CI-minutes optimization, Kaizen chore) — spare-cycle
   tooling maintenance flagged by the owner: GitHub Actions usage was tracking

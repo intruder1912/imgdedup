@@ -70,6 +70,28 @@ fn relativize(value: &mut Value, prefix: &str) {
     }
 }
 
+/// Like [`run_json_raw`], but for more than one scan root: runs
+/// `imgdedup <roots...> <extra_args> --json` and returns the parsed document
+/// with paths left absolute. Multiple roots need not share one common
+/// prefix, so there is no single string [`run_json`]'s relativization could
+/// strip; callers compare against roots' own joined paths instead.
+pub fn run_multi_root_json(roots: &[&Path], extra_args: &[&str]) -> Value {
+    let output = Command::cargo_bin("imgdedup")
+        .expect("imgdedup binary must build")
+        .args(roots)
+        .args(extra_args)
+        .arg("--json")
+        .output()
+        .expect("imgdedup must spawn");
+    assert!(
+        output.status.success(),
+        "imgdedup exited {:?}; stderr:\n{}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).expect("--json stdout must be valid JSON")
+}
+
 /// Assert the actual (relativized) document equals the expected manifest,
 /// failing with both documents pretty-printed for a readable diff.
 pub fn assert_json_eq(actual: &Value, expected: &Value) {

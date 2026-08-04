@@ -617,6 +617,97 @@ the pre-existing dry-run/apply parity exception still applies; it is safe
 reachable only via an opt-in flag — accepted rather than fixed here, per the
 product-owner ruling. New acceptance criterion: **AC-14a** (PRD-0001).
 
+## Amendment 2026-08-04 — `--follow-symlinks` alias collisions are no longer misreported as hard links across scan roots either (TASK-0329)
+
+**This closes residual gap (1) of the amendment immediately above** (TASK-0320,
+2026-08-04): the same defect, reproduced there during architect review —
+`imgdedup --follow-symlinks A B` with `A/l -> B/deep` reporting
+`hard_link_sets: [B/deep/photo.png, A/l/deep/photo.png]` and
+`reclaimable_bytes: 0` while 498 bytes were genuinely reclaimable — is fixed
+here for aliasing that crosses a scan-root boundary, not just aliasing within
+one root's own walk.
+
+**Product-owner ruling (2026-08-04):** fix now, not leave as a documented
+residual. The deciding factor: the prior root-scoped boundary is not
+explainable in the user's model. Users think in terms of *a scan*, not
+per-root walks — "the alias is counted once if the symlink stays inside one
+path you passed, but is misreported as a hard-link set if it crosses between
+two paths you passed" is an implementation-shaped rule, not a product-shaped
+one. The guide's own workaround for the residual ("scan the paths separately")
+was self-defeating — it destroys the cross-root duplicate detection that is
+the entire reason a user passes two roots. Multi-root invocation is a
+first-class documented use case, and a symlink from a working directory into
+an archive directory is an ordinary layout, not an exotic one.
+
+**Fix: widen the pass from one root's own candidates to every deduped root's
+candidates in one pass, grouped by canonical path; "direct" (no symlink hop)
+is still evaluated per candidate against *its own* root, not a single global
+root.** `enumerate::dedupe_symlink_aliases_across_roots` replaces the
+root-scoped `dedupe_symlink_aliases` as the pass `enumerate_with_progress`
+calls (the single-root function survives only as a thin test-only wrapper,
+regression-pinning TASK-0320's original unit tests unchanged). Every prior
+invariant holds: true hard links (two independent directory entries, each
+canonicalizing to itself) are never grouped and continue through the
+unmodified anchor-protection path; a candidate whose canonical form cannot be
+determined is kept unchanged (fail-open, mirroring `dedupe_roots`); the pass
+runs at all only when at least one deduped root's walk actually saw a symlink,
+so the default path and an all-symlink-free multi-root run both pay nothing,
+unchanged from before this widening.
+
+**Performance was the product ruling's explicit constraint on this widening,
+not an afterthought: a root whose own walk saw no symlink must not pay
+materially more than it did when the pass was still root-scoped**, since
+otherwise a 10-file root containing one symlink would force a full
+per-candidate canonicalize sweep of an unrelated, much larger sibling root
+that has none — a user-visible regression on exactly the setup this fix
+targets. The fix meets this without a special case: a symlink-free root's
+candidate canonical path is *derivable arithmetically* —
+`root_canonical.join(suffix)`, no syscall — because no component below that
+root was ever a symlink; only a root that itself saw a symlink still pays the
+real per-candidate `Path::canonicalize` syscall, exactly as before. Measured
+directly (release binary, warm cache, this task): a 30,000-file symlink-free
+root sharing a run with a one-file symlink-containing sibling root completed
+in ~5.7 s, against a `main`-baseline (pre-widening) run over the same fixture
+at ~5.6 s and a symlink-free-root-only run (no sibling at all) at ~5.63 s —
+the three are within measurement noise of each other, confirming the
+constraint holds rather than merely arguing it should.
+
+**Root-argument order was made a hard requirement, not assumed.** The
+existing survivor rule (direct-route preference per candidate's own root,
+then `keeper::cmp_shortest_by`) is already a pure function of a group's
+members, independent of which root supplied them or in what order roots were
+walked — but this is now asserted directly: `imgdedup --follow-symlinks A B`
+and `... B A` are verified to produce identical `--json` output, down to
+which physical path survives.
+
+**Verified before widening, not inherited:** the claim in the previous
+amendment's `enumerate_root` doc comment — a symlinked root itself need not
+set `saw_symlink`, because every candidate in that root's own walk shares the
+one hop — was re-checked against the cross-root case rather than assumed to
+still hold. It does: `dedupe_roots` (the amendment above TASK-0320's) already
+collapses any root that canonically coincides with or nests inside another
+before this pass ever runs, and the two cases where it deliberately keeps
+roots separate (`--no-recurse` coverage, an explicit hidden root) both produce
+provably non-overlapping walks by construction — so a symlinked root's own
+indirection, resolved once via its single `root.canonicalize()` call, can
+never coincide with a *different* kept root's contents by virtue of the root
+relationship alone. The only source of cross-root aliasing is an explicit
+symlink placed within one root's tree pointing into another's, which is
+exactly what this amendment fixes.
+
+Widened to **N roots, not 2**: three roots where two separately symlink into
+a third are collapsed to the one real file, pinned by a dedicated unit test —
+a rule that worked for two roots but not three would not have been
+defensible.
+
+New PRD-0001 **AC-14b**, closing AC-14a's residual (a). Guide
+(`docs/guide/scanning-and-scope.md`) updated: the cross-root caveat and its
+"scan separately" workaround are removed; the alias-collapse behavior is now
+described as holding regardless of how many paths are passed.
+
+**Unit classification: `fix:`** (defect, not a feature) — one function's
+scope, its tests, and the doc reconciliation, in one PR.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)
