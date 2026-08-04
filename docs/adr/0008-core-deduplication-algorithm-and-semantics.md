@@ -664,13 +664,29 @@ targets. The fix meets this without a special case: a symlink-free root's
 candidate canonical path is *derivable arithmetically* —
 `root_canonical.join(suffix)`, no syscall — because no component below that
 root was ever a symlink; only a root that itself saw a symlink still pays the
-real per-candidate `Path::canonicalize` syscall, exactly as before. Measured
-directly (release binary, warm cache, this task): a 30,000-file symlink-free
-root sharing a run with a one-file symlink-containing sibling root completed
-in ~5.7 s, against a `main`-baseline (pre-widening) run over the same fixture
-at ~5.6 s and a symlink-free-root-only run (no sibling at all) at ~5.63 s —
-the three are within measurement noise of each other, confirming the
-constraint holds rather than merely arguing it should.
+real per-candidate `Path::canonicalize` syscall, exactly as before.
+
+Measured directly, isolating the constraint rather than burying it in an
+end-to-end run (release binary, warm cache, 7 runs each, 30,000-file
+symlink-free root, architect review): **pass runs (root shares a run with a
+one-file symlink-containing sibling, arithmetic path taken): median 1.697 s
+(min 1.681 s, max 1.727 s). Identical fixture, pass skipped entirely (no
+sibling has a symlink): median 1.699 s (min 1.667 s, max 1.729 s). Delta:
+−0.001 s (−0.1%), below the noise floor** — the constraint holds. For
+contrast, what the arithmetic split specifically avoids: routing that same
+30,000-file root through the expensive per-candidate `Path::canonicalize`
+sweep (by placing a symlink inside it instead of a sibling) costs **median
+1.908 s vs. 1.699 s — +0.21 s, +12%**, which is the number that justifies the
+`saw_symlink` split existing at all. Not yet measured: the pass's transient
+per-run memory (an `Option<PathBuf>` plus a small `HashMap`/`Vec` entry per
+candidate, now materialized for every candidate in the run rather than only a
+symlink-containing root's) — tens of MB at NFR-4's 100k-image scale, expected
+acceptable but outside what "must not pay materially more" was measured to
+cover. If it ever does bite, the pass can be restructured to build the group
+map from `saw_symlink` roots only and *probe* symlink-free candidates against
+it without storing their keys (arithmetic keys are injective within a root
+and across symlink-free roots, so nothing is lost) — not needed now, named
+here as the available lever.
 
 **Root-argument order was made a hard requirement, not assumed.** The
 existing survivor rule (direct-route preference per candidate's own root,
@@ -684,16 +700,28 @@ which physical path survives.
 amendment's `enumerate_root` doc comment — a symlinked root itself need not
 set `saw_symlink`, because every candidate in that root's own walk shares the
 one hop — was re-checked against the cross-root case rather than assumed to
-still hold. It does: `dedupe_roots` (the amendment above TASK-0320's) already
-collapses any root that canonically coincides with or nests inside another
-before this pass ever runs, and the two cases where it deliberately keeps
-roots separate (`--no-recurse` coverage, an explicit hidden root) both produce
-provably non-overlapping walks by construction — so a symlinked root's own
-indirection, resolved once via its single `root.canonicalize()` call, can
-never coincide with a *different* kept root's contents by virtue of the root
-relationship alone. The only source of cross-root aliasing is an explicit
-symlink placed within one root's tree pointing into another's, which is
-exactly what this amendment fixes.
+still hold. It does, for three distinct reasons covering every way
+`dedupe_roots` can leave two roots standing: (1) a root that canonically
+coincides with or nests inside another is already collapsed by `dedupe_roots`
+before this pass ever runs; (2) the two cases where it deliberately keeps
+roots separate anyway — `--no-recurse` coverage, an explicit hidden root —
+both produce provably non-overlapping walks by construction (a depth-1 walk
+never reaches a nested directory's contents; a hidden nested root's files all
+carry a hidden path component the ancestor's own walk excludes by default);
+and (3) a root whose canonical form cannot be determined is kept
+unconditionally and never compared against any other root — its candidates
+simply get `None` keys and pass through ungrouped, so this case holds
+fail-open rather than by any non-overlap argument. Together, a symlinked
+root's own indirection, resolved once via its single `root.canonicalize()`
+call, can never coincide with a *different* kept root's contents by virtue of
+the root relationship alone. The only source of cross-root aliasing is an
+explicit symlink placed within one root's tree pointing into another's, which
+is exactly what this amendment fixes — including the one configuration where
+two deliberately-kept roots' walks *can* still meet at one physical file: an
+explicit hidden root plus an ordinary (non-hidden) symlink in its ancestor
+pointing at it (`d` and `d/.h`, with `d/s -> d/.h`), pinned by a dedicated
+unit test since it is the case the non-overlap argument above does not cover
+by itself.
 
 Widened to **N roots, not 2**: three roots where two separately symlink into
 a third are collapsed to the one real file, pinned by a dedicated unit test —

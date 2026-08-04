@@ -22,7 +22,7 @@ docs pass → AI automation, batched within Claude usage limits.
   reclaimable. **Product-owner ruling (2026-08-04): fix now, not leave as a
   documented residual** — dispatched with the reproduction and the two
   backlog options. The deciding factor: the root-scoped boundary isn't
-  explainable in the user's model (a user thinks in terms of *a scan*, not
+  explainable in the user's model (a user thinks in terms of _a scan_, not
   per-root walks), and the guide's own workaround for the residual ("scan the
   paths separately") was self-defeating, since it destroys the very
   cross-root duplicate detection a user passes multiple roots to get. The
@@ -34,7 +34,7 @@ docs pass → AI automation, batched within Claude usage limits.
   **Fix:** `enumerate::dedupe_symlink_aliases` widened into
   `enumerate::dedupe_symlink_aliases_across_roots` — one pass over every
   deduped root's candidates, grouped by canonical path, "direct" (no symlink
-  hop) evaluated per candidate against *its own* root rather than a single
+  hop) evaluated per candidate against _its own_ root rather than a single
   global one. The performance constraint is met without a special case: a
   symlink-free root's candidate canonical path is derived arithmetically
   (`root_canonical.join(suffix)`, no syscall) since no component below such a
@@ -60,7 +60,30 @@ docs pass → AI automation, batched within Claude usage limits.
   TASK-0320's residual (1); `docs/guide/scanning-and-scope.md`'s cross-root
   caveat and "scan separately" workaround removed — the alias-collapse
   behavior now holds regardless of how many paths are passed. Classified
-  `fix:` (defect), not a feature. This PR._
+  `fix:` (defect), not a feature.
+  **Architect review (one dispatch, converged on the branch): no blockers,
+  two should-fixes, both resolved.** The correctness questions the review was
+  asked to independently verify all held up — including with fixture shapes
+  the orchestrator hadn't tried, notably a case-insensitive-filesystem root
+  name and the one configuration where two deliberately-kept sibling roots
+  (an explicit hidden root plus an ordinary symlink in its ancestor pointing
+  at it) can still meet at one physical file, which the review both confirmed
+  correct with the real binary and asked to be pinned by a test. **(1)** the
+  first cut's `root_of` lookup was an O(roots) linear scan per candidate,
+  reintroducing — one stage later — the exact quadratic `dedupe_roots` had
+  already been measured and fixed away from at 20,000 roots; replaced with an
+  O(n) precomputed index. **(2)** the claim that `dedupe_roots`'s
+  deliberately-kept sibling roots never overlap had no test pinning the one
+  configuration where their walks _can_ still meet (hidden root + ancestor
+  symlink into it) — added as a dedicated unit test. Also tightened: the
+  ADR's performance evidence, replaced with a pass-runs-vs-pass-skipped
+  measurement that isolates the constraint (delta −0.1%, within noise) rather
+  than an end-to-end comparison too coarse to resolve it, plus a named but
+  unmeasured memory caveat and the available mitigation lever; the
+  `enumerate_root` non-overlap justification, given the third case (a root
+  that fails to canonicalize) the first cut's argument didn't cover; and the
+  PRD's AC-14a wording, which had drifted to claim its own residual was
+  "unchanged" after this PR changed it. This PR._
 
 - _Session 17 (TASK-0330, CI-minutes optimization, Kaizen chore) — spare-cycle
   tooling maintenance flagged by the owner: GitHub Actions usage was tracking

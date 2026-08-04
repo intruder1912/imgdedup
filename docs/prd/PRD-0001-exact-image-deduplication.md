@@ -317,15 +317,14 @@ Behavior:
   genuine duplicate existed alongside it, the anchor rule protected it from
   removal — reporting `0` reclaimable bytes when real space was reclaimable. A
   true hard link (two independent directory entries) is unaffected and keeps
-  going through the existing anchor-protection path (AC-18/AC-18a). Two
-  residual cases are explicitly **out of** this criterion, unchanged from prior
-  behavior: (a) the same aliasing **between two different scan roots**, which
-  is now covered by AC-14b (product-owner ruling 2026-08-04, TASK-0329); and
-  (b) a leaf symlink whose target is **not** independently in scope (outside
-  every scan root, or filtered out by `--ext`/hidden rules) — still a
-  candidate at the link path, still declined at apply with the existing skip
-  reasons, safe (nothing is ever removed for it), and still accepted rather
-  than fixed.
+  going through the existing anchor-protection path (AC-18/AC-18a). Two cases
+  were explicitly **out of** this criterion's scope when it was written: (a)
+  the same aliasing **between two different scan roots**, now covered by
+  AC-14b (product-owner ruling 2026-08-04, TASK-0329); and (b) a leaf symlink
+  whose target is **not** independently in scope (outside every scan root, or
+  filtered out by `--ext`/hidden rules) — still a candidate at the link path,
+  still declined at apply with the existing skip reasons, safe (nothing is
+  ever removed for it), and still accepted rather than fixed.
 - **AC-14b (FR-6, FR-13, FR-17; added 2026-08-04, TASK-0329):** Given
   `--follow-symlinks` and **two or more scan roots**, where a symlink under one
   root (a symlinked ancestor directory or a leaf symlink) gives a physical file

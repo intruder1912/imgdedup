@@ -1163,6 +1163,13 @@ fn ac14b_cross_root_alias_result_is_independent_of_root_argument_order() {
     let forward = run_multi_root_json(&[&root_a, &root_b], &extra);
     let backward = run_multi_root_json(&[&root_b, &root_a], &extra);
 
+    // Self-standing, not just a diff against the other order: both orders
+    // must actually reach the correct result, not merely agree with each
+    // other on a wrong one.
+    assert_eq!(
+        forward["totals"]["reclaimable_bytes"], 498,
+        "got {forward:#}"
+    );
     assert_eq!(
         forward, backward,
         "root argument order must not change the result"

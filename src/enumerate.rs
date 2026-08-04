@@ -299,11 +299,18 @@ pub fn enumerate_with_progress(
     // Only pay anything at all when at least one root's walk actually
     // visited a symbolic link: with no symlink below any root, no two
     // traversal paths across the whole run can resolve to the same real
-    // path, so the pass provably has nothing to collapse. Measured (release,
-    // 30k files, depth 4, warm cache, architect review): the pass costs
-    // ~0.7 s — ~10% of total wall time and 100% of the `--follow-symlinks`
-    // delta over `main` — so skipping it keeps the overwhelmingly common
-    // "flag set, no symlinks present" case free.
+    // path, so the pass provably has nothing to collapse. This guard's
+    // original ~0.7 s / ~10% figure (release, 30k files, depth 4, warm
+    // cache, TASK-0320 architect review) measured the single-root pass, i.e.
+    // 100% real per-candidate `Path::canonicalize` calls; post-widening
+    // (TASK-0329) a run that trips this guard mixes that expensive sweep
+    // (only for roots that themselves saw a symlink) with free arithmetic
+    // derivation for every symlink-free root sharing the run — measured
+    // (TASK-0329 architect review) at effectively zero added cost for such a
+    // root (median delta −0.1%, within noise) versus +12% had it instead
+    // been routed through the expensive path. Skipping the pass entirely
+    // still keeps the overwhelmingly common "flag set, no symlinks present"
+    // case free.
     if opts.follow_symlinks && root_scopes.iter().any(|r| r.saw_symlink) {
         result.candidates = dedupe_symlink_aliases_across_roots(&root_scopes, result.candidates);
     }
@@ -383,15 +390,22 @@ fn dedupe_symlink_aliases_across_roots(
         .map(|r| r.root.canonicalize().ok())
         .collect();
 
-    // Which root (index into `root_scopes`) candidate `i` was enumerated
-    // from. Root counts are normally a handful, so a linear scan per lookup
-    // costs nothing measurable next to the syscalls elsewhere in this pass.
-    let root_of = |i: usize| -> usize {
-        root_scopes
-            .iter()
-            .position(|r| i >= r.start && i < r.end)
-            .expect("every candidate index falls within exactly one root's span")
-    };
+    // Candidate index → its root's index in `root_scopes`, materialized once
+    // in O(n) rather than looked up per candidate: root counts are usually a
+    // handful, but `dedupe_roots` is explicitly built for tens of thousands
+    // of roots (its own O(n²) → O(n log n) note), and a per-candidate linear
+    // scan here would put that same quadratic straight back one stage later.
+    // `usize::MAX` marks "no root" — unreachable by construction (every
+    // candidate index falls within exactly one root's `[start, end)` span),
+    // and if it ever were reached the candidate passes through ungrouped
+    // (fail-open, like every other unknown in this pass) rather than
+    // panicking.
+    let mut root_of = vec![usize::MAX; candidates.len()];
+    for (r, scope) in root_scopes.iter().enumerate() {
+        for slot in root_of.iter_mut().take(scope.end).skip(scope.start) {
+            *slot = r;
+        }
+    }
 
     // Each candidate's fully-resolved canonical path, or `None` if it could
     // not be determined (kept as-is, never grouped). Computed once up front
@@ -402,12 +416,13 @@ fn dedupe_symlink_aliases_across_roots(
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            let r = root_of(i);
-            let root_canon = root_canonical[r].as_ref()?;
-            if root_scopes[r].saw_symlink {
+            let r = root_of[i];
+            let root_canon = root_canonical.get(r).and_then(Option::as_ref)?;
+            let scope = &root_scopes[r];
+            if scope.saw_symlink {
                 c.path.canonicalize().ok()
             } else {
-                let suffix = c.path.strip_prefix(&root_scopes[r].root).ok()?;
+                let suffix = c.path.strip_prefix(&scope.root).ok()?;
                 Some(root_canon.join(suffix))
             }
         })
@@ -432,8 +447,8 @@ fn dedupe_symlink_aliases_across_roots(
         let direct: Vec<&Candidate> = idxs
             .iter()
             .filter_map(|&i| {
-                let r = root_of(i);
-                let root_canon = root_canonical[r].as_ref()?;
+                let r = root_of[i];
+                let root_canon = root_canonical.get(r).and_then(Option::as_ref)?;
                 let suffix = candidates[i].path.strip_prefix(&root_scopes[r].root).ok()?;
                 (root_canon.join(suffix) == *key).then_some(&candidates[i])
             })
@@ -1499,6 +1514,48 @@ mod tests {
         assert_eq!(
             forward.candidates[0].path, backward.candidates[0].path,
             "the survivor must not depend on root argument order"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_dedupes_alias_between_ancestor_and_its_own_explicit_hidden_root() {
+        // The one configuration where two roots dedupe_roots deliberately
+        // keeps separate (an explicit hidden nested root,
+        // opt-in-by-explicit-root) can still have overlapping *content* via
+        // an ordinary symlink: `d/s -> d/.h`, with `d/.h` also passed as its
+        // own scan root. Pins the cross-root-widening amendment's claim that
+        // dedupe_roots' kept siblings never overlap *by the root
+        // relationship itself* — an actual alias here can only come from an
+        // explicit symlink, as here, not from redundant root coverage
+        // (TASK-0329 architect review).
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "d/.h/photo.jpg");
+        symlink(dir.path().join("d/.h"), dir.path().join("d/s")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().join("d"), dir.path().join("d/.h")], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "the alias between an ancestor's symlink and its own explicit \
+             hidden root must be counted once; got: {:?}",
+            result
+                .candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            result.candidates[0].path,
+            dir.path().join("d/.h/photo.jpg"),
+            "the hidden root's own direct route must win over the symlink route"
         );
     }
 

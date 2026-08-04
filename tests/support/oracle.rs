@@ -12,12 +12,12 @@ use std::process::Output;
 use assert_cmd::Command;
 use serde_json::Value;
 
-/// Run `imgdedup <root> <extra_args> --json`, assert exit success, and return
-/// the raw process output (for byte-level determinism assertions).
-pub fn run_json_raw(root: &Path, extra_args: &[&str]) -> Output {
+/// Run `imgdedup <roots...> <extra_args> --json` and assert exit success.
+/// Shared by every helper below that shells out to the real binary.
+fn run_raw(roots: &[&Path], extra_args: &[&str]) -> Output {
     let output = Command::cargo_bin("imgdedup")
         .expect("imgdedup binary must build")
-        .arg(root)
+        .args(roots)
         .args(extra_args)
         .arg("--json")
         .output()
@@ -29,6 +29,12 @@ pub fn run_json_raw(root: &Path, extra_args: &[&str]) -> Output {
         String::from_utf8_lossy(&output.stderr)
     );
     output
+}
+
+/// Run `imgdedup <root> <extra_args> --json`, assert exit success, and return
+/// the raw process output (for byte-level determinism assertions).
+pub fn run_json_raw(root: &Path, extra_args: &[&str]) -> Output {
+    run_raw(&[root], extra_args)
 }
 
 /// Run `imgdedup <root> <extra_args> --json` and return the parsed document
@@ -76,19 +82,7 @@ fn relativize(value: &mut Value, prefix: &str) {
 /// prefix, so there is no single string [`run_json`]'s relativization could
 /// strip; callers compare against roots' own joined paths instead.
 pub fn run_multi_root_json(roots: &[&Path], extra_args: &[&str]) -> Value {
-    let output = Command::cargo_bin("imgdedup")
-        .expect("imgdedup binary must build")
-        .args(roots)
-        .args(extra_args)
-        .arg("--json")
-        .output()
-        .expect("imgdedup must spawn");
-    assert!(
-        output.status.success(),
-        "imgdedup exited {:?}; stderr:\n{}",
-        output.status.code(),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let output = run_raw(roots, extra_args);
     serde_json::from_slice(&output.stdout).expect("--json stdout must be valid JSON")
 }
 
