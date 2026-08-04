@@ -217,18 +217,29 @@ list and what `--apply` (or `--apply --delete`) actually removes are exactly the
 same set of files, in the same order. This is why "dry-run first" is a genuinely
 reliable way to preview an apply — not an approximation of it.
 
-**One exception, with `--follow-symlinks`.** That flag makes the scan follow
-links, so a symlink can appear in a group as though it were a duplicate. Nothing
-will be removed for it: `imgdedup` never unlinks a symlink standing in for a
-scanned file, because you asked about the file it points at, not the link. Such
+**One exception, with `--follow-symlinks` — and only when the symlink's
+target is *not* reachable directly under the same scanned path.** If a symlink
+points at a file
+outside that path (or one excluded by `--ext`/hidden rules), that
+symlink can appear in a group as though it were a duplicate. Nothing will be
+removed for it: `imgdedup` never unlinks a symlink standing in for a scanned
+file, because you asked about the file it points at, not the link. Such
 entries are reported as skips —
 
 ```text
 warning: /photos/a.png: the file being kept is a symbolic link; symlinks are never removed
 ```
 
-— so under `--follow-symlinks` a dry run may list removals that the apply then
-declines. Everything it does remove is still exactly what the dry run showed.
+— so in that one case a dry run may list a removal the apply then declines.
+Everything it does remove is still exactly what the dry run showed.
+
+If the symlink's target **is** also reachable directly under the same scanned
+path (for example, a symlinked directory pointing at content also present
+under its real path), this exception does not apply: the file is counted
+once, at its real location, and never appears in a group as a symlink at all.
+When the link crosses from one scanned path into *another* one you also passed,
+it can still be listed twice — see
+[Symbolic links](scanning-and-scope.md#symbolic-links---follow-symlinks).
 
 ## Next
 

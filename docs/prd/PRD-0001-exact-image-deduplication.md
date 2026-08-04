@@ -303,6 +303,30 @@ Behavior:
 - **AC-14 (FR-6, NFR-2):** Given a directory containing a symlink and a hidden
   file, when run with defaults, then neither is followed/included; when run with
   `--follow-symlinks` / `--hidden`, then each is included accordingly.
+- **AC-14a (FR-6, FR-13, FR-17; added 2026-08-04, TASK-0320):** Given
+  `--follow-symlinks` and **a single scan root** under which one physical file
+  is reachable by two paths (one through a symlinked ancestor directory or a
+  leaf symlink, one direct), when scanned, then the file appears exactly once,
+  at its
+  non-symlink-routed path — it is not reported as a hard-link set, and a
+  genuine byte-identical copy elsewhere in the tree is still reported as
+  removable with its true reclaimable size. This closes a defect, not just a
+  labeling nit: before this fix, the alias was mislabeled `hard-linked`
+  (ADR-0008 FR-17's label is reserved for two independent directory entries
+  naming one inode, not one entry revisited via a symlinked route) and, when a
+  genuine duplicate existed alongside it, the anchor rule protected it from
+  removal — reporting `0` reclaimable bytes when real space was reclaimable. A
+  true hard link (two independent directory entries) is unaffected and keeps
+  going through the existing anchor-protection path (AC-18/AC-18a). Two
+  residual cases are explicitly **out of** this criterion, unchanged from prior
+  behavior and both accepted rather than fixed here: (a) the same aliasing
+  **between two different scan roots** (e.g. `imgdedup --follow-symlinks A B`
+  with a symlink in `A` pointing into `B`), which the product ruling scoped out
+  and which TASK-0329 tracks for a follow-up call; and (b) a leaf
+  symlink whose target is **not** independently in scope (outside every scan
+  root, or filtered out by `--ext`/hidden rules) — still a candidate at the
+  link path, still declined at apply with
+  the existing skip reasons, safe (nothing is ever removed for it).
 - **AC-15 (FR-1):** Given duplicates nested in subdirectories, when run with
   defaults they are found; when run with `--no-recurse` only top-level files of
   each path are considered.

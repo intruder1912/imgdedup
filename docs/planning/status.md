@@ -11,6 +11,111 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 16 (TASK-0320, `--follow-symlinks` candidacy ruling) closes a
+  residual gap TASK-0319 explicitly named as out of its own scope:
+  overlapping/repeated scan roots were fixed at the root-list level, but
+  `--follow-symlinks` can create the same misleading-report symptom via
+  filesystem aliasing **within** a single root's own walk — e.g. a symlinked
+  directory pointing at content also reachable directly — which no change to
+  `dedupe_roots` could fix. Reproduced with the real binary first, matching
+  TASK-0319's own practice: `A/real_dir/photo.png` plus `A/link_dir ->
+  real_dir` made `imgdedup --follow-symlinks` report the single real file as
+  an `already_deduplicated` hard-link set (mislabeled — a true hard link is
+  two independent directory entries naming one inode; this is one entry,
+  reached twice). **Adding a genuine second copy alongside it surfaced a
+  worse defect, found before any product ruling was sought:** the anchor
+  rule (correct for true hard links — removing one name reclaims zero bytes)
+  then protected both aliased representatives from removal, reporting `0`
+  reclaimable bytes when 486 real bytes were genuinely reclaimable. This,
+  not just the labeling, is why the fix could not be scoped as a docs-only
+  clarification of the existing dry-run/apply parity exception.
+  **Product-owner ruling (dispatched with the reproduction findings and the
+  architect's on-record preference from TASK-0319's review):** rejected the
+  "drop symlink-derived candidates from candidacy entirely" reading of that
+  preference — it would contradict AC-14's own existing test
+  (`follow_symlinks_flag_includes_symlink_targets`, where the target lives
+  outside every scan root and must still be included) and would make
+  `--follow-symlinks ./library` report nothing at all for an ordinary link
+  farm. Ruled instead: canonicalize and collapse only proven alias
+  collisions — two candidates resolving to the same real path — never a
+  lone symlink whose target isn't independently in scope. New
+  `enumerate::dedupe_symlink_aliases`, run once per deduped root (never
+  across roots — the backlog's own framing scoped this to one root's walk),
+  only under `--follow-symlinks` (structurally impossible otherwise, so the
+  default path pays nothing): candidates canonicalizing to the same real path
+  collapse to one survivor, preferring the non-symlink-routed path when
+  exactly one exists, else falling back to the existing FR-7 `shortest` order
+  — reused via a newly-extracted `keeper::cmp_shortest_by` rather than
+  inventing a second ordering (the ruling's explicit instruction). A
+  candidate that cannot be canonicalized (broken link, unreadable ancestor)
+  is kept unchanged — fail-open, mirroring `dedupe_roots`. True hard links
+  are untouched (two independent directory entries each canonicalize to
+  themselves, so they're never grouped here), continuing through the
+  existing, unmodified anchor-protection path.
+  **A subtlety the tie-break logic had to get right, caught while writing
+  its own test on this development machine:** "was this candidate reached
+  through a symlink" is tested **relative to each root's own canonical
+  form**, not the process's absolute view of the filesystem — because macOS's
+  `/tmp` is itself a symlink to `/private/tmp`, comparing against a global
+  canonical form would make every candidate under a `/tmp`-based tempdir
+  look "routed through a symlink" regardless of whether the scan-relevant
+  part of its path involved one at all, silently degrading the "prefer the
+  real path" preference to the shortest-order tie-break everywhere on such
+  systems. Scoping the comparison to each root's own canonicalized form
+  neutralizes that irrelevant ancestor symlink entirely — verified directly:
+  a test asserting the shorter of two equally-indirect routes wins the
+  tie-break passed cleanly on this (symlinked-tmp) machine.
+  New PRD-0001 **AC-14a** and a matching acceptance test
+  (`ac14a_follow_symlinks_alias_is_counted_once_and_never_masks_a_real_duplicate`)
+  reproducing the exact defect end-to-end through the real binary. New
+  ADR-0008 amendment, a direct companion to TASK-0319's. Both guide pages
+  updated: `removing-duplicates-safely.md`'s parity exception is narrowed to
+  the one case it still applies to (symlink target not independently in
+  scope), and `scanning-and-scope.md`'s symlink section now documents the
+  aliasing behavior. **Accepted residual, unchanged from before and named
+  explicitly rather than silently narrowed:** a leaf symlink whose target is
+  not independently enumerated in this run (outside every scan root, or
+  filtered by `--ext`/hidden rules) is still a candidate at the link path,
+  still declined at apply time with the existing skip reasons — safe,
+  truthfully reported, reachable only via an opt-in flag.
+  **Architect review (one dispatch, converged on the branch before the PR).**
+  The collapse logic itself held up under adversarial probing with the real
+  binary — relative roots (`.`, `A`), a root containing `..`, a root that is
+  itself a symlinked directory, a symlink loop, a direct route _deeper_ than
+  its alias, and 3-route groups all behave correctly, and the root-relative
+  "direct" test generalizes as designed. Three findings, all resolved here:
+  **(1)** the _same_ defect — the anchor rule masking 498 genuinely
+  reclaimable bytes — was reproduced **across two scan roots**
+  (`--follow-symlinks A B` with `A/l -> B`), which the root-scoped ruling
+  leaves open. Not a regression and not made worse, but it was closed _by
+  omission_: the amendment named only the leaf-symlink residual, and AC-14a as
+  first written ("one physical file reachable by two paths") would not have
+  held. AC-14a is now scoped to a single scan root, ADR-0008 and
+  `scanning-and-scope.md` name the cross-root case explicitly, and
+  **TASK-0329** tracks the product-owner call on whether to widen the pass
+  (option (a) there is mechanically small — one pass over all candidates with
+  "direct" evaluated per candidate against its own root).
+  **(2)** Performance: the pass canonicalizes every candidate and was measured
+  at ~0.7 s on 30k files at depth 4 (release, warm cache) — **100%** of the
+  `--follow-symlinks` wall-clock delta over `main` (6.59 s → 7.28 s), and paid
+  even on trees containing no symlinks at all, which is the common case for a
+  user who passes the flag defensively. `enumerate_root` now returns whether
+  its walk saw a symlink and the pass is skipped when it did not: 6.57 s,
+  exactly `main`'s cost and the no-flag cost, with the four alias tests still
+  green (they would fail if the guard failed to detect either symlink shape).
+  **(3)** Test/doc gaps: added a >2-route alias-group test and an explicit
+  input-order-independence test for the survivor (NFR-3/AC-16 — the previous
+  tests all ran in natural walk order); corrected the `enumerate_with_progress`
+  docstring, whose "the count only ever grows by files that will actually reach
+  the next pipeline stage" claim an alias collapse falsifies (cosmetic — the
+  Scanning phase is indeterminate and the engine sets its own total), the
+  module header's scope-rule and "no canonicalization here" notes, and the
+  "same directory entry" phrasing that was accurate for a symlinked ancestor
+  but not for a leaf symlink. `keeper::cmp_shortest_by`'s extraction was
+  verified expression-identical to the previous `cmp_shortest` and is already
+  pinned by keeper's four existing per-tier `shortest` tests, so no new test
+  was warranted there. This PR._
+
 - _Session 15 (TASK-0322, intra-file parallel hashing) closes the second
   unexploited throughput lever the TASK-0312 NFR-4 measurement surfaced (the
   first, the scan stage, was TASK-0321): `blake3` was compiled without its
