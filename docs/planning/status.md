@@ -77,7 +77,44 @@ docs pass → AI automation, batched within Claude usage limits.
   not independently enumerated in this run (outside every scan root, or
   filtered by `--ext`/hidden rules) is still a candidate at the link path,
   still declined at apply time with the existing skip reasons — safe,
-  truthfully reported, reachable only via an opt-in flag. This PR._
+  truthfully reported, reachable only via an opt-in flag.
+  **Architect review (one dispatch, converged on the branch before the PR).**
+  The collapse logic itself held up under adversarial probing with the real
+  binary — relative roots (`.`, `A`), a root containing `..`, a root that is
+  itself a symlinked directory, a symlink loop, a direct route _deeper_ than
+  its alias, and 3-route groups all behave correctly, and the root-relative
+  "direct" test generalizes as designed. Three findings, all resolved here:
+  **(1)** the _same_ defect — the anchor rule masking 498 genuinely
+  reclaimable bytes — was reproduced **across two scan roots**
+  (`--follow-symlinks A B` with `A/l -> B`), which the root-scoped ruling
+  leaves open. Not a regression and not made worse, but it was closed _by
+  omission_: the amendment named only the leaf-symlink residual, and AC-14a as
+  first written ("one physical file reachable by two paths") would not have
+  held. AC-14a is now scoped to a single scan root, ADR-0008 and
+  `scanning-and-scope.md` name the cross-root case explicitly, and
+  **TASK-0329** tracks the product-owner call on whether to widen the pass
+  (option (a) there is mechanically small — one pass over all candidates with
+  "direct" evaluated per candidate against its own root).
+  **(2)** Performance: the pass canonicalizes every candidate and was measured
+  at ~0.7 s on 30k files at depth 4 (release, warm cache) — **100%** of the
+  `--follow-symlinks` wall-clock delta over `main` (6.59 s → 7.28 s), and paid
+  even on trees containing no symlinks at all, which is the common case for a
+  user who passes the flag defensively. `enumerate_root` now returns whether
+  its walk saw a symlink and the pass is skipped when it did not: 6.57 s,
+  exactly `main`'s cost and the no-flag cost, with the four alias tests still
+  green (they would fail if the guard failed to detect either symlink shape).
+  **(3)** Test/doc gaps: added a >2-route alias-group test and an explicit
+  input-order-independence test for the survivor (NFR-3/AC-16 — the previous
+  tests all ran in natural walk order); corrected the `enumerate_with_progress`
+  docstring, whose "the count only ever grows by files that will actually reach
+  the next pipeline stage" claim an alias collapse falsifies (cosmetic — the
+  Scanning phase is indeterminate and the engine sets its own total), the
+  module header's scope-rule and "no canonicalization here" notes, and the
+  "same directory entry" phrasing that was accurate for a symlinked ancestor
+  but not for a leaf symlink. `keeper::cmp_shortest_by`'s extraction was
+  verified expression-identical to the previous `cmp_shortest` and is already
+  pinned by keeper's four existing per-tier `shortest` tests, so no new test
+  was warranted there. This PR._
 
 - _Session 15 (TASK-0322, intra-file parallel hashing) closes the second
   unexploited throughput lever the TASK-0312 NFR-4 measurement surfaced (the

@@ -64,14 +64,21 @@ imgdedup --follow-symlinks ./library
 ```
 
 If a symlink (or a symlinked directory) gives a file a second route to
-somewhere already reachable directly in the same scan — for example, a
-symlinked directory pointing at content also present under its real path —
-that file is counted **once**, reported at its real, non-symlink location.
-It is never reported as a hard-linked set: a true hard link is two
-independent names for one file, while this is one name reached two ways, and
+somewhere already reachable directly **under the same scanned path** — for
+example, a symlinked directory pointing at content also present under its real
+path — that file is counted **once**, reported at its real, non-symlink
+location. It is never reported as a hard-linked set: a true hard link is two
+independent names for one file, while this is one file reached two ways, and
 the difference matters for what removing it would actually do. A genuine
 duplicate elsewhere in the tree is still found and still reported as
 reclaimable — the alias never hides it.
+
+This applies within each scanned path. If you pass **several** paths and a
+symlink under one of them points into another (`imgdedup --follow-symlinks A B`
+where something in `A` links into `B`), the file can still be listed twice and
+shown as a hard-linked set. Nothing is ever removed for the link route, so
+this is safe, but the report can under-state what is reclaimable — scan the
+paths separately, or scan their common parent, if that matters to you.
 
 ## Extension allow-list: `--ext`
 

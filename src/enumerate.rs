@@ -22,7 +22,11 @@
 //!    excluded by default; `--hidden` opts in.
 //! 3. **Symlinks** (FR-6): symbolic links are not followed by default;
 //!    `--follow-symlinks` opts in. Even with the flag, only the target content
-//!    is visited — we never follow a chain that loops back.
+//!    is visited — we never follow a chain that loops back. With the flag,
+//!    candidates within one root's walk that resolve to the *same real path*
+//!    (a symlinked ancestor directory or a leaf symlink giving one physical
+//!    file a second route) are collapsed to a single candidate by
+//!    [`dedupe_symlink_aliases`] (TASK-0320, AC-14a).
 //! 4. **Extension allow-list** (FR-2): only files whose extension matches the
 //!    allow-list are included. The default list is
 //!    `jpg`, `jpeg`, `png`, `gif`, `webp`, `bmp`, `tif`, `tiff`.
@@ -36,6 +40,9 @@
 //!
 //! - No file content reads (magic-byte sniffing is TASK-0303).
 //! - No path canonicalization for keeper tie-breaks (TASK-0305/TASK-0306).
+//!   (Canonicalization *is* used for scope identity — [`dedupe_roots`] and,
+//!   under `--follow-symlinks` only, [`dedupe_symlink_aliases`] — but the
+//!   paths reported downstream are always the as-walked ones.)
 //! - No deduplication or grouping logic.
 //!
 //! ## Progress (TASK-0317)
@@ -256,6 +263,14 @@ pub(crate) fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet 
 /// once per candidate that passes every scope rule — not once per directory
 /// entry walkdir visits — so the count only ever grows by files that will
 /// actually reach the next pipeline stage.
+///
+/// One exception, under `--follow-symlinks` only: a candidate that
+/// [`dedupe_symlink_aliases`] later collapses as a proven alias has already
+/// been counted, so the live count can momentarily exceed the returned
+/// candidate count by the number of aliases. This is cosmetic — the Scanning
+/// phase is *indeterminate* (no denominator, AC-21), and the engine derives
+/// its own progress total from the files it actually iterates (architect
+/// finding 11 on TASK-0317), so nothing downstream can desync from it.
 pub fn enumerate_with_progress(
     paths: &[PathBuf],
     opts: &ScopeOptions,
@@ -265,8 +280,16 @@ pub fn enumerate_with_progress(
 
     for root in &dedupe_roots(paths, opts) {
         let start = result.candidates.len();
-        enumerate_root(root, opts, &mut result, sink);
-        if opts.follow_symlinks {
+        let saw_symlink = enumerate_root(root, opts, &mut result, sink);
+        // Only pay the per-candidate canonicalization when this root's own
+        // walk actually visited a symbolic link: with no symlink below the
+        // root, no two traversal paths in that walk can resolve to the same
+        // real path, so the pass provably has nothing to collapse. Measured
+        // (release, 30k files, depth 4, warm cache, architect review): the
+        // pass costs ~0.7 s — ~10% of total wall time and 100% of the
+        // `--follow-symlinks` delta over `main` — so skipping it keeps the
+        // overwhelmingly common "flag set, no symlinks present" case free.
+        if opts.follow_symlinks && saw_symlink {
             let this_root = result.candidates.split_off(start);
             result
                 .candidates
@@ -280,24 +303,33 @@ pub fn enumerate_with_progress(
 /// Under `--follow-symlinks`, collapse candidates within `root`'s own walk
 /// that are the *same physical file* reached by more than one path — e.g. a
 /// symlinked ancestor directory providing a second route to a file also
-/// reachable directly (TASK-0320's product ruling). Unlike a true hard link
-/// (two independent directory entries naming one inode — left untouched
-/// here, and handled correctly downstream by the engine's existing identity
-/// collapse), this is the *same* directory entry, revisited via a different
-/// string path — ADR-0008 FR-17's "hard-linked" label is reserved for the
-/// former, so reporting the latter as a hard-link set is a category error,
-/// and — more importantly — it can silently protect a genuinely reclaimable
-/// duplicate as though it were an unremovable anchor (see the 2026-08
-/// amendment to ADR-0008 for the worked example this ruling is based on).
+/// reachable directly, or a leaf symlink whose target is itself in scope
+/// (TASK-0320's product ruling). Unlike a true hard link (two independent
+/// directory entries naming one inode — left untouched here, and handled
+/// correctly downstream by the engine's existing identity collapse), no
+/// second name for the data exists here: removing the "duplicate" would
+/// remove the one real file. ADR-0008 FR-17's "hard-linked" label is
+/// reserved for the former, so reporting the latter as a hard-link set is a
+/// category error, and — more importantly — it can silently protect a
+/// genuinely reclaimable duplicate as though it were an unremovable anchor
+/// (see the 2026-08-04 amendment to ADR-0008 for the worked example this
+/// ruling is based on).
 ///
 /// Scoped to `root` (called once per deduped root, never across roots) so a
 /// symlink several levels *above* `root` itself — e.g. a `/tmp` mount that is
 /// itself a symlink, as on macOS — never affects the "was this candidate
 /// reached through a symlink" test below: everything is compared relative to
 /// `root`'s own canonical form, not the process's absolute view of the
-/// filesystem. Only ever called when `opts.follow_symlinks` is set — the
-/// scenario is structurally impossible otherwise, so the default path pays
-/// nothing.
+/// filesystem. Only ever called when `opts.follow_symlinks` is set **and**
+/// that root's walk actually visited a symlink (see [`enumerate_root`]'s
+/// return value) — the scenario is structurally impossible otherwise, so
+/// neither the default path nor a symlink-free tree pays anything.
+///
+/// **Aliasing is only ever collapsed within one root's walk, never across
+/// roots** — the product ruling's explicit scope. Two *different* scan roots
+/// where one contains a symlink into the other therefore still produce two
+/// candidates for one physical file; see the "residual gap" note in the
+/// 2026-08-04 amendment to ADR-0008 and TASK-0329.
 ///
 /// A candidate that cannot be canonicalized (a broken link, an unreadable
 /// ancestor) is kept **unchanged** — collisions are only ever dropped when
@@ -519,12 +551,20 @@ fn covers(ancestor: &Path, descendant: &Path, opts: &ScopeOptions) -> bool {
 
 /// Walk a single root path and accumulate candidates/warnings into `out`,
 /// notifying `sink` once per accepted candidate (TASK-0317).
+///
+/// Returns `true` if the walk visited at least one symbolic link *below* the
+/// root — the precondition for [`dedupe_symlink_aliases`] having anything to
+/// do (TASK-0320). Deliberately an over-approximation: a symlink that was
+/// skipped by the hidden filter or the extension filter still sets it, which
+/// only ever costs a no-op pass, never a missed collapse. A symlinked *root*
+/// need not set it: every candidate in the walk then shares that one hop, so
+/// no two of them can resolve to the same real path because of it.
 fn enumerate_root(
     root: &Path,
     opts: &ScopeOptions,
     out: &mut CandidateSet,
     sink: &dyn ProgressSink,
-) {
+) -> bool {
     // Determine max depth: depth 1 = immediate children only (no-recurse).
     // walkdir depth 0 is the root itself; depth 1 includes direct children.
     let max_depth = if opts.no_recurse { 1usize } else { usize::MAX };
@@ -533,6 +573,8 @@ fn enumerate_root(
         .max_depth(max_depth)
         .follow_links(opts.follow_symlinks)
         .into_iter();
+
+    let mut saw_symlink = false;
 
     for entry_result in walker {
         match entry_result {
@@ -557,6 +599,14 @@ fn enumerate_root(
             }
             Ok(entry) => {
                 let path = entry.path().to_path_buf();
+
+                // Record symlink sightings before any filter can `continue`
+                // past them (TASK-0320): the alias-collapse pass is skipped
+                // entirely for a walk that saw none. `depth() > 0` excludes a
+                // symlinked root, which cannot by itself alias anything.
+                if entry.depth() > 0 && entry.path_is_symlink() {
+                    saw_symlink = true;
+                }
 
                 // Skip hidden entries unless opted in (FR-6).
                 // We check only path components *below* the scan root, so
@@ -611,6 +661,8 @@ fn enumerate_root(
             }
         }
     }
+
+    saw_symlink
 }
 
 /// Return `true` if any path component of `path` that is *below* `root`
@@ -1196,6 +1248,83 @@ mod tests {
             result.candidates[0].path,
             dir.path().join("short/real.jpg"),
             "the shorter route must win the tie-break, not whichever was walked first"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_dedupes_alias_group_of_more_than_two_routes() {
+        // Three routes to one physical file (two symlinked ancestors plus the
+        // real path): the collapse is not pairwise-only, and the single direct
+        // route still wins over *both* aliases.
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "real_dir/photo.jpg");
+        symlink(dir.path().join("real_dir"), dir.path().join("a_link")).unwrap();
+        symlink(dir.path().join("real_dir"), dir.path().join("b_link")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "all three routes name one physical file; got: {:?}",
+            result
+                .candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            result.candidates[0].path,
+            dir.path().join("real_dir/photo.jpg"),
+            "the one non-symlink-routed path must win against both aliases"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dedupe_symlink_aliases_survivor_does_not_depend_on_input_order() {
+        // NFR-3/AC-16: *which* candidate survives is a function of the group's
+        // members alone. Walk order varies by platform and filesystem, so the
+        // same group is fed in forward and reverse order and must yield the
+        // same survivor — including in the tie-break pool (no direct route),
+        // where `min_by`'s "first minimum wins" would otherwise leak input
+        // order in.
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        touch(&outside, "real.jpg");
+        symlink(outside.path(), dir.path().join("aaa")).unwrap();
+        symlink(outside.path(), dir.path().join("bbb")).unwrap();
+        symlink(outside.path(), dir.path().join("ccc")).unwrap();
+
+        let routes: Vec<Candidate> = ["aaa", "bbb", "ccc"]
+            .iter()
+            .map(|d| Candidate::new(dir.path().join(d).join("real.jpg"), 0, Some(7)))
+            .collect();
+        let mut reversed = routes.clone();
+        reversed.reverse();
+
+        let forward = dedupe_symlink_aliases(dir.path(), routes);
+        let backward = dedupe_symlink_aliases(dir.path(), reversed);
+
+        assert_eq!(forward.len(), 1, "got: {forward:?}");
+        assert_eq!(backward.len(), 1, "got: {backward:?}");
+        assert_eq!(
+            forward[0].path, backward[0].path,
+            "the survivor must not depend on the order candidates were walked in"
+        );
+        assert_eq!(
+            forward[0].path,
+            dir.path().join("aaa/real.jpg"),
+            "the FR-7 shortest order's lexicographic tie-break decides"
         );
     }
 

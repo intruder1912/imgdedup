@@ -510,14 +510,17 @@ this fix:**
 
 ## Amendment 2026-08-04 — `--follow-symlinks` alias collisions are no longer misreported as hard links (TASK-0320)
 
-The residual gap TASK-0319 left open (immediately above) is closed here, at
-the same enumeration stage and for the same reason: **one physical file, one
-candidate.** Under `--follow-symlinks`, a symlinked ancestor directory or a
+The residual gap TASK-0319 left open (immediately above) — aliasing **within
+a single scan root's own walk** — is closed here, at the same enumeration
+stage and for the same reason: **one physical file, one
+candidate.** (Aliasing *between* two different scan roots is a distinct case
+that remains open; see residual gap (1) at the end of this amendment.)
+Under `--follow-symlinks`, a symlinked ancestor directory or a
 leaf symlink can give a physical file a second route within a single scan
 root's own walk — reproduced with a real binary before any fix: `A/real_dir/
 photo.png` and `A/link_dir -> real_dir` made `A/link_dir/photo.png` and `A/
 real_dir/photo.png` two separate `Candidate`s for what is, on disk, **one**
-directory entry. This is categorically different from a true hard link (two
+file with a single directory entry. This is categorically different from a true hard link (two
 independent directory entries naming one inode) — the identity check this
 document's hard-link handling uses (`same-file::Handle`, which follows
 symlinks) cannot tell the two apart, so it labeled the alias a hard-link set
@@ -543,11 +546,16 @@ enumeration is the stage that owns this invariant.
 never across roots** (the backlog's own framing: this is filesystem-identity
 aliasing within a single root, not root-list redundancy, so it does not
 belong in `dedupe_roots`). `enumerate::dedupe_symlink_aliases` runs once per
-deduped root, only when `--follow-symlinks` is set (the scenario is
-structurally impossible otherwise, so the default path pays nothing): every
-candidate's canonical form is computed; candidates that canonicalize to the
-same real path are the same directory entry, revisited via a different
-string route, and are collapsed to one survivor. Candidates whose canonical
+deduped root, only when `--follow-symlinks` is set **and** that root's own
+walk actually visited a symbolic link (the scenario is structurally
+impossible otherwise, so neither the default path nor a symlink-free tree
+pays anything — architect review measured the pass at ~0.7 s on 30k files at
+depth 4, warm cache, i.e. 100% of the `--follow-symlinks` wall-clock delta,
+which the guard returns to zero when no symlink is present): every candidate's
+canonical form is computed; candidates that canonicalize to the same real path
+name **one** physical file reached by more than one route — there is no second
+name for the data, so removing the "duplicate" would remove the file itself —
+and are collapsed to one survivor. Candidates whose canonical
 form cannot be determined (a broken link, an unreadable ancestor) are kept
 **unchanged** — fail-open, mirroring `dedupe_roots`: only ever drop what is
 *proven* redundant. A true hard link's two paths each canonicalize to
@@ -578,8 +586,27 @@ itself a symlink, as on macOS) must never make an otherwise-ordinary file
 look "routed"; comparing everything against the root's own canonicalization
 neutralizes that irrelevant prefix.
 
-**Accepted residual gap, matching TASK-0319's own precedent of naming what
-is left open rather than silently narrowing scope:** a leaf symlink whose
+**Accepted residual gaps, matching TASK-0319's own precedent of naming what
+is left open rather than silently narrowing scope.**
+
+*(1) Aliasing across two different scan roots is unchanged* — the ruling
+scoped this fix to one root's own walk, and the same symptom is still
+reachable when one root contains a symlink into another root, e.g.
+`imgdedup --follow-symlinks A B` with `A/l -> B`. Reproduced with the real
+binary during architect review: `A/g.png` (a genuine copy) plus
+`B/deep/photo.png` reached again as `A/l/deep/photo.png` reports
+`hard_link_sets: [B/deep/photo.png, A/l/deep/photo.png]` and
+`reclaimable_bytes: 0` while 498 bytes are genuinely reclaimable — i.e. the
+*same severity* as the single-root defect fixed here, not merely the labeling
+half of it. It is not fixed here because widening the pass across roots is a
+scope change beyond the recorded product ruling, and because the survivor
+preference ("direct" = no symlink hop below the root) is defined relative to
+*a* root and would have to be evaluated per candidate against its own root.
+Tracked as **TASK-0329** for a product-owner call; the single-root fix does
+not make it worse, and the behavior is unchanged from before this amendment.
+
+*(2) A leaf symlink whose target is not independently in scope.* A leaf
+symlink whose
 target is **not** independently enumerated in this run (outside every scan
 root, or filtered out by `--ext`/hidden rules) is unchanged from prior
 behavior — still a candidate at the link path, still declined at apply time
