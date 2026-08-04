@@ -336,7 +336,7 @@ is treated as the absolute stop line, not the aim.
 | 13 | chore ×2 (carried from 12), plus one unplanned follow-up fix | TASK-0327 (fold `make links` onto lychee, wire into `validate`) — **done, PR #70** + TASK-0324/0325 (release.yml deprecation + trigger-condition nits, bundled) — **done, PR #71** + a TASK-0327 regression fix (`node_modules` polluting the local lychee glob) found while validating PR #71 — **done, PR #72** | TASK-0327 is docs/tooling-only, no write-permission CI — architect dispatch skipped per the ADR-0011 exception; TASK-0324/0325 touch `release.yml`'s write-permission job, so keep the second-dispatch precedent; the follow-up fix is the same low-risk shape as TASK-0327 itself | 10–20 (327 alone) + 15–25 (324/325) | 2–4 |
 | 14 | fix, core-engine-adjacent | TASK-0319 (dedupe overlapping/repeated scan roots — same-tree-twice bug) — **done, PR #74, actual 51%** | Solo: touches `enumerate.rs`, the first stage feeding the safety-critical dedup pipeline (ADR-0008); do not crowd it with unrelated perf work in the same session | 35–50 | 5 |
 | 15 | perf evaluation | TASK-0322 (evaluate `blake3` `update_rayon` for intra-file parallelism) — **done, PR #76, actual 29%** | Solo: "measure before adopting" — outcome-dependent (adopt vs. reject-with-rationale), same class of uncertainty as TASK-0316 | 35–50 | 5 |
-| 16 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
+| 16 | product-owner decision + fix | TASK-0320 (`--follow-symlinks` candidacy semantics) — **done, PR #78, actual ~39%** | Outcome-dependent sizing like TASK-0316: docs-only if the ruling keeps current behavior, an `enumerate.rs` change if it doesn't | 15–40 | 2–5 |
 
 **Not scheduled — blocked, not just ordered:**
 
@@ -565,6 +565,51 @@ four legs green). Three things worth carrying forward:
    concurrency-critical review dispatch finds real substance" —
    [[imgdedup-architect-review-value]] keeps holding, including on units the
    author (in this case, the same session) already measured carefully.
+
+**Session 16 (TASK-0320, PR #78), 2026-08-04 — fresh window (5h=0%, 7d=65% at
+start), closed at 5h=70%/7d=69%: ~39% of the window against a 15–40 estimate
+— landed at the top of the band (the outcome-dependent sizing correctly
+anticipated an `enumerate.rs` change, not a docs-only ruling); the week moved
+65% → 69% (~4 weekly points).** `fix:`-typed squash commit auto-published
+**v0.4.5**, `assets` job fully automatic (all four legs green). **Session
+closed at 70%, at the top of the 60–70% target band** — no further unit
+started this window; TASK-0329 (the cross-root residual the architect
+review surfaced) carries to a fresh window pending an owner/product-owner
+call on whether to widen scope now or leave it documented. Three things
+worth carrying forward:
+
+1. **Reproducing with the real binary before seeking a ruling, not after,
+   changed what the ruling actually covered.** The originally-scoped question
+   (backlog TASK-0320) was a labeling nit — should a symlink-routed alias be
+   called "hard-linked". Reproducing it first surfaced a materially worse
+   defect (the anchor rule masking a genuinely reclaimable duplicate, `0`
+   bytes reported when 486 were real) that the product-owner then ruled on
+   directly, alongside the design question. Bringing findings to a ruling
+   dispatch rather than just the open question meant the ruling addressed
+   the actual severity, not the originally-filed description of it.
+2. **The architect review found a real gap in scope, not just in code, and
+   handled it exactly right: name it, don't silently absorb it.** The same
+   defect is reproducible across two explicit scan roots, which the
+   product ruling's own "scoped to one root's own walk" boundary leaves
+   open — not a regression, but the branch's own docs had claimed closure by
+   omission before the review caught it. The review corrected the docs to
+   name the residual explicitly and opened TASK-0329 rather than either (a)
+   silently widening scope to fix it, which would have second-guessed a
+   ruling that had just been obtained, or (b) leaving the docs overclaiming.
+   This is the same discipline TASK-0319's review showed when it named the
+   `--follow-symlinks` gap that became this very task, rather than trying to
+   close every related case in one PR.
+3. **The review also caught a perf regression the author's own testing
+   never would have — because the author's tests all used symlinks.** Every
+   test fixture in this unit necessarily contains a symlink (that's what's
+   being tested), so nothing in the test suite could have shown that the new
+   alias-detection pass was being paid on **every** `--follow-symlinks`
+   invocation, including trees with zero symlinks in them — the common case
+   for a user who passes the flag defensively. Measured at +10.5% wall time
+   on a 30k-file fixture before the fix, back to baseline after. This is a
+   specific instance of a general lesson: a fix scoped to "handle case X"
+   needs its performance measured against "case X is absent," which the
+   fix's own tests will structurally never cover.
 
 ## Ordering constraints
 
