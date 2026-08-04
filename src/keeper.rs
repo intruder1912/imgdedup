@@ -53,6 +53,7 @@
 use crate::cli::KeepRule;
 use crate::engine::FileRec;
 use std::cmp::Ordering;
+use std::path::Path;
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -99,11 +100,36 @@ fn mtime_or_oldest(r: &FileRec) -> i64 {
 /// `--keep shortest` total order (ADR-0008):
 /// segments → chars → oldest mtime → lexicographic path.
 fn cmp_shortest(a: &FileRec, b: &FileRec) -> Ordering {
-    segment_count(a)
-        .cmp(&segment_count(b))
-        .then_with(|| path_char_count(a).cmp(&path_char_count(b)))
-        .then_with(|| mtime_or_oldest(a).cmp(&mtime_or_oldest(b)))
-        .then_with(|| a.path.cmp(&b.path))
+    cmp_shortest_by(&a.path, a.mtime, &b.path, b.mtime)
+}
+
+/// The `--keep shortest` order ([`cmp_shortest`]), applied directly to a
+/// path/mtime pair rather than a full [`FileRec`].
+///
+/// Shared with `enumerate.rs`'s TASK-0320 symlink-alias tie-break (product
+/// ruling: reuse the documented FR-7 `shortest` order rather than inventing a
+/// second one) — this is the single definition both call sites use.
+pub(crate) fn cmp_shortest_by(
+    a_path: &Path,
+    a_mtime: Option<i64>,
+    b_path: &Path,
+    b_mtime: Option<i64>,
+) -> Ordering {
+    fn segments(p: &Path) -> usize {
+        p.components().count()
+    }
+    fn char_count(p: &Path) -> usize {
+        p.as_os_str().len()
+    }
+    fn mtime_or_oldest(m: Option<i64>) -> i64 {
+        m.unwrap_or(i64::MIN)
+    }
+
+    segments(a_path)
+        .cmp(&segments(b_path))
+        .then_with(|| char_count(a_path).cmp(&char_count(b_path)))
+        .then_with(|| mtime_or_oldest(a_mtime).cmp(&mtime_or_oldest(b_mtime)))
+        .then_with(|| a_path.cmp(b_path))
 }
 
 /// `--keep oldest` total order (ADR-0008):

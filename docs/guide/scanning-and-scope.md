@@ -63,6 +63,16 @@ them:
 imgdedup --follow-symlinks ./library
 ```
 
+If a symlink (or a symlinked directory) gives a file a second route to
+somewhere already reachable directly in the same scan — for example, a
+symlinked directory pointing at content also present under its real path —
+that file is counted **once**, reported at its real, non-symlink location.
+It is never reported as a hard-linked set: a true hard link is two
+independent names for one file, while this is one name reached two ways, and
+the difference matters for what removing it would actually do. A genuine
+duplicate elsewhere in the tree is still found and still reported as
+reclaimable — the alias never hides it.
+
 ## Extension allow-list: `--ext`
 
 Only files whose extension is on the image allow-list are considered. The default

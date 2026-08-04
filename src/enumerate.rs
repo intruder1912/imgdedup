@@ -46,9 +46,11 @@
 //! instead of leaving it frozen for the whole traversal. This is the only
 //! dependency this module has outside `walkdir`/`std`.
 
+use crate::keeper;
 #[cfg(test)]
 use crate::progress::NoProgress;
 use crate::progress::ProgressSink;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -262,9 +264,120 @@ pub fn enumerate_with_progress(
     let mut result = CandidateSet::default();
 
     for root in &dedupe_roots(paths, opts) {
+        let start = result.candidates.len();
         enumerate_root(root, opts, &mut result, sink);
+        if opts.follow_symlinks {
+            let this_root = result.candidates.split_off(start);
+            result
+                .candidates
+                .extend(dedupe_symlink_aliases(root, this_root));
+        }
     }
 
+    result
+}
+
+/// Under `--follow-symlinks`, collapse candidates within `root`'s own walk
+/// that are the *same physical file* reached by more than one path — e.g. a
+/// symlinked ancestor directory providing a second route to a file also
+/// reachable directly (TASK-0320's product ruling). Unlike a true hard link
+/// (two independent directory entries naming one inode — left untouched
+/// here, and handled correctly downstream by the engine's existing identity
+/// collapse), this is the *same* directory entry, revisited via a different
+/// string path — ADR-0008 FR-17's "hard-linked" label is reserved for the
+/// former, so reporting the latter as a hard-link set is a category error,
+/// and — more importantly — it can silently protect a genuinely reclaimable
+/// duplicate as though it were an unremovable anchor (see the 2026-08
+/// amendment to ADR-0008 for the worked example this ruling is based on).
+///
+/// Scoped to `root` (called once per deduped root, never across roots) so a
+/// symlink several levels *above* `root` itself — e.g. a `/tmp` mount that is
+/// itself a symlink, as on macOS — never affects the "was this candidate
+/// reached through a symlink" test below: everything is compared relative to
+/// `root`'s own canonical form, not the process's absolute view of the
+/// filesystem. Only ever called when `opts.follow_symlinks` is set — the
+/// scenario is structurally impossible otherwise, so the default path pays
+/// nothing.
+///
+/// A candidate that cannot be canonicalized (a broken link, an unreadable
+/// ancestor) is kept **unchanged** — collisions are only ever dropped when
+/// *proven* redundant (fail-open, mirroring [`dedupe_roots`]). If `root`
+/// itself cannot be canonicalized, `candidates` is returned unchanged (the
+/// root-level error path already covers that case elsewhere).
+///
+/// Among colliding candidates, the survivor is chosen by, in order: (1) a
+/// candidate reached with no symlink hop anywhere below `root` (its real,
+/// non-aliased location) if exactly that kind exists; (2) failing that (every
+/// route passes through a symlink), the FR-7 `shortest` order — reused from
+/// [`keeper::cmp_shortest_by`] rather than inventing a second ordering. Walk
+/// order never decides the winner (NFR-3/AC-16).
+fn dedupe_symlink_aliases(root: &Path, candidates: Vec<Candidate>) -> Vec<Candidate> {
+    let root_canonical = match root.canonicalize() {
+        Ok(r) => r,
+        Err(_) => return candidates,
+    };
+
+    // Each candidate's fully-resolved canonical path, or `None` if it could
+    // not be determined (kept as-is, never grouped). Computed once up front
+    // so group membership below is complete before any winner is chosen.
+    let canon_of: Vec<Option<PathBuf>> = candidates
+        .iter()
+        .map(|c| c.path.canonicalize().ok())
+        .collect();
+
+    let mut groups: HashMap<PathBuf, Vec<usize>> = HashMap::new();
+    for (i, key) in canon_of.iter().enumerate() {
+        if let Some(k) = key {
+            groups.entry(k.clone()).or_default().push(i);
+        }
+    }
+
+    // Pre-compute the winner for every real collision (group size >= 2).
+    // Order-independent by construction — a function only of each member's
+    // own path/mtime, never of collection or iteration order.
+    let mut winner_of_group: HashMap<PathBuf, Candidate> = HashMap::new();
+    for (key, idxs) in &groups {
+        if idxs.len() < 2 {
+            continue;
+        }
+        let members: Vec<&Candidate> = idxs.iter().map(|&i| &candidates[i]).collect();
+        let direct: Vec<&Candidate> = members
+            .iter()
+            .copied()
+            .filter(|c| {
+                c.path
+                    .strip_prefix(root)
+                    .map(|suffix| root_canonical.join(suffix) == *key)
+                    .unwrap_or(false)
+            })
+            .collect();
+        let pool = if direct.is_empty() { members } else { direct };
+        let winner = pool
+            .into_iter()
+            .min_by(|a, b| keeper::cmp_shortest_by(&a.path, a.mtime, &b.path, b.mtime))
+            .expect("a group always has at least one member")
+            .clone();
+        winner_of_group.insert(key.clone(), winner);
+    }
+
+    // Rebuild in original order: a passthrough (non-canonicalizable) or
+    // non-colliding candidate keeps its place; a colliding group's winner is
+    // placed once, at its first occurrence, and every later occurrence of
+    // that same group is dropped as the redundant alias.
+    let mut placed: HashSet<PathBuf> = HashSet::new();
+    let mut result = Vec::with_capacity(candidates.len());
+    for (i, c) in candidates.into_iter().enumerate() {
+        match &canon_of[i] {
+            None => result.push(c),
+            Some(key) => {
+                if groups[key].len() == 1 {
+                    result.push(c);
+                } else if placed.insert(key.clone()) {
+                    result.push(winner_of_group.remove(key).expect("computed above"));
+                }
+            }
+        }
+    }
     result
 }
 
@@ -946,6 +1059,157 @@ mod tests {
             names.contains(&"real_in_dir.jpg".to_string()),
             "regular files should still be included; got: {names:?}"
         );
+    }
+
+    // ── TASK-0320: --follow-symlinks alias collisions within one root ────────
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_dedupes_alias_via_symlinked_ancestor_directory() {
+        // A symlinked ancestor directory provides a second route to the same
+        // physical file (not a hard link — one directory entry, two paths).
+        // Product ruling: counted once, at its non-symlink-routed path.
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "real_dir/photo.jpg");
+        symlink(dir.path().join("real_dir"), dir.path().join("link_dir")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "the alias must be counted once, not twice; got: {:?}",
+            result
+                .candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            result.candidates[0].path,
+            dir.path().join("real_dir/photo.jpg"),
+            "the surviving candidate must be the non-symlink-routed path"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_dedupes_alias_via_leaf_symlink() {
+        // A leaf symlink whose target is *also* directly in scope (unlike
+        // `follow_symlinks_flag_includes_symlink_targets`, where the target
+        // lives outside every scan root and is never itself a candidate).
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "real.jpg");
+        symlink(dir.path().join("real.jpg"), dir.path().join("link.jpg")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "the alias must be counted once, not twice; got: {:?}",
+            result
+                .candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            result.candidates[0].path,
+            dir.path().join("real.jpg"),
+            "the surviving candidate must be the non-symlink-routed path"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_leaves_true_hard_links_untouched() {
+        // A true hard link is two independent directory entries naming one
+        // inode — neither path involves a symlink hop, so both canonicalize
+        // to themselves (different canonical paths). This dedup pass must
+        // not collapse them; the engine's own identity collapse handles true
+        // hard links correctly downstream (ADR-0008 anchor rule).
+        let dir = tempfile::tempdir().unwrap();
+        let a = touch(&dir, "a.jpg");
+        fs::hard_link(&a, dir.path().join("b.jpg")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(
+            candidate_names(&result),
+            vec!["a.jpg", "b.jpg"],
+            "true hard links must remain two distinct candidates"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follow_symlinks_alias_tie_break_uses_shortest_when_neither_route_is_direct() {
+        // Neither route reaches the target directly: the real file lives
+        // outside every scan root, reached only via two different symlinked
+        // directories at different depths within the scan root. The FR-7
+        // shortest order (fewest segments, reused via keeper::cmp_shortest_by)
+        // must decide the winner — never walk/insertion order.
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        touch(&outside, "real.jpg");
+
+        symlink(outside.path(), dir.path().join("short")).unwrap();
+        fs::create_dir_all(dir.path().join("deep/nested")).unwrap();
+        symlink(outside.path(), dir.path().join("deep/nested/long")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let result = enumerate(&[dir.path().to_path_buf()], &opts);
+
+        assert_eq!(
+            result.candidates.len(),
+            1,
+            "both routes are aliases of the same external file; got: {:?}",
+            result
+                .candidates
+                .iter()
+                .map(|c| c.path.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            result.candidates[0].path,
+            dir.path().join("short/real.jpg"),
+            "the shorter route must win the tie-break, not whichever was walked first"
+        );
+    }
+
+    #[test]
+    fn dedupe_symlink_aliases_keeps_candidate_unchanged_when_canonicalize_fails() {
+        // Fail-open (product ruling): a candidate whose canonical form cannot
+        // be determined is never dropped, even under --follow-symlinks.
+        let dir = tempfile::tempdir().unwrap();
+        let ghost = Candidate::new(dir.path().join("does-not-exist.jpg"), 0, None);
+
+        let result = dedupe_symlink_aliases(dir.path(), vec![ghost.clone()]);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, ghost.path);
     }
 
     #[cfg(unix)]

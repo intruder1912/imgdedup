@@ -968,6 +968,88 @@ fn ac14_symlinks_not_followed_by_default_followed_with_flag() {
     assert_eq!(members, BTreeSet::from(["real.png", "link.png"]));
 }
 
+/// AC-14a (FR-6, FR-13, FR-17, TASK-0320): "Given `--follow-symlinks` and a
+/// tree where one physical file is reachable by two paths (one through a
+/// symlinked ancestor), when scanned, then the file appears exactly once, at
+/// its non-symlink-routed path; it is not reported as a hard-link set; and a
+/// genuine byte-identical copy elsewhere in the tree is still reported as
+/// removable with its true reclaimable size."
+///
+/// Reproduces the exact defect found while investigating this task: without
+/// the fix, the symlink-routed alias was mislabeled as a hard-link set and,
+/// worse, protected a genuinely reclaimable duplicate as though it were an
+/// unremovable anchor — reporting 0 reclaimable bytes when there really are
+/// `content.len()` of them.
+#[cfg(unix)]
+#[test]
+fn ac14a_follow_symlinks_alias_is_counted_once_and_never_masks_a_real_duplicate() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let content = image_bytes(ImageFormat::Png, 31, 486);
+
+    materialize(
+        dir.path(),
+        &[
+            spec("real_dir/photo.png", content.clone(), T),
+            // A genuine second physical copy elsewhere in the tree — this is
+            // the real, reclaimable duplicate the fix must still find.
+            spec("genuine_dup.png", content, T),
+        ],
+        &[],
+    );
+    // A symlinked ancestor directory gives real_dir/photo.png a second route:
+    // link_dir/photo.png. Same physical file, not a second copy.
+    symlink(dir.path().join("real_dir"), dir.path().join("link_dir")).unwrap();
+
+    let doc = run_json(dir.path(), &["--follow-symlinks", "--no-progress"]);
+
+    assert_eq!(
+        doc["already_deduplicated"].as_array().unwrap().len(),
+        0,
+        "the alias must not be reported as a hard-link set; got {doc:#}"
+    );
+    assert_eq!(
+        doc["groups"].as_array().unwrap().len(),
+        1,
+        "the genuine duplicate must still form exactly one group; got {doc:#}"
+    );
+    let group = &doc["groups"][0];
+    assert_eq!(
+        group["hard_link_sets"].as_array().unwrap().len(),
+        0,
+        "no hard-link set belongs to this group; got {doc:#}"
+    );
+    assert_eq!(
+        group["removable"].as_array().unwrap().len(),
+        1,
+        "exactly one file must be removable: the real duplicate; got {doc:#}"
+    );
+    assert_eq!(
+        group["reclaimable_bytes"], 486,
+        "the 486 real bytes must be reported reclaimable, not masked as 0; got {doc:#}"
+    );
+
+    // Every path named anywhere in the group must be the non-symlink-routed
+    // one — link_dir/photo.png must never appear.
+    let mut all_paths: Vec<&str> = vec![group["keeper"]["path"].as_str().unwrap()];
+    all_paths.extend(
+        group["removable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["path"].as_str().unwrap()),
+    );
+    assert!(
+        all_paths.iter().all(|p| !p.starts_with("link_dir")),
+        "the symlink-routed alias must never appear in the report; got {all_paths:?}"
+    );
+    assert_eq!(
+        BTreeSet::from_iter(all_paths),
+        BTreeSet::from(["real_dir/photo.png", "genuine_dup.png"]),
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // AC-15
 // ─────────────────────────────────────────────────────────────────────────
