@@ -234,7 +234,12 @@ jobs:
           install -m 755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
       - name: Lint shell scripts
         if: ${{ !cancelled() && steps.install-shellcheck.outcome == 'success' }}
-        run: shellcheck scripts/*.sh
+        run: |
+          # Tracked files, not a scripts/*.sh glob: a script added below the
+          # top level of scripts/ (e.g. scripts/release-preflight/ already
+          # exists as a directory) would otherwise go unlinted with no signal.
+          # shellcheck disable=SC2046
+          shellcheck $(git ls-files '*.sh')
 
       - name: Install pinned actionlint
         id: install-actionlint
@@ -250,9 +255,15 @@ jobs:
         # actionlint runs shellcheck on every embedded `run:` script too, as
         # long as a `shellcheck` binary is on PATH — which the step above just
         # put there, so this also re-covers every workflow's inline shell with
-        # no separate invocation.
+        # no separate invocation. That coupling is silent if it ever breaks:
+        # actionlint with no shellcheck on PATH just skips the embedded-shell
+        # rule rather than failing, so it's asserted explicitly here instead
+        # of trusted.
         if: ${{ !cancelled() && steps.install-actionlint.outcome == 'success' }}
-        run: actionlint
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || { echo "::error::actionlint needs shellcheck on PATH to lint embedded shell"; exit 1; }
+          actionlint
 
       # PR-title lint only applies to pull requests (squash uses the title as
       # the commit on main and drives the release).

@@ -34,7 +34,8 @@ fi
 
 if ! command -v actionlint >/dev/null 2>&1; then
   echo "error: actionlint is required for local validation." >&2
-  echo "       Install via 'brew install actionlint', then re-run." >&2
+  echo "       Install via 'brew install actionlint' or 'go install" >&2
+  echo "       github.com/rhysd/actionlint/cmd/actionlint@latest', then re-run." >&2
   exit 1
 fi
 
@@ -51,7 +52,11 @@ echo "==> Link check"
 lychee --config lychee.toml --no-progress './**/*.md'
 
 echo "==> Shell script lint"
-shellcheck scripts/*.sh
+# Tracked files, not a scripts/*.sh glob: a script added below the top level
+# of scripts/ (e.g. scripts/release-preflight/ already exists as a directory)
+# would otherwise go unlinted with no signal either here or in CI.
+# shellcheck disable=SC2046
+shellcheck $(git ls-files '*.sh')
 
 echo "==> GitHub Actions workflow lint"
 actionlint

@@ -34,9 +34,9 @@ links: ## Check links in Markdown (needs: brew install lychee / cargo install ly
 # ── Tooling checks ────────────────────────────────────────────────────────────
 
 shellcheck: ## Lint shell scripts (needs: brew install shellcheck / apt install shellcheck)
-	shellcheck scripts/*.sh
+	shellcheck $$(git ls-files '*.sh')
 
-actionlint: ## Lint GitHub Actions workflows, incl. embedded shell via shellcheck (needs: brew install actionlint)
+actionlint: ## Lint GitHub Actions workflows, incl. embedded shell via shellcheck (needs: brew install actionlint / go install github.com/rhysd/actionlint/cmd/actionlint)
 	actionlint
 
 # ── Rust checks ───────────────────────────────────────────────────────────────
