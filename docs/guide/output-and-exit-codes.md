@@ -340,12 +340,13 @@ Scanning does two things in sequence, and the indicator shows both:
 
 1. **Walking the tree** to find files worth examining. There is no total to
    count against yet, so on a terminal it shows a live count of what it has
-   found so far, for example `scanning... 30000 files found`. On a tree where
+   found so far, alongside how long the scan has been running, for example
+   `scanning... 30000 files found (14s elapsed)`. The elapsed time is always
+   there, not just on slow trees — but it earns its keep most on a tree where
    almost nothing matches (a source checkout, a backup volume of documents),
-   this count can sit still for a long stretch even though the walk is
-   actively working — so the terminal also shows how long the scan has been
-   running, e.g. `scanning... 3 files found (14s elapsed)`, ticking up as
-   proof the tool has not hung.
+   where the count alone can sit still for a long stretch even though the
+   walk is actively working; the ticking clock is evidence the tool has not
+   hung when the count itself gives none.
 2. **Examining each file it found**, reading a few header bytes from each to
    confirm the content really is an image. The total is known exactly here —
    it is what step 1 just finished counting — so the indicator switches to

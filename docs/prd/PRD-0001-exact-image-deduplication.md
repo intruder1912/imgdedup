@@ -181,6 +181,13 @@ User stories:
   candidate total `y` (which is only fixed once examination has rejected the
   non-images, and is therefore never larger).
 
+  **Walk liveness cue (Amendment 2026-08-05, TASK-0332).** On a tree where
+  very few entries match the extension scope, the walk's found-so-far count
+  can itself sit static for a long stretch, indistinguishable on screen from
+  a hung process. The indeterminate walk state therefore also shows **elapsed
+  time since the scan started**, ticking on the same throttled cadence as
+  every other repaint (AC-21b).
+
   **Denominator across phases (Amendment 2026-08-01; refined 2026-08-05).**
   Scanning runs before the candidate total `y` is known, so it renders an
   indeterminate counting state while walking and then a determinate count
@@ -437,18 +444,24 @@ Behavior:
   non-TTY the same state appears only as bounded coarse-milestone plain lines
   per AC-22 (no in-place redraw, no per-file line).
 - **AC-21b (FR-19, walk liveness cue; added 2026-08-05, TASK-0332):** Given
-  stderr is an interactive terminal and the tree walk (AC-21's indeterminate
-  scanning state) is running, when the walk visits directory entries that do
-  not become a found file — the case where `scanning... N files found` would
-  otherwise sit static for a long stretch — then the indicator additionally
-  shows **elapsed time since the scan started**, e.g. `scanning... 3 files
-  found (14s elapsed)`, updating on the same throttled cadence as every other
-  repaint (AC-21). Elapsed time is shown from the first render of this state,
-  not only once some threshold is crossed, so behavior is uniform rather than
-  a special case that only appears on slow trees. Non-TTY is unaffected —
-  AC-22's existing "found-so-far count stays TTY-only" reasoning applies
-  identically to elapsed time, since a non-redrawn line could only ever record
-  a stale value.
+  stderr is an interactive terminal, when the tree walk (AC-21's indeterminate
+  scanning state) is running, then the indicator shows **elapsed time since
+  the scan started** (the process's own progress-indicator construction,
+  fractions of a second before the walk's first entry — not distinguishable
+  in practice, since the indeterminate state is the very first thing shown)
+  alongside the found-so-far count on every repaint, e.g.
+  `scanning... 3 files found (14s elapsed)`, updating on the same throttled
+  cadence as every other repaint (AC-21) — unconditionally, from the very
+  first render, not only once some threshold of time or non-matching entries
+  is crossed. This is deliberately not framed as a response to the walk
+  finding nothing: the suffix is part of every indeterminate repaint, not a
+  special case that switches on when a tree happens to be slow to walk, even
+  though the case it matters for is a tree where very few entries match the
+  extension scope, where the found-so-far count alone would otherwise sit
+  static for a long stretch (indistinguishable on screen from a hung
+  process). Non-TTY is unaffected — AC-22's existing "found-so-far count
+  stays TTY-only" reasoning applies identically to elapsed time, since a
+  non-redrawn line could only ever record a stale value.
 - **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01, 2026-08-05):** Given stderr is
   **not** a TTY (redirected or piped), when a scan runs, then **no in-place
   redraw / carriage-return / ANSI control sequences** are emitted; progress
@@ -757,15 +770,24 @@ are exactly the calls that go quiet for a long stretch. The walk now checks in
 on **every** directory entry it visits, accepted or not, through the same
 throttled repaint path `advance()` already uses (a zero-count "tick" that
 updates no counter but is still subject to the existing ≤1-repaint-per-100ms
-throttle, so a fast walk over a dense tree pays nothing extra it wasn't
-already paying). This is what makes the elapsed suffix actually move during
-the slow case, rather than freezing alongside the count it sits next to.
+throttle). This adds no *extra repaint*, since the throttle already bounds
+how often a repaint can happen; the per-entry cost of the tick call itself
+(an atomic increment-by-zero plus a clock read) is negligible next to the
+syscalls the walk already pays per entry, but is not literally free. This is
+what makes the elapsed suffix actually move during the slow case, rather than
+freezing alongside the count it sits next to.
 
 **Residual, named rather than silently narrowed:** a single directory read
 that itself blocks for longer than one repaint interval (an unresponsive
 network mount, a very large single directory) still cannot be ticked through
 mid-read — the clock resumes the moment the next entry is visited, same as
-the count it accompanies. This is the same "truthful, not exhaustive" posture
+the count it accompanies. The same gap exists, less prominently, in two
+places outside `enumerate_root`'s walk itself: `dedupe_roots`'s per-root
+canonicalization (before any walk starts) and, under `--follow-symlinks`
+only, `dedupe_symlink_aliases_across_roots`'s post-walk canonicalization pass
+(I/O proportional to the candidate count) — neither is ticked, both are
+normally short, and both are the same class of gap as the mid-read case
+rather than a new one. This is the same "truthful, not exhaustive" posture
 AC-21/AC-22 already take everywhere else (a repaint can only reflect work
 already completed, never work in flight), not a new gap this ruling
 introduces.
