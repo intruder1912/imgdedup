@@ -675,6 +675,16 @@ fn enumerate_root(
     let mut saw_symlink = false;
 
     for entry_result in walker {
+        // Zero-count tick (TASK-0332, AC-21b): `advance(0)` changes no
+        // counter but still runs through the same throttled repaint check
+        // every real `advance` call does, which is what lets the
+        // indeterminate scanning line's elapsed-time suffix actually move
+        // during a long stretch where nothing below is accepted as a
+        // candidate. Placed before any `continue`, so it fires for every
+        // entry the walker yields — accepted, rejected, hidden, or even a
+        // walk error — not only the ones that become candidates.
+        sink.advance(0);
+
         match entry_result {
             Err(e) => {
                 // Collect the path from the error if available; otherwise use
@@ -2240,9 +2250,63 @@ mod tests {
         assert_eq!(
             sink.advanced.load(Ordering::SeqCst),
             3,
-            "advance() must be called exactly once per accepted candidate, \
-             not per directory entry visited (the excluded .txt file must \
-             not advance the counter)"
+            "the displayed count must advance by exactly one per accepted \
+             candidate, not per directory entry visited — the excluded .txt \
+             file must not move it (TASK-0332's zero-count liveness tick on \
+             rejected entries, pinned separately below, must never inflate \
+             this sum: advance(0) contributes 0)"
+        );
+    }
+
+    #[test]
+    fn enumerate_with_progress_ticks_on_every_entry_not_just_accepted_candidates() {
+        // TASK-0332 (AC-21b): the walk liveness cue's elapsed-time suffix can
+        // only tick during a long stretch of non-matching entries if
+        // something keeps triggering repaint checks through that stretch —
+        // this pins that a zero-count "tick" `advance(0)` is called once per
+        // directory entry visited (accepted or not), separately from the
+        // real `advance(1)` call `enumerate_with_progress_advances_once_per_candidate_found`
+        // already pins for each accepted candidate. Both happen for an
+        // accepted entry (a tick, then the real advance).
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+        touch(&dir, "not-an-image.txt");
+        touch(&dir, "also-not-an-image.md");
+
+        #[derive(Default)]
+        struct RecordingSink {
+            calls: std::sync::Mutex<Vec<u64>>,
+        }
+        impl crate::progress::ProgressSink for RecordingSink {
+            fn set_total(&self, _total: u64) {}
+            fn set_phase(&self, _phase: crate::progress::Phase) {}
+            fn advance(&self, n: u64) {
+                self.calls.lock().unwrap().push(n);
+            }
+            fn retotal(&self, _total: u64) {}
+            fn finish(&self) {}
+        }
+
+        let opts = ScopeOptions::default_scope();
+        let sink = RecordingSink::default();
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+
+        assert_eq!(result.candidates.len(), 1, "only the .jpg is a candidate");
+
+        let calls = sink.calls.lock().unwrap();
+        let ticks = calls.iter().filter(|&&n| n == 0).count();
+        let real_advances = calls.iter().filter(|&&n| n > 0).count();
+        // The root directory entry itself (depth 0, not a file) is one more
+        // walk entry than the three files it contains.
+        assert_eq!(
+            ticks, 4,
+            "expected one zero-count tick per directory entry visited \
+             (root dir + 3 files), got calls: {calls:?}"
+        );
+        assert_eq!(
+            real_advances, 1,
+            "expected exactly one real advance, for the single accepted \
+             candidate, got calls: {calls:?}"
         );
     }
 

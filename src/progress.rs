@@ -397,11 +397,24 @@ impl<W: Write> Progress<W> {
         run_total: u64,
         pct: Option<u64>,
         show_count: bool,
+        elapsed_secs: u64,
     ) -> String {
         match pct {
             None if show_count => {
                 let noun = if current == 1 { "file" } else { "files" };
-                format!("{}... {current} {noun} found", phase.label())
+                // Elapsed time (TASK-0332, AC-21b): a liveness cue for the
+                // stretch of a walk where almost nothing matches the
+                // extension scope, so this count alone can sit static for a
+                // long time even though the walk is actively working. Shown
+                // from the very first render, not only past some threshold —
+                // uniform behavior beats a special case that only appears on
+                // slow trees. Deliberately not "entries visited": there is no
+                // denominator for that, so a growing number there would look
+                // like quantified progress it isn't (see the PRD amendment).
+                format!(
+                    "{}... {current} {noun} found ({elapsed_secs}s elapsed)",
+                    phase.label()
+                )
             }
             None => format!("{}...", phase.label()),
             Some(p) if phase == Phase::Verifying => format!(
@@ -450,9 +463,22 @@ impl<W: Write> Progress<W> {
             raw_current
         };
         let pct = st.total_known.then(|| Self::percent(current, phase_total));
+        // Only meaningful (and only ever rendered) on the TTY indeterminate
+        // branch (AC-21b) — computed unconditionally anyway since it's a
+        // cheap div on an already-loaded value, cheaper than branching around
+        // it just to skip a few nanoseconds of arithmetic no one reads.
+        let elapsed_secs = now / 1000;
 
         if self.tty {
-            let line = Self::line(phase, current, phase_total, run_total, pct, true);
+            let line = Self::line(
+                phase,
+                current,
+                phase_total,
+                run_total,
+                pct,
+                true,
+                elapsed_secs,
+            );
             let mut buf = String::with_capacity(line.len() + 4);
             buf.push('\r');
             buf.push_str(&line);
@@ -468,7 +494,15 @@ impl<W: Write> Progress<W> {
                 (Some(b), shown) if shown != Some(b)
             );
             if force || phase_changed || bucket_changed {
-                let mut buf = Self::line(phase, current, phase_total, run_total, pct, false);
+                let mut buf = Self::line(
+                    phase,
+                    current,
+                    phase_total,
+                    run_total,
+                    pct,
+                    false,
+                    elapsed_secs,
+                );
                 buf.push('\n');
                 let _ = st.writer.write_all(buf.as_bytes());
                 st.last_phase_shown = Some(phase);
@@ -548,10 +582,18 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         self.current.store(run_total, Ordering::Relaxed);
 
         let pct = Some(Self::percent(run_total, run_total));
-        // show_count is irrelevant here: pct is always Some for Phase::Done,
-        // so line()'s indeterminate branches (the only ones it affects) are
-        // never reached.
-        let line = Self::line(Phase::Done, run_total, run_total, run_total, pct, self.tty);
+        // show_count/elapsed_secs are both irrelevant here: pct is always
+        // Some for Phase::Done, so line()'s indeterminate branches (the only
+        // ones either parameter affects) are never reached.
+        let line = Self::line(
+            Phase::Done,
+            run_total,
+            run_total,
+            run_total,
+            pct,
+            self.tty,
+            0,
+        );
 
         if self.tty {
             let mut buf = String::with_capacity(line.len() + 6);
@@ -679,6 +721,93 @@ mod tests {
             !out.contains(" of "),
             "must stay indeterminate (no percentage/denominator) until the \
              total is known, got: {out:?}"
+        );
+    }
+
+    // ── TASK-0332 (AC-21b): walk liveness cue (elapsed time) ────────────────
+
+    #[test]
+    fn tty_indeterminate_scanning_shows_elapsed_time_alongside_the_count() {
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+
+        let out = captured(&p);
+        // A test runs in microseconds, well under one second, so "0s" is the
+        // only value this can deterministically assert without controlling
+        // the clock.
+        assert!(
+            out.contains("scanning... 3 files found (0s elapsed)"),
+            "expected the elapsed-time liveness cue alongside the count, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn tty_indeterminate_scanning_shows_elapsed_time_even_before_any_file_found() {
+        // AC-21b: shown from the first render, not only once some threshold
+        // of files/time has passed — this is the exact case the cue exists
+        // for (a tree where almost nothing is found for a long stretch).
+        let p = Progress::new(Vec::new(), true);
+        p.set_phase(Phase::Scanning);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning... 0 files found (0s elapsed)"),
+            "expected the elapsed-time cue on the very first render, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn advance_zero_repaints_without_changing_the_indeterminate_count() {
+        // The walk liveness cue depends on a zero-count "tick" (`advance(0)`)
+        // triggering the same throttled repaint path a real advance does,
+        // without itself ever inflating the displayed "N files found" count
+        // (enumerate.rs calls this once per directory entry visited, not
+        // just once per accepted candidate — see AC-21b's PRD amendment).
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(0);
+        p.advance(0);
+        p.advance(0);
+
+        let out = captured(&p);
+        // The very first (forced, phase-entry) repaint legitimately shows
+        // "0 files found" before the real advance below it — this asserts
+        // the *last* line, not that "0 file" never appears anywhere in the
+        // whole captured history.
+        let last_line = out.rsplit('\r').next().unwrap();
+        assert!(
+            last_line.contains("scanning... 1 file found"),
+            "advance(0) must never change or regress the indeterminate \
+             count, got last line: {last_line:?} (full capture: {out:?})"
+        );
+        // Every call above hits paint() under immediate()'s zero-throttle
+        // interval, so each one repaints — proving advance(0) really does
+        // reach the repaint path rather than being short-circuited away.
+        let repaints = out.matches('\r').count();
+        assert!(
+            repaints >= 4,
+            "expected a repaint per call (1 phase-entry + 1 real advance + \
+             3 zero-count ticks), got {repaints} in: {out:?}"
+        );
+    }
+
+    #[test]
+    fn non_tty_indeterminate_scanning_never_shows_elapsed_time() {
+        // AC-21b is TTY-only, for the identical reason the found-so-far
+        // count already is (AC-22): a non-redrawn line could only ever
+        // record a stale elapsed value.
+        let p = immediate(false);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+
+        let out = captured(&p);
+        assert!(
+            !out.contains("elapsed"),
+            "non-TTY must never show the elapsed-time cue, got: {out:?}"
         );
     }
 
