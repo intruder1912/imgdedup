@@ -26,14 +26,35 @@ if ! command -v lychee >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "error: shellcheck is required for local validation." >&2
+  echo "       Install via 'brew install shellcheck' or 'apt install shellcheck', then re-run." >&2
+  exit 1
+fi
+
+if ! command -v actionlint >/dev/null 2>&1; then
+  echo "error: actionlint is required for local validation." >&2
+  echo "       Install via 'brew install actionlint', then re-run." >&2
+  exit 1
+fi
+
 echo "==> Markdown lint"
 npx -y markdownlint-cli2@0.23.1 "**/*.md"
 
 echo "==> Spell check"
+# Word splitting is the point: typos takes one filename per argument, and
+# every tracked path here is plain ASCII with no spaces or glob metacharacters.
+# shellcheck disable=SC2046
 typos $(git ls-files '*.md')
 
 echo "==> Link check"
 lychee --config lychee.toml --no-progress './**/*.md'
+
+echo "==> Shell script lint"
+shellcheck scripts/*.sh
+
+echo "==> GitHub Actions workflow lint"
+actionlint
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "error: cargo is required for Rust validation." >&2

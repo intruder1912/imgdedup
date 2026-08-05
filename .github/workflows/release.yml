@@ -301,9 +301,11 @@ jobs:
               echo "::error::tag '$BACKFILL_TAG' does not exist in this repository"
               exit 1
             fi
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "tag=$BACKFILL_TAG" >> "$GITHUB_OUTPUT"
-            echo "version=${BACKFILL_TAG#v}" >> "$GITHUB_OUTPUT"
+            {
+              echo "released=true"
+              echo "tag=$BACKFILL_TAG"
+              echo "version=${BACKFILL_TAG#v}"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -323,9 +325,11 @@ jobs:
             echo "released=false" >> "$GITHUB_OUTPUT"
           elif [ "$COUNT" -eq 1 ]; then
             require_semver_tag "$NEW"
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "tag=$NEW" >> "$GITHUB_OUTPUT"
-            echo "version=${NEW#v}" >> "$GITHUB_OUTPUT"
+            {
+              echo "released=true"
+              echo "tag=$NEW"
+              echo "version=${NEW#v}"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "::error::more than one new v* tag appeared in this run: $NEW"
             exit 1
