@@ -326,3 +326,64 @@ fn run(args: cli::Cli) -> i32 {
         !dedup.groups.is_empty(),
     )
 }
+
+// ── ADR-0017 §6 (security): span fields must never carry a path via `%` ────
+//
+// None of this crate's 11 real spans (see the table in ADR-0017) has a path
+// field at all — every field is a count, a size, or an enum, by design. The
+// two tests below are a *regression demonstration*, not a test of anything
+// in this crate's own spans: they pin the underlying `tracing` behavior the
+// rule depends on, the same way ADR-0017's own worked example does, so that
+// a test shaped like this is what would catch it if a path field were ever
+// added via `%` (Display) instead of `?` (Debug) or
+// `safe_text::escape_control_chars`.
+#[cfg(test)]
+mod security_tests {
+    use crate::trace_test_support::capture;
+
+    /// `%` (Display) formatting writes a path's raw bytes straight into the
+    /// formatted log line — the same terminal-injection channel TASK-0318
+    /// and `safe_text.rs` exist to close elsewhere (a filename containing
+    /// `ESC[2J` reaches the terminal raw, clearing the screen).
+    #[test]
+    fn percent_display_formatting_of_a_path_leaks_raw_control_bytes() {
+        let evil = "evil\u{1b}[2Jname.jpg";
+
+        let out = capture(|| {
+            let span = tracing::info_span!("security_demo_percent", path = %evil);
+            drop(span);
+        });
+
+        assert!(
+            out.contains('\u{1b}'),
+            "the raw ESC byte must reach the formatted line when a span \
+             field is recorded via `%` (Display) — this is exactly the \
+             injection ADR-0017 §6 forbids for any of this crate's real \
+             spans; got: {out:?}"
+        );
+    }
+
+    /// The safe alternative: `?` (Debug) escapes control characters via
+    /// `escape_debug`, so the same hostile path never reaches the terminal
+    /// raw. ADR-0017's rule: if a path ever must be recorded, use `?` —
+    /// never `%`.
+    #[test]
+    fn debug_formatting_of_a_path_escapes_control_bytes() {
+        let evil = "evil\u{1b}[2Jname.jpg";
+
+        let out = capture(|| {
+            let span = tracing::info_span!("security_demo_debug", path = ?evil);
+            drop(span);
+        });
+
+        assert!(
+            !out.contains('\u{1b}'),
+            "the raw ESC byte must never reach the formatted line when a \
+             span field is recorded via `?` (Debug); got: {out:?}"
+        );
+        assert!(
+            out.contains("\\u{1b}"),
+            "the ESC must render as a visible, escaped form instead; got: {out:?}"
+        );
+    }
+}
