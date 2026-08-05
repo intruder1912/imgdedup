@@ -58,7 +58,7 @@ from the repo content alone.
                                   HUMAN OWNER merges (squash) ──► branch auto-deletes
                                                       │
                                                       ▼
-                                  release automation (semantic-release) on main
+                                  release: dispatched manually when wanted
 ```
 
 ## Steps in detail
@@ -137,8 +137,11 @@ from the repo content alone.
     See [ADR-0006](../adr/0006-post-pr-review-iteration-loop.md).
 11. **Merge.** The **human owner** is the sole merge gate (squash-merge). See
     [`../adr/0003-main-branch-protection-and-merge-model.md`](../adr/0003-main-branch-protection-and-merge-model.md).
-12. **Release.** Qualifying merges to `main` trigger automated SemVer releases
-    (see [`release.md`](release.md)).
+12. **Release.** Merging publishes nothing. A SemVer release is cut **on
+    demand** by dispatching the release workflow against `main`
+    (`gh workflow run release.yml --ref main`), which refuses any commit whose
+    required checks are not green and then releases everything accumulated
+    since the last tag (see [`release.md`](release.md)).
 13. **Close the loop.** Ensure planning docs reflect the new reality (done/next).
 
 ## PRD-slice delivery (feature work)

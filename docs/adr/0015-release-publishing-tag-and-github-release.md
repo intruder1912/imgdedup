@@ -113,7 +113,10 @@ bypass, no long-lived secret, and ADR-0003 stays exactly as written.
   `--ignore-scripts` blocks install-time script execution (verified: the tool
   runs correctly installed this way). `package.json` is `private: true` and is
   never published; it exists only to hold the pin.
-- **Trigger:** `workflow_run` on the **CI** workflow completing, filtered to
+- **Trigger:** *(superseded 2026-08-05 — see the
+  [manual-only trigger amendment](#amendment-2026-08-05--manual-only-release-trigger-task-0333b);
+  the CI-green guarantee below is preserved, by an explicit check rather than
+  by the trigger.)* `workflow_run` on the **CI** workflow completing, filtered to
   `conclusion == 'success' && event == 'push' && head_branch == 'main'`, plus
   `workflow_dispatch` for manual recovery. A plain `on: push: branches: [main]`
   would race the post-merge CI run and could publish from a commit whose checks
@@ -121,8 +124,16 @@ bypass, no long-lived secret, and ADR-0003 stays exactly as written.
   `workflow_run.head_sha` — the exact commit CI validated. If a newer commit
   reaches `main` in the meantime, semantic-release detects that the checkout is
   behind and skips; the next merge's run then releases everything accumulated,
-  so nothing is lost.
-- **Not gated on the `Security` workflow.** `workflow_run` fires per workflow,
+  so nothing is lost. *(That last clause lapsed with the trigger: there is no
+  "next merge's run" any more. A dispatch whose `github.sha` fell behind
+  `main`'s tip — a merge landing in the seconds between dispatch and checkout —
+  still skips, but now finishes green having published nothing and retries
+  nothing. Recovery is to dispatch again; noted in
+  [`../process/release.md`](../process/release.md).)*
+- **Not gated on the `Security` workflow.** *(No longer true as of 2026-08-05 —
+  the [manual-only trigger amendment](#amendment-2026-08-05--manual-only-release-trigger-task-0333b)
+  verifies `security` as well as `ci-gate`, because the reason for this gap was
+  the trigger mechanism that amendment removes.)* `workflow_run` fires per workflow,
   and coordinating two would mean polling the other's status. `secret-scan` is
   a **required** check on every PR, so no commit reaches `main` without a
   secret scan; the release publishes notes and (later) binaries, not new
@@ -365,6 +376,136 @@ credentials beyond `GITHUB_TOKEN`) avoids. Unsigned binaries mean macOS
 Gatekeeper quarantines the download and Windows SmartScreen warns; documented
 as a user-facing workaround in [`../process/release.md`](../process/release.md),
 revisited only for a public release.
+
+## Amendment 2026-08-05 — manual-only release trigger (TASK-0333(b))
+
+**Owner ruling, 2026-08-05: releases are cut on demand, not on merge.** The
+`workflow_run` trigger recorded above is removed; `workflow_dispatch` becomes
+the sole path to a release. The decision this ADR records — tag + GitHub
+Release, no commit back, `GITHUB_TOKEN` with `contents: write` — is unchanged.
+Only *when* that machinery runs changes, plus how the safety property the old
+trigger carried is now obtained.
+
+**Why.** Measured over 2026-08-01..04 (Actions API, per-job durations, billed
+rounded up to the whole minute, OS multipliers applied) the `assets` matrix
+cost **485 billed minutes, 27% of the repository's entire Actions bill**,
+across **12 releases in four days**. That is release *cadence*, not job speed:
+every merge carrying a `feat:`/`fix:` published a version, and each version
+builds four native targets. TASK-0330 had already established that caching
+`assets` is worth ~0 *and* undesirable (a restored `target` on the path that
+produces published binaries), so the only remaining lever was releasing less
+often — a product/distribution call, hence the owner's, and carried to them as
+TASK-0333(b) rather than decided by the architect. Nothing is lost by batching:
+semantic-release derives the next version from *all* Conventional Commits since
+the last tag, so one deliberate dispatch releases everything accumulated with
+the same version arithmetic a per-merge cadence would have produced in
+instalments.
+
+**The safety property does not travel with the trigger — it is re-established
+explicitly.** The `workflow_run` trigger's one load-bearing job was that a
+release could never be published from a commit whose checks were red or still
+running (the "Trigger" bullet above, and the "gated on green CI for the exact
+commit released" positive consequence). A bare `workflow_dispatch` would have
+silently dropped it: the job's checkout ref fell back to `github.sha`, which on
+a manual dispatch is whatever the dispatcher happened to point at, verified by
+nothing. That is materially worse now than it would have been a week ago,
+because `main`'s branch protection no longer sets `strict` ("require branches
+to be up to date"), so `main`'s tip is no longer guaranteed to have been tested
+in combination with the latest state before a merge landed — the `push: main`
+CI run is what catches that class of break, and it catches it *after* the fact.
+A release must therefore positively confirm that CI already passed for the
+exact commit it is about to release.
+
+`release.yml`'s first step now does exactly that, before the checkout and
+before any dependency is installed:
+
+- It refuses any ref other than `refs/heads/main`, restoring the old trigger's
+  `head_branch == 'main'` clause. (`.releaserc.json`'s `branches` would refuse
+  too, but only after ~400 npm packages are installed, and with a message about
+  release branches rather than about the mistake made.)
+- It queries `GET /repos/{owner}/{repo}/commits/{sha}/check-runs` — via `gh
+  api`, this repository's established tool — once per required context, with
+  `filter=latest` and `app_id=15368`, pinning the answer to GitHub Actions
+  exactly as `main`'s branch protection pins those contexts. A same-named check
+  run reported by any other integration holding `checks: write` cannot satisfy
+  the gate (verified live: a wrong `app_id` returns zero check runs rather than
+  being ignored).
+- It requires **every** returned check run to be `status == "completed" &&
+  conclusion == "success"`, and is fail-closed on everything else: a missing
+  check run (CI never ran for that commit), one still in progress, and every
+  non-success conclusion — `failure`, `cancelled`, `timed_out`,
+  `action_required`, `skipped`, `neutral`. A `gh api` error fails the step too,
+  via `set -euo pipefail`.
+- **Every** rather than the newest, because `filter=latest` deduplicates only
+  *within* a check suite (which is what makes a re-run supersede the attempt it
+  re-ran), and GitHub Actions creates one check suite per workflow *run* — so
+  two runs reporting the same check name against the same commit both come
+  back. Verified against this repository's live data: every recent commit on
+  `main` carries two or three `release` check runs for exactly that reason. The
+  case it decides is the one this gate exists for: `security.yml`'s weekly
+  `schedule:` run reports a second, unsuffixed `security` check run against
+  `main`'s tip, so a new RUSTSEC advisory found by the cron against an
+  unchanged `Cargo.lock` sits next to the push run's green `security`. Reading
+  only the first element would have made that verdict depend on an array order
+  the REST API does not document; requiring all of them is order-independent
+  and strictly fail-closed, and still clears by re-running the red run (whose
+  re-run wins its own suite's `latest`). It also removes the need for a
+  `(manual)`-style suffix should `security.yml` ever gain a
+  `workflow_dispatch`: a green manual run cannot launder a red one beside it.
+- The name match is exact and case-sensitive, which matters: TASK-0331(a)
+  suffixes a manually dispatched CI run's gate with a `(manual)` marker so it
+  cannot
+  stand in for a required context. It cannot stand in here either — only a real
+  `push: main` run can answer.
+
+**Permissions: `checks: read`, added to the `release` job.** `contents: write`
+does not imply it (the checks API is its own scope, and a job-level
+`permissions:` block grants nothing it does not name). The alternative
+formulation — asking the workflow-runs endpoint whether the CI *workflow*
+concluded successfully for that SHA — needs `actions: read`, which grants read
+access to every workflow run, its logs and its artifacts in the repository.
+Same answer, broader grant, in the repository's most privileged job: rejected.
+
+**This closes the "not gated on the `Security` workflow" gap recorded above.**
+That gap was justified purely by the mechanism: "`workflow_run` fires per
+workflow, and coordinating two would mean polling the other's status." The new
+step *is* polling, so the justification no longer applies and the gap is no
+longer worth keeping. The verified contexts are **`ci-gate` and `security`** —
+`main`'s required set minus `checks`, which `ci-gate` already aggregates (it
+fails unless `checks` succeeded and `rust` succeeded or was skipped), so naming
+both would assert one fact twice. `security` is aggregated by nothing, living
+in a separate workflow, so it is named explicitly. The release gate is now
+strictly stronger than the one this ADR originally described. One consequence
+follows from that and is wanted: `security.yml`'s weekly `schedule:` run
+reports an unsuffixed `security` check run against `main`'s tip, so an advisory
+the cron finds against an unchanged `Cargo.lock` blocks releases of that commit
+until it is dealt with — the correct direction for an ADR-0005 gate, and the
+reason the step requires *every* returned check run to be green rather than the
+newest one (see the bullet above).
+
+**The backfill path is deliberately exempt.** `workflow_dispatch` with a `tag`
+input repairs the assets of a release that *already exists* and was gated when
+it was cut; it does not decide that anything should be released. The
+verification step carries the same `if: env.BACKFILL_TAG == ''` guard every
+other normal-path step in the job already has, so that path is unchanged.
+
+**The job-level `if:` is removed rather than left inert.** Its four clauses
+(including TASK-0325's `head_repository` clause) existed to sort a
+`workflow_run` event; with that event impossible, they were dead code
+referencing a payload that can no longer exist. Their safety content does not
+lapse: a `workflow_dispatch` never originates from a fork and only a principal
+with write access can start one, and the ref/CI questions are now answered by
+the step above — which **fails loudly** where a job-level condition would skip
+silently, the right behaviour when a human has just asked for a release.
+
+**Consequences.** Releases now require one deliberate action
+(`gh workflow run release.yml --ref main`, see
+[`../process/release.md`](../process/release.md)); a merge that should have
+shipped can sit unreleased until someone asks, which is the accepted cost of
+the 27%. Estimated saving: most of 485 billed minutes per four days, scaling
+with how much releases are actually batched. No repository-settings change is
+required — no context name changes, and the required-check list is read by this
+workflow, not written by it.
 
 ## Links
 
