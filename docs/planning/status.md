@@ -11,6 +11,89 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 22 (TASK-0334, local release-pipeline pre-flight), 2026-08-05 —
+  fresh window (5h=0%, 7d=17% at start)._ Owner picked this as the next unit
+  from three unblocked `todo` items (TASK-0219, TASK-0332, TASK-0334) after
+  the owner's explicit priority list (321→320) plus the CI-minutes Kaizen
+  chain (330/331/333) both ran out. Closes the piece TASK-0333(b) deliberately
+  deferred as "a separate, larger idea": the `assets` job (the repository's
+  only `contents: write` workflow) had no local rehearsal at all, so a
+  stamping/packaging/`--version` mismatch was discovered only in that job,
+  after the tag and the GitHub Release already existed.
+  **Design, resolving the backlog's two open questions before any code:**
+  (1) shared script vs. parallel rehearsal — resolved as extract-only-the-
+  non-credentialed-half. New `scripts/build-release-artifact.sh` (stamp
+  `Cargo.toml`, `cargo build --release`, assert `--version`, package
+  archive+`.sha256`, the architecture-match guard) is called by both
+  `release.yml`'s `assets` job and the new `scripts/release-preflight.sh`;
+  the checks-green verification and `gh release upload` stay inline in the
+  workflow and the shared script never receives `GITHUB_TOKEN`, so nothing on
+  the published-binary path gains privilege it didn't have. (2) glibc-floor
+  checking — out of scope, stays with TASK-0326.
+  **A real, measured finding shaped the implementation, not an assumption:**
+  the first design forced `--platform linux/amd64` under podman so the local
+  rehearsal would reproduce the exact `x86_64-unknown-linux-gnu` leg on this
+  Apple-Silicon dev machine. `rustc -vV` — not a build, just the compiler
+  printing its own version — segfaulted under that qemu emulation,
+  reproducibly, and reducing `cargo build -j 1` didn't help (the crash was in
+  `rustc` itself). `scripts/release-preflight.sh` does not paper over this: it
+  drops the forced `--platform`, lets the container build for podman's own
+  native platform instead, and reports on stderr exactly which target it
+  built rather than mislabeling the rehearsal — on an x86_64 host (or CI) this
+  limitation doesn't apply and the leg is `x86_64-unknown-linux-gnu`
+  natively. The tool rehearses two of the four legs (this glibc Linux target
+  via rootless podman, `aarch64-apple-darwin` natively on Apple Silicon
+  macOS); Windows and Intel macOS stay CI-only, per the backlog's own scope.
+  Everything runs inside a disposable `git worktree` — the real working tree,
+  including `Cargo.toml`, is never touched (`build-release-artifact.sh`
+  stamps the version in place, which must never happen to a developer's own
+  checkout). `make release-preflight` added. Verified end-to-end for real,
+  repeatedly: default run, `--version`/`--tag` overrides, `--keep`, an
+  invalid `--ref` (fails before any worktree exists), and an invalid
+  `--version` (worktree still cleaned up on failure) — `git worktree list`
+  confirmed clean after every run, and the real working tree's `Cargo.toml`
+  confirmed untouched throughout.
+  **Independent architect review (one dispatch, converged on the branch): one
+  real security-relevant defect, four other should-fixes, all fixed —
+  continuing the run of sessions where the reserved review dispatch finds
+  real substance, not nits.** `release-preflight.sh` interpolated
+  `--version`/`--tag` **unquoted** into the podman container's `bash -c`
+  string; the review demonstrated live that a crafted `--version` could break
+  out of the string and execute an arbitrary command inside the container
+  (`1.0.0$(touch /tmp/PWNED)"; echo INJECTED` created the file) — local-only,
+  never reachable from `release.yml` or any credentialed path, but exactly
+  the unquoted-interpolation shape this repo's own workflows otherwise avoid.
+  Fixed by passing both values as environment variables (`-e
+  PREFLIGHT_VERSION=... -e PREFLIGHT_TAG=...`) instead of string-building the
+  inner script; re-verified live post-fix that the same crafted input no
+  longer executes anything (`sed` now just fails cleanly on the garbage
+  version string, worktree still cleaned up). Also fixed: the packaging stage
+  in `build-release-artifact.sh` used a system tmp dir before moving into
+  `out-dir`, a cross-volume-move risk on the Windows leg (staged inside
+  `out-dir` itself instead, restoring the pre-extraction `$RUNNER_TEMP`
+  same-volume behavior); the local macOS leg silently inherited the
+  developer's ambient `CARGO_TARGET_DIR`/etc. (now forced to `target`, a
+  no-op in CI); and `release.yml` reconstructed the artifact's filename
+  independently of what the script actually produced — the one real seam in
+  the ADR's "one source of truth" claim — closed by having the script write a
+  `.artifact-filename` manifest the workflow reads back instead. Plus
+  worktree-safety/UX nits: `$$`-suffixed worktree path (two concurrent local
+  runs could otherwise `rm -rf`/`worktree remove --force` each other's tree),
+  `ref^{commit}` resolution (exact for annotated tags, today's `v*` tags are
+  lightweight so this was latent), the output directory cleared at the start
+  of each run (a stale prior artifact would otherwise be listed alongside the
+  new one), a `--tag` flag (rehearsing a real `vX.Y.Z`-shaped filename), and
+  missing-value validation on `--ref`/`--version`/`--tag`. One should-fix
+  deliberately left for a follow-up rather than fixed here: no CI job lints
+  the new shell scripts or the workflows themselves (every finding in this
+  review, including the injection, was caught by a human/architect running
+  `shellcheck`/`actionlint` by hand) — tracked as new **TASK-0335**.
+  Recorded in the
+  [2026-08-05 amendment to ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-05--local-release-pipeline-pre-flight-task-0334);
+  operational docs in
+  [`docs/process/release.md`](../process/release.md#local-pre-flight-rehearsal).
+  This PR.
+
 - _Session 21 (TASK-0333, the two CI-minutes policy calls TASK-0331 deferred),
   2026-08-05 — continuing session 20's window._ Both halves needed an owner
   ruling before any code, obtained directly this session rather than assumed:
