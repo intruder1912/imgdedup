@@ -196,6 +196,18 @@ pub trait ProgressSink: Sync + Send {
     /// reset at both (see their docs) — so global monotonicity of the
     /// displayed percentage is guaranteed only *within* a phase, not across
     /// the whole run.
+    ///
+    /// **`n == 0` is a deliberate liveness "tick" (TASK-0332), not a
+    /// no-op call callers should avoid.** A caller with real work to report
+    /// but nothing yet accepted — e.g. `enumerate.rs`'s tree walk, visiting
+    /// directory entries that do not become a found file — calls
+    /// `advance(0)` to request a repaint-due check without changing the
+    /// numerator, so a display element that depends only on wall-clock time
+    /// (elapsed time, [`Progress`]'s AC-21b suffix) can still update during a
+    /// stretch where the count itself does not move. An implementation must
+    /// therefore run its normal repaint-due check on every call regardless
+    /// of `n`, and must never let `n == 0` change what is displayed beyond
+    /// whatever that due check would already repaint.
     fn advance(&self, n: u64);
 
     /// Reset the numerator to zero and fix a **new**, phase-local
@@ -340,6 +352,34 @@ impl<W: Write> Progress<W> {
         }
     }
 
+    /// Like [`Progress::new_with_interval_ms`], but the constructed
+    /// instance's clock claims to have started `elapsed_ms` in the past
+    /// rather than at the moment of construction. The only way to
+    /// deterministically test the elapsed-time liveness cue's `now / 1000`
+    /// arithmetic (TASK-0332): every other test observes a process that has
+    /// been running for single-digit milliseconds and could only ever
+    /// assert "0s", which would not catch a regression to e.g. raw
+    /// milliseconds or a wrong divisor.
+    ///
+    /// Unlike its sibling `new_with_interval_ms` — which stays a normal,
+    /// always-typechecked `pub(crate)` function because *production* code
+    /// also calls it (via [`Progress::new`]) — this one is `#[cfg(test)]`:
+    /// no production caller ever has a legitimate reason to lie about when
+    /// it started, so there is no always-compiled use for it to share.
+    #[cfg(test)]
+    pub(crate) fn new_with_interval_ms_and_elapsed_ms(
+        writer: W,
+        tty: bool,
+        repaint_interval_ms: u64,
+        elapsed_ms: u64,
+    ) -> Self {
+        let mut p = Self::new_with_interval_ms(writer, tty, repaint_interval_ms);
+        p.start = Instant::now()
+            .checked_sub(std::time::Duration::from_millis(elapsed_ms))
+            .expect("elapsed_ms too large to subtract from Instant::now()");
+        p
+    }
+
     /// Milliseconds elapsed since construction. Never panics (unlike
     /// subtracting a fixed offset from `Instant::now()`, which can underflow
     /// for a process still within its first repaint interval of uptime).
@@ -371,17 +411,25 @@ impl<W: Write> Progress<W> {
     /// `(N candidates)` suffix for [`Phase::Verifying`] (so the run-wide
     /// problem size stays visible even though the counter has been reset to
     /// the phase-local workload — see the module doc); `"<phase>... <x>
-    /// file(s) found"` while the total is not yet known **and** `show_count`
-    /// is set (indeterminate, TTY-only, TASK-0317) — `x` animates live even
-    /// though there is no denominator yet to show a percentage against; or a
-    /// bare `"<phase>..."` when indeterminate and `show_count` is unset.
+    /// file(s) found (<elapsed_secs>s elapsed)"` while the total is not yet
+    /// known **and** `show_count` is set (indeterminate, TTY-only, TASK-0317
+    /// count + TASK-0332 elapsed-time suffix) — `x` animates live even though
+    /// there is no denominator yet to show a percentage against, and the
+    /// elapsed suffix keeps moving even on a stretch where `x` itself does
+    /// not (a low-match-density tree); or a bare `"<phase>..."` when
+    /// indeterminate and `show_count` is unset.
     ///
-    /// `show_count` is TTY-only by design (architect review, TASK-0317): a
-    /// non-TTY repaint of the indeterminate phase happens at most once (at
-    /// phase entry, before anything has been counted — see the module doc's
-    /// non-TTY repaint rules), so a count included there would render as a
-    /// permanently-frozen, false "0 files found" for the rest of the phase —
-    /// worse than the old bare "scanning...", which made no claim at all.
+    /// `show_count` (and, identically, the elapsed-time suffix it gates) are
+    /// TTY-only by design (architect review, TASK-0317 for the count,
+    /// TASK-0332 for elapsed time): a non-TTY repaint of the indeterminate
+    /// phase happens at most once (at phase entry, before anything has been
+    /// counted — see the module doc's non-TTY repaint rules), so either value
+    /// included there would render as a permanently-frozen, false "0 files
+    /// found (0s elapsed)" for the rest of the phase — worse than the old
+    /// bare "scanning...", which made no claim at all. `elapsed_secs` is
+    /// otherwise unused whenever `pct.is_some()` (every phase but the
+    /// indeterminate one) or `show_count` is false — callers on those paths
+    /// may pass any value, including `0`.
     ///
     /// Pure ASCII, deliberately: this is the only text the binary ever
     /// writes at runtime that could tempt a non-ASCII character (a
@@ -390,6 +438,10 @@ impl<W: Write> Progress<W> {
     /// outside that range — safer to just never emit it. No thousands
     /// separators either, for the same reason and for consistency with the
     /// unadorned integers in the `x of y` form above.
+    ///
+    /// Seven parameters — one below clippy's `too_many_arguments` default
+    /// threshold (8). A future addition to this display should bundle
+    /// arguments into a small params struct instead of adding an eighth.
     fn line(
         phase: Phase,
         current: u64,
@@ -665,6 +717,12 @@ mod tests {
         Progress::new_with_interval_ms(Vec::new(), tty, 0)
     }
 
+    /// Like [`immediate`], but the clock claims to have started `elapsed_ms`
+    /// in the past — see [`Progress::new_with_interval_ms_and_elapsed_ms`].
+    fn immediate_with_elapsed(tty: bool, elapsed_ms: u64) -> Progress<Vec<u8>> {
+        Progress::new_with_interval_ms_and_elapsed_ms(Vec::new(), tty, 0, elapsed_ms)
+    }
+
     // ── NoProgress (AC-23) ───────────────────────────────────────────────
 
     #[test]
@@ -737,11 +795,41 @@ mod tests {
         let out = captured(&p);
         // A test runs in microseconds, well under one second, so "0s" is the
         // only value this can deterministically assert without controlling
-        // the clock.
+        // the clock — see tty_indeterminate_scanning_elapsed_time_reflects_a_nonzero_clock
+        // below for a test that pins the actual now/1000 arithmetic instead.
         assert!(
             out.contains("scanning... 3 files found (0s elapsed)"),
             "expected the elapsed-time liveness cue alongside the count, got: {out:?}"
         );
+    }
+
+    #[test]
+    fn tty_indeterminate_scanning_elapsed_time_reflects_a_nonzero_clock() {
+        // Architect review, TASK-0332: every other elapsed-time test observes
+        // a process running for single-digit milliseconds, so it can only
+        // ever assert "0s" — which would not catch a regression to e.g. raw
+        // milliseconds, or a wrong divisor. This pins the real arithmetic
+        // (`now_millis() / 1000`) deterministically via an injected start
+        // time, without racing the wall clock.
+        let p = immediate_with_elapsed(true, 61_500); // 61.5s "ago"
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning... 1 file found (61s elapsed)"),
+            "expected 61s (whole seconds, truncated not rounded), got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn line_format_indeterminate_with_count_includes_elapsed_seconds() {
+        // A narrower companion to the test above: exercises `line()` in
+        // isolation (no Progress/paint/clock plumbing at all), pinning
+        // exactly the format string a regression to that plumbing shouldn't
+        // be able to hide behind.
+        let line = Progress::<Vec<u8>>::line(Phase::Scanning, 3, 0, 0, None, true, 14);
+        assert_eq!(line, "scanning... 3 files found (14s elapsed)");
     }
 
     #[test]
