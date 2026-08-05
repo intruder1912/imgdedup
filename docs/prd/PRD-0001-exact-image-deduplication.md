@@ -165,14 +165,28 @@ User stories:
   - `--no-progress` **disables progress output entirely** (both the TTY and
     non-TTY paths); nothing progress-related is written to stderr.
 
-  Before enumeration finishes the total `y` is not yet known, so the indicator may
-  show a counting/indeterminate state and switch to `x of y` + percentage once the
+  Before the candidate total `y` is known the indicator may show a
+  counting/indeterminate state and switch to `x of y` + percentage once the
   denominator is fixed.
 
-  **Denominator across phases (Amendment 2026-08-01).** Scanning runs before the
-  total is known, so it renders an indeterminate counting state with no
-  denominator; hashing is the first phase with one and reports `x of y` against
-  the full candidate count `y`. A later phase whose
+  **Scanning's two states (Amendment 2026-08-05).** Scanning does two things in
+  sequence: it **walks** the tree to find files worth examining, then
+  **examines** each file it found to confirm the content really is an image.
+  Only the walk has a genuinely unknown total, and it is the *smaller* part of
+  the wait; examination — which knows exactly how many files it must look at
+  the moment it starts — is the larger one. So scanning shows an indeterminate
+  count of files found while it walks, and, once the walk finishes, a
+  determinate `x of <files found>` + percentage while it examines them. That
+  denominator is the number of files **being examined**, not the run-wide
+  candidate total `y` (which is only fixed once examination has rejected the
+  non-images, and is therefore never larger).
+
+  **Denominator across phases (Amendment 2026-08-01; refined 2026-08-05).**
+  Scanning runs before the candidate total `y` is known, so it renders an
+  indeterminate counting state while walking and then a determinate count
+  against the number of files it found (see "Scanning's two states" above);
+  hashing is the first phase measured against `y` itself and reports `x of y`
+  against the full candidate count. A later phase whose
   workload is a **strict subset** of the candidates (verifying, since only
   candidates that collided in a duplicate group are byte-verified) reports its
   own subset progress while **keeping the run's candidate total `y` visible in
@@ -374,13 +388,16 @@ Behavior:
   **stdout contains exactly the report/JSON document and no progress text**; all
   progress output appears on stderr only. Redirecting stdout to a file therefore
   yields a clean report/JSON.
-- **AC-21 (FR-19, TTY; amended 2026-08-01):** Given stderr is an interactive
-  terminal, when a scan runs, then a **live single-line** progress indicator is
-  shown on stderr reporting the current phase and its progress, where: scanning
-  renders an indeterminate counting state because the total is not yet known,
-  and hashing — the first phase with a denominator — reports `x of y` and a
+- **AC-21 (FR-19, TTY; amended 2026-08-01, 2026-08-05):** Given stderr is an
+  interactive terminal, when a scan runs, then a **live single-line** progress
+  indicator is shown on stderr reporting the current phase and its progress,
+  where: scanning renders an indeterminate counting state while it walks the
+  tree and the total is genuinely unknown, and then a **determinate** state
+  measured against the number of files that walk found (AC-21a),
+  and hashing — the first phase measured against `y` — reports `x of y` and a
   percentage against `y` = the count of
-  candidate files to check (known after enumeration); a phase whose workload is
+  candidate files to check (known once scanning has confirmed which of the
+  files it found are images); a phase whose workload is
   a strict subset of the candidates (verifying) reports its own subset `x of
   <subset-total>` and percentage while keeping the candidate total `y` visible in
   the same line, e.g. `verifying: 1 of 2 (50%) (302 candidates)`; a phase with
@@ -389,7 +406,37 @@ Behavior:
   total, e.g. `done: 302 of 302 (100%)` — the state left on screen once the run
   finishes, so the overall problem size stays visible at completion regardless of
   a smaller intermediate-phase denominator.
-- **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01):** Given stderr is
+- **AC-21a (FR-19, scanning's determinate second state; added 2026-08-05,
+  TASK-0328):** Given a scan whose tree walk found `N > 0` files to examine,
+  when the tool starts examining those files (confirming each one's content is
+  really an image), then the indicator leaves the indeterminate
+  `scanning... N files found` state and reports **`scanning: x of N (p%)`**,
+  where:
+  - `N` is exactly the number of files the walk found — the same number the
+    indeterminate state last displayed — so the count the user just watched
+    grow becomes the target it is counted against;
+  - `x` advances by exactly one **per file examined, whether that file is
+    confirmed an image or rejected as a non-image**, so the indicator keeps
+    moving even on a tree where nothing is confirmed;
+  - the first render of this state is `scanning: 0 of N (0%)` (it repaints
+    immediately on the switch, like any other phase/denominator change, rather
+    than waiting for the next throttled repaint) and the state ends at
+    `scanning: N of N (100%)`;
+  - the phase **label stays `scanning`** — this is a second state of the same
+    user-facing phase, not a new phase name;
+  - `N` is **not** the run-wide candidate total `y` and carries **no
+    `(<n> candidates)` suffix**: `y` is not yet known while scanning runs, and
+    `N ≥ y` because rejected files are examined but never become candidates.
+    Hashing therefore still begins at `0 of y` with a denominator that may be
+    smaller than `N` (e.g. `scanning: 30000 of 30000 (100%)` then
+    `hashing: 0 of 28450 (0%)`, or `done: 0 of 0 (100%)` when nothing was
+    confirmed), regardless of where scanning's counter ended.
+
+  When the walk found nothing (`N == 0`), this state is **skipped entirely** —
+  never `scanning: 0 of 0` — consistent with AC-21's zero-workload rule. On a
+  non-TTY the same state appears only as bounded coarse-milestone plain lines
+  per AC-22 (no in-place redraw, no per-file line).
+- **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01, 2026-08-05):** Given stderr is
   **not** a TTY (redirected or piped), when a scan runs, then **no in-place
   redraw / carriage-return / ANSI control sequences** are emitted; progress
   instead appears as occasional plain, newline-terminated lines (log-friendly and
@@ -397,7 +444,12 @@ Behavior:
   AC-21 (and skipping any zero-workload phase) — at minimum a problem-size line
   once enumeration completes and a completion line rendered against the full
   candidate total (e.g. `done: 302 of 302 (100%)`), so a captured log always
-  evidences the run's scale and finish.
+  evidences the run's scale and finish. Scanning's determinate second state
+  (AC-21a) also appears here, at the same coarse milestone granularity as every
+  other phase, but its denominator is the examined-file count, not `y` — it
+  therefore does **not** discharge the problem-size minimum above, which is
+  about `y`. Scanning's indeterminate found-so-far count stays TTY-only: a
+  non-redrawn line could only ever record a stale count.
 - **AC-23 (FR-19, opt-out):** Given `--no-progress`, when a scan runs, then **no
   progress output is written to stderr at all**, and stdout is unchanged.
 - **AC-24 (FR-19, output-only):** Given identical inputs and flags, the groups,
@@ -584,3 +636,65 @@ requires its own separate explicit confirmation beyond the one that
 authorizes `--apply`. See
 [Using imgdedup with an AI agent](../guide/using-with-claude.md) for the
 user-facing walkthrough.
+
+## Amendment 2026-08-05 — scanning's two states (product-owner ruling, TASK-0328)
+
+TASK-0317 animated the scanning phase's indeterminate counter, but its own
+architect review then **measured** what that animation actually covers (release
+build, 30k files / 60 dirs / ~117 MB, warm cache, 10 cores): of the whole
+scanning window, walking the tree is ≈10% (0.03 s) and examining each found
+file's magic bytes is ≈90% (0.88 s). The shipped indicator therefore animates
+the small part and sits on a live-but-static `scanning... 30000 files found`
+for the large part — the same "is it hung?" complaint FR-19 exists to answer,
+one stage further in. On a library an order of magnitude larger this static
+window is tens of seconds, and it grows with the library while the walk does
+not dominate it. That is enough user-visible value to close, not to defer.
+
+The blocker was never technical (the examination stage is already
+rayon-parallel and the sink is documented safe under concurrent `advance`); it
+was that AC-21 specified scanning as a **single** indeterminate state, which is
+only true of the walk. The moment examination starts, its total is known
+exactly — it is the walk's own output — so this stage *can* be determinate.
+
+**Ratified ruling** (reflected in FR-19 and AC-21/AC-21a above):
+
+1. **Animate it, determinately.** Scanning becomes two successive states of one
+   phase: the existing indeterminate `scanning... N files found` while walking,
+   then `scanning: x of N (p%)` while examining, with one advance per file
+   examined.
+2. **No new phase name.** The label stays `scanning`. Splitting scanning into
+   two named phases (`scanning` → `confirming`/`checking`) was considered and
+   rejected: it buys the user nothing the numbers do not already say, and every
+   candidate word for the second stage is a near-synonym of the existing
+   `verifying` phase (which does something entirely different — byte-for-byte
+   comparison), so the vocabulary would actively mislead. The state change is
+   self-evident on screen instead: the count the user just watched grow becomes
+   the denominator it is counted against (`scanning... 30000 files found` →
+   `scanning: 0 of 30000 (0%)`).
+3. **A shared, still-indeterminate counter running through both stages
+   (`scanning... N files found` continuing to climb during examination) was
+   rejected** as the cheapest option that is also dishonest: the meaning of
+   `N` would silently change from "files discovered" to "files examined"
+   mid-count with nothing on screen distinguishing them, and it would throw
+   away a denominator that is known exactly — leaving the user without the one
+   thing they asked for during the longest part of the wait, "how far along".
+4. **The examination denominator is not `y`.** It is the number of files
+   examined; `y` (the candidate total used by hashing and the closing `done:`
+   line) counts only those confirmed as images, so `N ≥ y`. This is the same
+   per-phase-own-workload principle ratified on 2026-08-01, applied one stage
+   earlier. Unlike verifying, no `(<n> candidates)` suffix is shown, because
+   `y` genuinely is not known yet at that point — showing the run total there
+   is impossible, not merely omitted.
+
+**Residual, explicitly accepted and named** (the framing TASK-0328's backlog
+row asked to be ruled on): the counters count *files*, not directory entries
+visited. On a tree whose files mostly carry image extensions but not image
+content, this ruling is a strict improvement — every such file is examined, so
+the counter advances on all of them and the run truthfully ends up with a small
+or zero `y`. But on a tree where very few entries match the extension scope at
+all (a source checkout, a backup volume), the **walk** can grind through a long
+stretch of entries while `scanning... 3 files found` barely moves. That is
+truthful — three files really is all it has found — but it does not evidence
+liveness, and this ruling does not fix it, because the fix is a different
+mechanism (a liveness cue, not a counter) and the walk is the ≈10% part.
+Tracked as TASK-0332 rather than folded in here.

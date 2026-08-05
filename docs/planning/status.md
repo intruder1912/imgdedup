@@ -7,9 +7,73 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-05
 
 ## In progress
+
+- _Session 19 (TASK-0328, animate scanning's determinate sniff sub-phase),
+  2026-08-05 — fresh window (5h=0%, 7d=7% at start)._ Closes the residual
+  TASK-0317 (session 11b) left open: TASK-0317 animated only the tree-walk
+  sub-phase of `Scanning` with a live indeterminate `scanning... N files
+  found` counter, but its own architect review had measured that walking is
+  only ≈10% of the scanning window (0.03s) while magic-byte confirmation
+  (`sniff::filter_candidates`) is ≈90% (0.88s, 30k files/60 dirs/~117MB,
+  release build) — the larger part of the wait stayed frozen. **Product-owner
+  ruling first** (this was a product decision, not an implementer one, since
+  AC-21 specified Scanning as a single indeterminate state): animate it
+  _determinately_, as a **second state of the same phase**, not a new phase
+  name. Once the walk finishes with `N` candidates, the indicator leaves the
+  indeterminate count for `scanning: x of N (p%)`, advancing once per file
+  examined (confirmed or rejected alike) and ending at `N of N (100%)` before
+  hashing begins; `N == 0` skips the state entirely. Two alternatives were
+  considered and rejected: a new sub-phase label (every candidate word was a
+  near-synonym of the existing `Verifying` phase, which does something
+  different, so the vocabulary would mislead) and a shared indeterminate
+  counter run through both stages (cheapest, but silently changes what the
+  count _means_ mid-run with nothing on screen to distinguish "discovered"
+  from "examined"). `N` is deliberately not the run-wide candidate total `y`
+  (`N ≥ y`, since rejected files are examined but never become candidates)
+  and carries no `(N candidates)` suffix, unlike Verifying — `y` is genuinely
+  unknown at that point. New PRD-0001 **AC-21a** and a 2026-08-05 amendment;
+  the residual this ruling explicitly declines to fix — a walk that grinds
+  through a tree with very few extension-matching entries, leaving
+  `scanning... 3 files found` static for the ≈10% walk portion — is named and
+  tracked as new **TASK-0332**, not folded in. **Implementer (TDD):** new
+  `sniff::filter_candidates_with_progress` (the plain `filter_candidates`
+  survives as a `#[cfg(test)]`-only wrapper, mirroring the
+  `enumerate`/`enumerate_with_progress` and
+  `find_duplicates`/`find_duplicates_with_progress` precedent) calls
+  `sink.advance(1)` once per candidate from inside the existing rayon
+  closure — the same lever already proven safe for concurrent callers by
+  `engine.rs`'s hashing phase; `main.rs` wired with `retotal(N)` +
+  `set_phase(Phase::Scanning)` (same phase value — no `progress.rs` trait or
+  renderer changes were needed at all: `set_phase` already force-repaints
+  regardless of whether the phase value actually changed, which turned out to
+  be exactly the AC-21a entry mechanism).
+  **Architect review (one dispatch, converged on the branch): one real defect
+  found and fixed, everything else held up.** The _closing_ render of the new
+  state had nothing forcing it — the state was left to whichever `advance`
+  call happened to land on a throttle-due tick, which on a real 20,000-file
+  run rendered `scanning: 18216 of 20000 (91%)` immediately followed by
+  `done: 0 of 0 (100%)`, silently skipping the AC-21a-mandated `N of N
+  (100%)` closing frame the PRD amendment, the backlog row, and the user
+  guide's worked example all promised. The unit test that should have caught
+  it couldn't: it used `immediate()` (throttle disabled), where every
+  `advance` repaints, so the gap was invisible in isolation and only showed
+  up under the real default throttle. Fixed with a second forced
+  `set_phase(Phase::Scanning)` call after the sniff stage returns, pinned by
+  a new CLI-level test (fails on the pre-fix commit, passes after, verified
+  both directions) plus two more closing an actual test-coverage gap: the
+  only prior CLI-level test happened to use a fixture where every examined
+  file was also confirmed (`N == y`), so nothing pinned the `N != y` clause
+  that is the entire point of AC-21a — new tests cover `N > y` (some
+  rejected) and `N > 0, y == 0` (all rejected, `done: 0 of 0 (100%)`
+  reachable from a non-empty scan). This continues the run noted in
+  [[imgdedup-architect-review-value]]: the reserved dispatch found a real,
+  user-visible defect on a unit that looked simple and had already passed
+  `make validate` clean going in. No `docs/planning/reviews/` log — that
+  directory is PRD-slice-cadence only (confirmed against TASK-0317/TASK-0329
+  precedent, neither of which has one). This PR.
 
 - _Session 18 (TASK-0329, cross-root `--follow-symlinks` alias collisions)
   closes the residual TASK-0320's own architect review left open: the same

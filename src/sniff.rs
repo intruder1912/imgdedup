@@ -67,8 +67,22 @@
 //! unrecognized file than to act on it.
 //!
 //! TASK-0307 will surface these warnings in the human-readable report.
+//!
+//! ## Progress (TASK-0328)
+//!
+//! [`filter_candidates_with_progress`] additionally depends on
+//! [`crate::progress::ProgressSink`], notifying it once per candidate
+//! examined (confirmed or rejected alike) so `main.rs` can animate
+//! scanning's second, determinate state (AC-21a) — `scanning: x of N (p%)`,
+//! where `N` is the number of candidates enumeration found — instead of
+//! leaving the indicator frozen on the last indeterminate "files found"
+//! count for the whole magic-byte-confirmation sub-phase (the ~90% of the
+//! scanning window measured by the TASK-0317 architect review).
 
 use crate::enumerate::Candidate;
+#[cfg(test)]
+use crate::progress::NoProgress;
+use crate::progress::ProgressSink;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::Read;
@@ -171,6 +185,40 @@ pub fn confirm_image(path: &Path) -> bool {
 
 /// Filter a list of candidate paths through magic-byte confirmation.
 ///
+/// Progress-free variant of [`filter_candidates_with_progress`], kept
+/// `#[cfg(test)]`-only (mirrors `engine.rs`'s `find_duplicates`/
+/// `find_duplicates_with_progress` and `enumerate.rs`'s `enumerate`/
+/// `enumerate_with_progress` splits, same precedent): `filter_candidates_with_progress`
+/// is this module's **sole production entry point** (TASK-0328) — the
+/// compiler proves it (no production code path can reach this function at
+/// all), rather than relying on a lint suppression. `pub(crate)` for parity
+/// with those same precedents, even though today only this module's own
+/// tests call it.
+#[cfg(test)]
+pub(crate) fn filter_candidates(
+    candidates: Vec<Candidate>,
+) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
+    filter_candidates_with_progress(candidates, &NoProgress)
+}
+
+/// Like [`filter_candidates`], additionally notifying `sink` once per
+/// candidate examined (TASK-0328, AC-21a): scanning's second, determinate
+/// state. `sink.advance(1)` is called exactly once per candidate, from
+/// inside the same rayon closure that performs the header read — regardless
+/// of whether that candidate is confirmed an image or rejected as a
+/// non-image, so the counter keeps moving even on a tree where nothing is
+/// confirmed. This mirrors `engine.rs`'s hashing phase, which advances the
+/// same way from inside its own rayon closure; `progress.rs`'s module doc
+/// documents `advance` as safe to call concurrently from rayon workers, so
+/// no additional synchronization is needed here.
+///
+/// Fixing the denominator (`retotal`) and switching into this determinate
+/// state (a `set_phase` call, even though the phase label itself does not
+/// change — see the product-owner ruling in PRD-0001's 2026-08-05 amendment)
+/// is the caller's responsibility (`main.rs`), not this function's: this
+/// module only ever calls `advance`, exactly like `enumerate_with_progress`
+/// only ever calls `advance` for its own (indeterminate) sub-phase.
+///
 /// Returns a tuple `(confirmed, warnings)`:
 /// - `confirmed`: paths whose header identified them as a supported image format.
 /// - `warnings`: [`SniffWarning`] records for every path that failed confirmation,
@@ -197,12 +245,15 @@ pub fn confirm_image(path: &Path) -> bool {
 /// regardless of which worker finishes first, so the confirmed/warnings split
 /// below preserves order exactly as the prior sequential loop did (see
 /// `filter_candidates_order_is_identical_at_single_and_multi_thread_widths`).
-pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
+pub fn filter_candidates_with_progress(
+    candidates: Vec<Candidate>,
+    sink: &dyn ProgressSink,
+) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
     let results: Vec<Result<ConfirmedFile, SniffWarning>> = candidates
         .into_par_iter()
         .map(|candidate| {
             let Candidate { path, size, mtime } = candidate;
-            match read_header(&path) {
+            let result = match read_header(&path) {
                 Err(e) => Err(SniffWarning::new(
                     path,
                     format!("could not read file header: {e}"),
@@ -219,7 +270,11 @@ pub fn filter_candidates(candidates: Vec<Candidate>) -> (Vec<ConfirmedFile>, Vec
                         Err(SniffWarning::new(path, reason))
                     }
                 }
-            }
+            };
+            // Every candidate is examined exactly once here, confirmed or
+            // rejected alike (AC-21a) — the count must not depend on outcome.
+            sink.advance(1);
+            result
         })
         .collect();
 
@@ -718,6 +773,144 @@ mod tests {
             assert_eq!(
                 warning_paths, expected_warnings,
                 "warnings must come back in exact input order at {threads} thread(s)"
+            );
+        }
+    }
+
+    // ── TASK-0328: scanning's determinate second state (AC-21a) ──────────────
+
+    /// Spy `ProgressSink` that records every `advance` call's `n` (TASK-0328),
+    /// mirroring `enumerate.rs`'s `CountingSink` — filter_candidates_with_progress
+    /// only ever calls `advance`, never `set_total`/`set_phase`/`retotal`/
+    /// `finish` (those are `main.rs`'s responsibility, wired around this call).
+    #[derive(Default)]
+    struct CountingSink {
+        advanced: std::sync::atomic::AtomicU64,
+    }
+
+    impl crate::progress::ProgressSink for CountingSink {
+        fn set_total(&self, _total: u64) {}
+        fn set_phase(&self, _phase: crate::progress::Phase) {}
+        fn advance(&self, n: u64) {
+            self.advanced
+                .fetch_add(n, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn retotal(&self, _total: u64) {}
+        fn finish(&self) {}
+    }
+
+    #[test]
+    fn filter_candidates_with_progress_advances_once_per_candidate_regardless_of_outcome() {
+        // AC-21a: `x` advances by exactly one per file examined, whether
+        // confirmed an image or rejected as a non-image — so the counter
+        // keeps moving even on a tree where nothing is confirmed.
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_header: &[u8] = &[
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ];
+        let confirmed_path = write_fixture(&dir, "real.jpg", jpeg_header);
+        let rejected_path = write_fixture(&dir, "fake.jpg", b"not an image at all");
+        let missing_path = PathBuf::from("/does/not/exist/ghost.jpg");
+
+        let sink = CountingSink::default();
+        let (confirmed, warnings) = filter_candidates_with_progress(
+            vec![
+                candidate(confirmed_path),
+                candidate(rejected_path),
+                candidate(missing_path.clone()),
+            ],
+            &sink,
+        );
+
+        assert_eq!(confirmed.len(), 1);
+        assert_eq!(warnings.len(), 2);
+        assert_eq!(
+            sink.advanced.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "expected exactly one advance() per candidate examined, \
+             regardless of confirm/reject outcome"
+        );
+    }
+
+    #[test]
+    fn filter_candidates_with_progress_advances_zero_times_for_an_empty_input() {
+        let sink = CountingSink::default();
+        let (confirmed, warnings) = filter_candidates_with_progress(Vec::new(), &sink);
+        assert!(confirmed.is_empty());
+        assert!(warnings.is_empty());
+        assert_eq!(
+            sink.advanced.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "no candidates means no advance() calls"
+        );
+    }
+
+    #[test]
+    fn filter_candidates_with_progress_order_is_identical_at_single_and_multi_thread_widths() {
+        // Mirrors `filter_candidates_order_is_identical_at_single_and_multi_thread_widths`
+        // (TASK-0321) — the progress-aware variant must preserve the exact
+        // same ordering guarantee, and the concurrent `sink.advance(1)` calls
+        // from inside the same rayon closure must not perturb it (`advance`
+        // is documented safe under concurrent callers, `progress.rs`).
+        use rayon::ThreadPoolBuilder;
+
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_header: &[u8] = &[
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ];
+
+        let mut candidates = Vec::new();
+        let mut expected_confirmed = Vec::new();
+        let mut expected_warnings = Vec::new();
+        for i in 0..200 {
+            let path = if i % 2 == 0 {
+                let p = write_fixture(&dir, &format!("real{i}.jpg"), jpeg_header);
+                expected_confirmed.push(p.clone());
+                p
+            } else {
+                let p = write_fixture(
+                    &dir,
+                    &format!("fake{i}.jpg"),
+                    format!("not an image {i}").as_bytes(),
+                );
+                expected_warnings.push(p.clone());
+                p
+            };
+            candidates.push(candidate(path));
+        }
+
+        let run = |threads: usize| {
+            let sink = CountingSink::default();
+            let candidates = candidates.clone();
+            let (confirmed, warnings) = ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+                .install(|| filter_candidates_with_progress(candidates, &sink));
+            (
+                confirmed,
+                warnings,
+                sink.advanced.load(std::sync::atomic::Ordering::SeqCst),
+            )
+        };
+
+        for threads in [1, 8] {
+            let (confirmed, warnings, advanced) = run(threads);
+            let confirmed_paths: Vec<PathBuf> = confirmed.into_iter().map(|c| c.path).collect();
+            let warning_paths: Vec<PathBuf> = warnings.into_iter().map(|w| w.path).collect();
+            assert_eq!(
+                confirmed_paths, expected_confirmed,
+                "confirmed must come back in exact input order at {threads} thread(s)"
+            );
+            assert_eq!(
+                warning_paths, expected_warnings,
+                "warnings must come back in exact input order at {threads} thread(s)"
+            );
+            assert_eq!(
+                advanced, 200,
+                "every candidate must advance the sink exactly once at {threads} thread(s)"
             );
         }
     }

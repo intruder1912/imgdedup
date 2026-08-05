@@ -85,7 +85,44 @@ fn run(args: cli::Cli) -> i32 {
     // Candidates that fail confirmation are dropped and recorded as
     // SniffWarnings; they never enter the grouping pipeline. The size that
     // enumeration stat'd is threaded through into each ConfirmedFile.
-    let (confirmed, sniff_warnings) = sniff::filter_candidates(candidate_set.candidates);
+    //
+    // Scanning's second, determinate state (AC-21a, TASK-0328): the walk
+    // above just finished, so `N` — the number of candidates it found — is
+    // known exactly, and the indicator can leave the indeterminate
+    // "scanning... N files found" state for a determinate
+    // "scanning: x of N (p%)" one while each found file is examined here
+    // (confirmed or rejected alike). `retotal` resets the numerator and
+    // fixes the new denominator but never itself repaints (by design, see
+    // `progress.rs`); `set_phase` with the *same* Phase::Scanning value —
+    // the label does not change, per the product-owner ruling in PRD-0001's
+    // 2026-08-05 amendment — is what forces the immediate `0 of N (0%)`
+    // render AC-21a requires. `N == 0` skips this state entirely (no
+    // `retotal`, no repaint), matching the zero-workload convention already
+    // used for Hashing/Verifying in `engine.rs`.
+    //
+    // The state is bracketed by *two* forced repaints, not one (architect
+    // review, TASK-0328). Repaints driven by `advance` are throttle-gated,
+    // and the last candidate's advance almost never lands on a due tick, so
+    // without the closing `set_phase` below AC-21a's "the state ends at
+    // `scanning: N of N (100%)`" simply did not happen: measured on a
+    // 20 000-file tree, the log's last scanning line was
+    // `scanning: 18216 of 20000 (91%)` and then jumped straight to `done:`,
+    // and on a TTY the frame left on screen when hashing took over was
+    // likewise short of 100%. `filter_candidates_with_progress` has returned
+    // by then, so every worker's `advance` is already visible and the forced
+    // repaint renders exactly `N of N (100%)`. Cost: one extra repaint per
+    // run — one extra line in a redirected log, and nothing on a TTY, where
+    // it is overwritten in place by the next phase.
+    let scanned_count = candidate_set.candidates.len() as u64;
+    if scanned_count > 0 {
+        sink.retotal(scanned_count);
+        sink.set_phase(progress::Phase::Scanning);
+    }
+    let (confirmed, sniff_warnings) =
+        sniff::filter_candidates_with_progress(candidate_set.candidates, &*sink);
+    if scanned_count > 0 {
+        sink.set_phase(progress::Phase::Scanning);
+    }
 
     // Stage 3 — Core dedup engine (ADR-0008, FR-4/5/17, NFR-1, TASK-0304/0305/0306).
     // Size pre-group → BLAKE3 pre-filter → hash group → identity collapse →

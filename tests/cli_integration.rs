@@ -910,3 +910,161 @@ fn piped_stderr_has_no_redraw_or_ansi_and_bounded_line_count() {
         "expected a small, bounded number of non-TTY progress lines, got {line_count}:\n{stderr}"
     );
 }
+
+// ── AC-21a (FR-19, scanning's determinate second state, TASK-0328) ────────
+
+/// AC-21a end to end: once the walk finds `N > 0` candidates, scanning
+/// leaves the indeterminate "scanning... N files found" state for a
+/// determinate "scanning: x of N (p%)" state while each found file is
+/// examined — on this non-TTY (piped) path that appears as a coarse
+/// milestone line, at the same granularity as every other phase (AC-22),
+/// distinct from both the earlier indeterminate line and from hashing's own
+/// `0 of y` (`y` is the *confirmed* candidate count; `N`, scanning's own
+/// denominator, is the count of files *examined* — `N >= y` in general,
+/// though this particular fixture confirms every file it examines).
+///
+/// Both bracket renders AC-21a names are asserted, and both are
+/// **deterministic** rather than throttle-dependent: entering the state and
+/// leaving it are each paired with a forced repaint in `main.rs`, so neither
+/// can be swallowed by the repaint throttle on a fast run (architect review,
+/// TASK-0328 — the closing `N of N (100%)` render was throttle-dependent and
+/// in practice never appeared: a 20 000-file run's log stopped at `91%` and
+/// jumped straight to `done:`).
+#[test]
+fn scanning_determinate_state_appears_as_a_milestone_line_on_non_tty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // The 6-format progress fixture has exactly 6 candidate files, all of
+    // which are genuinely confirmed images, so the determinate scanning
+    // state's denominator (N, files examined) and hashing's denominator (y,
+    // confirmed candidates) coincide at 6 here; the N > y case is pinned by
+    // `scanning_denominator_counts_files_examined_not_files_confirmed` below.
+    assert!(
+        stderr.contains("scanning: 0 of 6 (0%)"),
+        "expected the forced 0-of-N render on entering the determinate \
+         scanning state; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("scanning: 6 of 6 (100%)"),
+        "expected the determinate scanning state to end at N of N (100%); \
+         got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("scanning: 6 of 6 (100%) ("),
+        "scanning's determinate state must never carry a (N candidates) \
+         suffix (AC-21a; that suffix is Verifying-only); got:\n{stderr}"
+    );
+}
+
+/// AC-21a's `N != y` clause end to end, through the real binary: scanning's
+/// denominator counts files **examined**, hashing's counts files
+/// **confirmed**, so the two differ whenever anything is rejected — and
+/// `main.rs` must never feed the examined count forward as `y`. The unit
+/// tests cover each half in isolation; only running the real binary proves
+/// the two denominators are wired to different numbers.
+#[test]
+fn scanning_denominator_counts_files_examined_not_files_confirmed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Two genuine images (y = 2) ...
+    fs::write(
+        dir.path().join("a.png"),
+        image_bytes(ImageFormat::Png, 41, 64),
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("b.png"),
+        image_bytes(ImageFormat::Png, 42, 64),
+    )
+    .unwrap();
+    // ... plus three files carrying an image extension but no image content:
+    // enumerated and examined (so N = 5), rejected at magic-byte
+    // confirmation (so they never become candidates).
+    for i in 0..3 {
+        fs::write(
+            dir.path().join(format!("junk{i}.jpg")),
+            format!("not an image {i}"),
+        )
+        .unwrap();
+    }
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success(), "per-file warnings never fail a run");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        stderr.contains("scanning: 5 of 5 (100%)"),
+        "scanning's denominator must be the 5 files examined; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("hashing: 0 of 2 (0%)"),
+        "hashing's denominator must be the 2 confirmed candidates (y), not \
+         the 5 files scanning examined, and must restart at 0; got:\n{stderr}"
+    );
+}
+
+/// The worked example in PRD-0001's 2026-08-05 amendment and in
+/// `docs/guide/output-and-exit-codes.md`, pinned end to end: a folder whose
+/// files all carry image extensions but no image content still animates
+/// scanning to `N of N (100%)` (every file is *examined*, which is the point
+/// of counting examinations rather than confirmations) and then closes on
+/// `done: 0 of 0 (100%)`, because `y` is zero.
+#[test]
+fn all_files_rejected_still_completes_scanning_then_reports_done_zero_of_zero() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for i in 0..3 {
+        fs::write(
+            dir.path().join(format!("junk{i}.jpg")),
+            format!("not an image {i}"),
+        )
+        .unwrap();
+    }
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        stderr.contains("scanning: 3 of 3 (100%)"),
+        "every examined file advances the counter even when none is \
+         confirmed (AC-21a); got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("done: 0 of 0 (100%)"),
+        "y is zero here, so the closing line is 0 of 0 regardless of where \
+         scanning's own counter ended; got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("hashing:"),
+        "a zero-workload hashing phase is skipped entirely; got:\n{stderr}"
+    );
+}
+
+/// AC-21a's zero-workload rule: when the walk finds nothing (`N == 0`), the
+/// determinate second state is skipped entirely — never a degenerate
+/// `scanning: 0 of 0`, mirroring the same rule already applied to Hashing
+/// and Verifying (`find_duplicates_with_progress_skips_*` in `engine.rs`).
+#[test]
+fn empty_scan_root_never_shows_a_degenerate_scanning_zero_of_zero() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // No files at all: enumeration finds N = 0 candidates.
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        !stderr.contains("scanning: 0 of 0"),
+        "N == 0 must skip the determinate scanning state entirely, never \
+         render a degenerate 0-of-0 line; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("scanning...\n"),
+        "the indeterminate scanning line must still appear even when \
+         nothing was found; got:\n{stderr}"
+    );
+}
