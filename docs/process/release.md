@@ -180,6 +180,41 @@ manually with the `tag` input set to the existing tag (e.g. `v0.1.0`): this
 skips semantic-release entirely and runs only the `assets` job against that
 tag.
 
+### Local pre-flight rehearsal
+
+Before dispatching a real release, `scripts/release-preflight.sh` rehearses the
+build/package/verify mechanics on this machine, without creating a tag,
+touching `main`, or uploading anything:
+
+```sh
+scripts/release-preflight.sh              # rehearse HEAD with a placeholder version
+scripts/release-preflight.sh --ref v0.5.1 --version 0.5.1   # rehearse a specific ref/version
+scripts/release-preflight.sh --keep       # keep the worktree on exit, for inspecting a failure
+```
+
+It builds two of the four legs — a glibc Linux target inside a rootless
+[podman](https://podman.io/) container, and `aarch64-apple-darwin` natively
+when run on Apple Silicon macOS — calling
+[`scripts/build-release-artifact.sh`](../../scripts/build-release-artifact.sh),
+the same script the `assets` job itself calls, so the two cannot drift apart on
+stamping, building, the `--version` assertion, or packaging. Windows and Intel
+macOS stay CI-only (no local host for either here). Everything runs inside a
+disposable `git worktree`; the real working tree, including `Cargo.toml`, is
+never touched.
+
+**On an Apple Silicon dev machine, the Linux leg is not
+`x86_64-unknown-linux-gnu`.** Measured directly: running the pinned x86_64 Rust
+toolchain under podman's qemu-based emulation is not just slow but unreliable
+— `rustc` itself segfaulted under emulation, before any of this project's code
+was even compiled. The script does not force that emulation; it lets the
+container build for its own native platform instead (`aarch64-unknown-linux-gnu`
+on an Apple Silicon host) and says so plainly in its output. That still
+exercises the real build/package/verify pipeline end-to-end — it just isn't the
+specific leg `release.yml` ships. Run it on an x86_64 host (or trust CI) for a
+byte-for-byte rehearsal of that leg. See
+[ADR-0015's 2026-08-05 TASK-0334 amendment](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-05--local-release-pipeline-pre-flight-task-0334)
+for the full reasoning.
+
 ### Licensing note (GPLv3 §6)
 
 Distributing a binary triggers the GPLv3 §6 obligation to make the

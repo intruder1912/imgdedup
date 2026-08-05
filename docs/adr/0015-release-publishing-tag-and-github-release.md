@@ -507,6 +507,86 @@ with how much releases are actually batched. No repository-settings change is
 required — no context name changes, and the required-check list is read by this
 workflow, not written by it.
 
+## Amendment 2026-08-05 — local release-pipeline pre-flight (TASK-0334)
+
+**Deferred out of the previous amendment (TASK-0333(b)) as its own, larger
+piece.** Now that releases are cut deliberately rather than on every merge, a
+bad `assets` leg is discovered in the repository's single most privileged job,
+after the tag and the GitHub Release already exist, in a run someone is
+actually waiting on. The `assets` matrix was also the one part of the pipeline
+with no local rehearsal at all. This amendment adds one: `scripts/
+release-preflight.sh` (documented operationally in
+[`../process/release.md`](../process/release.md#local-pre-flight-rehearsal)),
+plus a refactor of the `assets` job's own steps so the CI path and the local
+rehearsal cannot silently drift apart.
+
+**Extraction, not duplication.** The stamp/build/verify/package logic that used
+to live as four separate inline steps in the `assets` job (`Stamp the released
+version into Cargo.toml`, `cargo build --release`, `Verify the built binary
+reports the stamped version`, `Package the archive and checksum` — plus a fifth,
+`Verify the runner's architecture matches this leg's target triple`, whose
+check is now this script's own first, unconditional step) is now one script,
+[`scripts/build-release-artifact.sh`](../../scripts/build-release-artifact.sh),
+parameterized on `<target> <version> <tag> <archive> <out-dir>`. `release.yml`'s
+`assets` job calls it; `scripts/release-preflight.sh` calls it too, for a local
+rehearsal of the same mechanics. This is the "one source of truth" resolution
+of the open question TASK-0334's own backlog entry named: **the credentialed
+half never moves.** The shared script never sees `GITHUB_TOKEN` and never runs
+`gh release upload` — that step, and the "verify required checks are green"
+step earlier in the `release` job, stay inline in the workflow, exactly as
+`release.yml`'s no-cache note (TASK-0330) already argued for keeping this job's
+footprint minimal and directly auditable in one file. What moved into the
+script is specifically the part that is expensive to get wrong twice (version
+stamping, archive layout, checksum format) and carries no privilege — running
+it locally can build a binary, but it cannot publish one.
+
+**Glibc-floor / musl / aarch64-Linux checking is explicitly out of scope
+here**, per TASK-0334's own backlog note — that question belongs to TASK-0326
+(deferred to the public-release decision), not to this pre-flight tool.
+
+**What the tool actually rehearses, and the one honest gap in it.** Two of the
+four release legs have a local host at all: a glibc Linux target, built inside
+a rootless [podman](https://podman.io/) container
+([`scripts/release-preflight/Containerfile`](../../scripts/release-preflight/Containerfile),
+Ubuntu 24.04 to approximate the `ubuntu-24.04` runner's glibc without claiming
+byte-identical reproduction), and `aarch64-apple-darwin`, built natively when
+run on Apple Silicon macOS. Windows (`x86_64-pc-windows-msvc`) and Intel macOS
+(`x86_64-apple-darwin`) stay CI-only — no local host for either exists here,
+and TASK-0334's own scope named exactly these two legs. Everything runs inside
+a disposable `git worktree` (never the real working tree — `build-release-
+artifact.sh` stamps `Cargo.toml` in place, which must never happen to this
+repository's actual copy), removed on exit whether the rehearsal succeeds or
+fails, unless `--keep` is passed.
+
+**Measured, not assumed: emulating the Linux leg's exact target triple on an
+Apple Silicon dev machine does not work.** The first design attempted
+`--platform linux/amd64` to force a real `x86_64-unknown-linux-gnu` build under
+podman's qemu-based emulation on this project's arm64 development machine.
+`rustc -vV` — not a build, just invoking the compiler to print its own version
+— segfaulted under that emulation, reproducibly. This is a known class of qemu
+user-mode emulation limitation with LLVM-based toolchains, not a
+misconfiguration to work around; retrying with reduced build parallelism
+(`cargo build -j 1`) did not help, because the crash was in `rustc` itself, before
+any of this project's code compiled. The tool does not paper over this: it
+drops the forced `--platform` and lets podman build for its own native
+platform instead — on an x86_64 host (or in CI) that natively **is**
+`x86_64-unknown-linux-gnu`, a byte-for-byte rehearsal of the real leg; on an
+Apple Silicon host it is `aarch64-unknown-linux-gnu` instead, which is not one
+of the four targets `release.yml` ships. The script detects which target it
+actually built (`rustc -vV`'s own `host:` line, the same mechanism `build-
+release-artifact.sh`'s architecture guard already used) and says so plainly on
+stderr rather than silently mislabeling the rehearsal as the CI leg it isn't.
+The build/package/verify mechanics are still exercised for real either way —
+only the specific target triple is host-dependent.
+
+**Consequences.** A release build can now be exercised on this machine before
+dispatching the real workflow, at zero cost to the credentialed path (the
+shared script carries no permissions and is exercised in CI exactly as before,
+just from one file instead of four inline steps). The known gap — no reliable
+local rehearsal of the literal `x86_64-unknown-linux-gnu` leg on Apple Silicon
+— is named rather than hidden, and does not regress anything: CI still builds
+and verifies that exact leg on every real release, unaffected by this tool.
+
 ## Links
 
 - [semantic-release configuration](https://semantic-release.gitbook.io/semantic-release/usage/configuration)
