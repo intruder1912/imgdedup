@@ -189,12 +189,24 @@ imgdedup --no-progress ./photos
 See [Progress while it runs](docs/guide/output-and-exit-codes.md#progress-while-it-runs)
 for what it shows and how it behaves when redirected.
 
+If a scan feels slow, `--timings` prints how long each stage of the run took to
+standard error — a diagnostic, and one that replaces the progress indicator
+(the two cannot share the stream):
+
+```sh
+imgdedup --timings ./photos
+```
+
+See [`--timings`: where the time went](docs/guide/output-and-exit-codes.md#--timings-where-the-time-went)
+for how to read the output and how to combine it with `--json`.
+
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
 `--apply` (move non-keepers to the OS trash); `--delete` (with `--apply`,
 permanently delete instead); `--json` (machine-readable output); `--exit-code`
 (signal duplicates via exit status); `--no-progress` (disable the live progress
-indicator). Run `imgdedup --help` for the full list.
+indicator); `--timings` (print per-stage timings to stderr for diagnosis).
+Run `imgdedup --help` for the full list.
 
 ## Detailed guide
 

@@ -791,3 +791,24 @@ rather than a new one. This is the same "truthful, not exhaustive" posture
 AC-21/AC-22 already take everywhere else (a repaint can only reflect work
 already completed, never work in flight), not a new gap this ruling
 introduces.
+
+## Amendment 2026-08-05 — AC-23 covers `--timings` too (product-owner clarification, TASK-0338)
+
+TASK-0338 (ADR-0017) added `--timings`, a diagnostic flag that — as a
+necessary side effect, not its main purpose — also disables the live
+progress indicator (a stage-close timing line written while the progress
+line is mid-redraw would corrupt it). AC-23 as written names only
+`--no-progress` as the way progress is suppressed; a literal reading could
+leave a future tester wondering whether `--timings` is in or out of scope of
+that acceptance criterion.
+
+**Clarification, no behavior change:** AC-23's guarantee — no progress output
+reaches stderr, stdout unaffected — applies identically whenever progress is
+disabled, regardless of which flag caused it. AC-24's output-only invariant
+(results and stdout identical regardless of progress state) already covers
+`--timings` on the same reasoning, and needed no wording change since it is
+phrased in terms of "progress enabled/disabled," not by flag name.
+
+No new FR or AC: `--timings` remains ADR-0017's diagnostic/engineering
+surface, not a PRD-0001 product capability (see that ADR's "Product scope and
+unit classification" section).

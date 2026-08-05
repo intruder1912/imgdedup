@@ -291,6 +291,21 @@ pub fn enumerate_with_progress(
     opts: &ScopeOptions,
     sink: &dyn ProgressSink,
 ) -> CandidateSet {
+    // ADR-0017 (TASK-0338): this stage's own span, opened by the function
+    // that owns the stage. `roots` is the raw input root count, known up
+    // front; `candidates`/`warnings`/`root_errors` are only known once
+    // traversal (and, conditionally, alias collapse) is complete, so they
+    // are declared `Empty` and recorded just before returning. No field
+    // here is ever a path — only counts (the security rule, ADR-0017 §6).
+    let enumerate_span = tracing::info_span!(
+        "enumerate",
+        roots = paths.len(),
+        candidates = tracing::field::Empty,
+        warnings = tracing::field::Empty,
+        root_errors = tracing::field::Empty,
+    );
+    let _enumerate_guard = enumerate_span.enter();
+
     let mut result = CandidateSet::default();
 
     // Every deduped root's own span within `result.candidates`, plus whether
@@ -324,9 +339,26 @@ pub fn enumerate_with_progress(
     // been routed through the expensive path. Skipping the pass entirely
     // still keeps the overwhelmingly common "flag set, no symlinks present"
     // case free.
+    //
+    // ADR-0017 (TASK-0338): `symlink_alias_dedupe` is the one *conditional*
+    // span in the table — unlike `hash`/`verify`, it is only opened when the
+    // pass actually runs (the guard above already provably means "nothing to
+    // collapse" otherwise, so there is no zero-workload case to represent).
     if opts.follow_symlinks && root_scopes.iter().any(|r| r.saw_symlink) {
+        let candidates_in = result.candidates.len();
+        let alias_span = tracing::info_span!(
+            "symlink_alias_dedupe",
+            candidates_in = candidates_in,
+            collapsed = tracing::field::Empty,
+        );
+        let _alias_guard = alias_span.enter();
         result.candidates = dedupe_symlink_aliases_across_roots(&root_scopes, result.candidates);
+        alias_span.record("collapsed", candidates_in - result.candidates.len());
     }
+
+    enumerate_span.record("candidates", result.candidates.len());
+    enumerate_span.record("warnings", result.warnings.len());
+    enumerate_span.record("root_errors", result.root_errors.len());
 
     result
 }
@@ -2402,5 +2434,96 @@ mod tests {
         let result = enumerate(&[dir.path().to_path_buf()], &opts);
 
         assert_eq!(result.candidates.len(), 1);
+    }
+
+    // ── ADR-0017 / TASK-0338: `enumerate` and `symlink_alias_dedupe` spans ───
+
+    #[test]
+    fn enumerate_with_progress_emits_an_enumerate_span_with_expected_fields() {
+        use crate::trace_test_support::capture;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+        touch(&dir, "b.jpg");
+        let opts = ScopeOptions::default_scope();
+
+        let out = capture(|| {
+            let _ = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress);
+        });
+
+        assert!(
+            out.contains("enumerate"),
+            "expected an `enumerate` span close line; got:\n{out}"
+        );
+        assert!(out.contains("roots=1"), "got:\n{out}");
+        assert!(out.contains("candidates=2"), "got:\n{out}");
+        assert!(out.contains("warnings=0"), "got:\n{out}");
+        assert!(out.contains("root_errors=0"), "got:\n{out}");
+    }
+
+    #[test]
+    fn enumerate_with_progress_root_errors_are_counted_in_the_span() {
+        use crate::trace_test_support::capture;
+
+        let opts = ScopeOptions::default_scope();
+        let out = capture(|| {
+            let _ = enumerate_with_progress(
+                &[PathBuf::from("/does/not/exist/at/all")],
+                &opts,
+                &NoProgress,
+            );
+        });
+
+        assert!(out.contains("enumerate"), "got:\n{out}");
+        assert!(out.contains("candidates=0"), "got:\n{out}");
+        assert!(out.contains("root_errors=1"), "got:\n{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn enumerate_with_progress_emits_symlink_alias_dedupe_span_only_when_a_symlink_is_seen() {
+        use crate::trace_test_support::capture;
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "real.jpg");
+        symlink(dir.path().join("real.jpg"), dir.path().join("link.jpg")).unwrap();
+
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let out = capture(|| {
+            let _ = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress);
+        });
+
+        assert!(
+            out.contains("symlink_alias_dedupe"),
+            "expected the conditional symlink_alias_dedupe span to fire when a \
+             symlink was actually seen; got:\n{out}"
+        );
+        assert!(out.contains("candidates_in=2"), "got:\n{out}");
+        assert!(out.contains("collapsed=1"), "got:\n{out}");
+    }
+
+    #[test]
+    fn enumerate_with_progress_omits_symlink_alias_dedupe_span_when_no_symlink_is_seen() {
+        use crate::trace_test_support::capture;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+        let opts = ScopeOptions {
+            follow_symlinks: true,
+            ..ScopeOptions::default_scope()
+        };
+        let out = capture(|| {
+            let _ = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress);
+        });
+
+        assert!(
+            !out.contains("symlink_alias_dedupe"),
+            "the conditional span must not fire when no root's walk saw a \
+             symlink (the cheap common case); got:\n{out}"
+        );
     }
 }

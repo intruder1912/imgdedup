@@ -385,6 +385,53 @@ the larger read.
 sole removal authority) is a raw comparison, not a hash, so `update_rayon` does
 not apply to it — out of scope for TASK-0322, which named hashing specifically.
 
+### Consequence note — closing the `enumerate`-dominance question (2026-08-05, TASK-0338)
+
+TASK-0321's note above left one question explicitly open: with sniff's cost cut
+~3–7x, is `enumerate` (walkdir, still fully serial) now a plausible dominant
+serial stage? TASK-0338 (ADR-0017's `tracing` instrumentation, `--timings`) was
+built specifically to answer this kind of question without another throwaway
+control fixture, so its first real use is to close it.
+
+**Measured on the real instrumented binary against a real photo corpus** — the
+same 2,021-file / 5.72 GB, three-camera-body 2009 vacation-trip corpus session
+26/29 used (`test-images/`, gitignored, owner-supplied), default scope, warm
+cache, 3 runs:
+
+| Stage | Run 1 | Run 2 | Run 3 | Share of total |
+|---|---|---|---|---|
+| `enumerate` | 11.3 ms | 11.4 ms | 7.9 ms | ~2% |
+| `sniff` | 51.4 ms | 56.6 ms | 48.4 ms | ~11% |
+| `hash` | 417 ms | 403 ms | 401 ms | ~86% |
+| `verify` | 0.6 µs | 0.7 µs | 0.9 µs | ~0% (0 groups) |
+| `run` (total) | 480 ms | — | — | 100% |
+
+**Answer: no — `enumerate` is not the new dominant stage.** `hash` dominates by
+a wide margin (~86% of wall time), consistent across all three runs;
+`enumerate`'s serial walk costs single-digit milliseconds against ~400ms of
+hashing, i.e. noise by comparison. TASK-0321's own note is confirmed correct to
+flag the question, but the premise it worried about — a small-file corpus
+where the now-fast `sniff` stage leaves `enumerate` exposed as the new
+bottleneck — does not hold on a corpus of ordinary camera photos (avg. ~2.8
+MB/file; every file clears `RAYON_HASH_THRESHOLD`, the smallest being 1.19 MB):
+hashing the 850 files that survive `group_by_size` (the other 1,171 are dropped
+as unique-sized singletons before ever reaching `hash`) means reading 2.17 GB,
+and even at the ~5.2 GB/s aggregate the parallel hasher sustains here (the
+`hash` span's own `bytes_hashed=2168910223` over its 417 ms) that still costs
+more than walking a 2,021-entry tree ever could, `enumerate`'s parallelism
+status notwithstanding.
+
+**Caveat, named rather than glossed:** this is one corpus shape. A tree
+dominated by tiny files below `RAYON_HASH_THRESHOLD`, or one with a much larger
+file count relative to total bytes (many small icons/thumbnails rather than
+a few thousand multi-megabyte photos), would shift the `enumerate`/`hash`
+ratio — `enumerate`'s per-entry cost is roughly fixed while `hash`'s scales
+with bytes actually read, so a corpus with less to hash and more entries to
+walk narrows this gap. No such corpus has been measured; `enumerate`
+parallelization stays an open, un-prioritized idea, not a confirmed need. This
+note closes the specific question TASK-0321 left open in writing — it does not
+claim the answer generalizes to every corpus shape.
+
 ## Pros and cons of the options
 
 ### Option 1 — `rayon` (chosen)

@@ -13,6 +13,8 @@ mod progress;
 mod report;
 mod safe_text;
 mod sniff;
+#[cfg(test)]
+mod trace_test_support;
 
 fn main() {
     let args = cli::Cli::parse();
@@ -35,9 +37,46 @@ fn run(args: cli::Cli) -> i32 {
         return exit_code::USAGE;
     }
 
+    // Performance instrumentation (ADR-0017, TASK-0338). `--timings`
+    // installs a minimal `tracing-subscriber` `fmt` consumer over this run's
+    // own tracing spans, writing one line per pipeline stage to stderr at
+    // stage close. Off by default: with no subscriber installed, every span
+    // macro below is a near-zero-cost no-op (measured ~0.15 ns/span,
+    // ADR-0017). Installation is **non-fatal** on failure — instrumentation
+    // must never be the reason the tool fails (the AC-24 principle again):
+    // a failed `try_init()` just means no timing lines get printed.
+    if args.timings {
+        let _ = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+            .with_max_level(tracing::Level::INFO)
+            .with_target(false)
+            .with_ansi(false)
+            .try_init();
+    }
+
+    // The root `run` span (ADR-0017). `roots`/`apply`/`json` are known right
+    // here, before any pipeline stage runs. **Hard constraint (easy to get
+    // wrong):** `main()` ends in `process::exit(code)`, which runs no
+    // destructors — this guard must therefore be created *and dropped
+    // inside `run()`*, exactly like `SinkGuard` below, or the run-total
+    // close line silently never fires. Held for the rest of this function,
+    // so every span opened by a later pipeline stage nests inside it.
+    let run_span = tracing::info_span!(
+        "run",
+        roots = args.paths.len(),
+        apply = args.apply,
+        json = args.json,
+    );
+    let _run_guard = run_span.enter();
+
     // Progress sink (FR-19, TASK-0315). Default-on; --no-progress disables it
     // completely (AC-23), in which case `NoProgress` writes nothing on any
-    // stream. Otherwise progress always targets stderr, and TTY-ness is
+    // stream. `--timings` also disables it (ADR-0017 §4): a stage-close
+    // timing line written while the TTY progress line is live would corrupt
+    // it mid-redraw (`progress.rs`'s module doc), so the two are mutually
+    // exclusive and `--timings` always wins — no error, no second flag
+    // needed. Otherwise progress always targets stderr, and TTY-ness is
     // probed exactly once here — never inside `progress::Progress` itself —
     // so the renderer stays unit-testable with an injected boolean (AC-21 /
     // AC-22). `Box<dyn ProgressSink>` lets both arms share one call site
@@ -52,8 +91,9 @@ fn run(args: cli::Cli) -> i32 {
     // is fully flushed *before* the stdout report — AC-20, which `Drop`
     // alone cannot guarantee the ordering of) does not double-render the
     // completion line when `Drop` runs afterwards.
+    let progress_enabled = !args.no_progress && !args.timings;
     let stderr_is_tty = std::io::stderr().is_terminal();
-    let sink: progress::SinkGuard = progress::SinkGuard::new(if args.no_progress {
+    let sink: progress::SinkGuard = progress::SinkGuard::new(if !progress_enabled {
         Box::new(progress::NoProgress)
     } else {
         Box::new(progress::Progress::new(std::io::stderr(), stderr_is_tty))
@@ -211,21 +251,26 @@ fn run(args: cli::Cli) -> i32 {
         // below never prints, and without this the user would have no record of
         // what was destroyed.
         let verb = mode.past_tense();
-        let outcome = apply::apply(&dedup.groups, remover.as_ref(), &mut |event| match event {
-            apply::Event::Removed(path) => {
-                eprintln!(
-                    "{verb}: {}",
-                    safe_text::escape_control_chars(&path.display().to_string())
-                )
-            }
-            apply::Event::Skipped(path, reason) => {
-                eprintln!(
-                    "warning: {}: {}",
-                    safe_text::escape_control_chars(&path.display().to_string()),
-                    safe_text::escape_control_chars(&reason.to_string())
-                )
-            }
-        });
+        let outcome = apply::apply(
+            &dedup.groups,
+            mode,
+            remover.as_ref(),
+            &mut |event| match event {
+                apply::Event::Removed(path) => {
+                    eprintln!(
+                        "{verb}: {}",
+                        safe_text::escape_control_chars(&path.display().to_string())
+                    )
+                }
+                apply::Event::Skipped(path, reason) => {
+                    eprintln!(
+                        "warning: {}: {}",
+                        safe_text::escape_control_chars(&path.display().to_string()),
+                        safe_text::escape_control_chars(&reason.to_string())
+                    )
+                }
+            },
+        );
         (mode, outcome)
     } else {
         (apply::ActionMode::DryRun, apply::ApplyOutcome::default())
@@ -236,23 +281,45 @@ fn run(args: cli::Cli) -> i32 {
     // JSON carries the diagnostics too (resilience F3): warnings and
     // root_errors are part of the document, while root errors additionally
     // went to stderr above (F1) so stdout stays one valid JSON document.
-    let rendered = if args.json {
-        json::render(
-            &dedup,
-            &candidate_set.warnings,
-            &sniff_warnings,
-            &candidate_set.root_errors,
-            mode,
-            &applied,
-        )
-    } else {
-        report::render(
-            &dedup,
-            &candidate_set.warnings,
-            &sniff_warnings,
-            mode,
-            &applied,
-        )
+    //
+    // ADR-0017 (TASK-0338): `render` is the other span `main.rs` owns
+    // outright (alongside `run`). `format` is a fixed, small string — never
+    // user-controlled data — and `bytes` is the size of the rendered
+    // document, known only once rendering completes.
+    //
+    // The span value itself, not just its guard, is block-scoped (architect
+    // review, TASK-0338): `FmtSpan::CLOSE` fires when the last `Span` handle
+    // drops, not when the guard exits, so a function-scoped handle would
+    // print `render`'s line at the very end of `run()` — after the stdout
+    // document had already been printed — with a `time.idle` covering that
+    // print. See the same note in `engine.rs`.
+    let rendered = {
+        let render_span = tracing::info_span!(
+            "render",
+            format = if args.json { "json" } else { "human" },
+            bytes = tracing::field::Empty,
+        );
+        let _render_guard = render_span.enter();
+        let rendered = if args.json {
+            json::render(
+                &dedup,
+                &candidate_set.warnings,
+                &sniff_warnings,
+                &candidate_set.root_errors,
+                mode,
+                &applied,
+            )
+        } else {
+            report::render(
+                &dedup,
+                &candidate_set.warnings,
+                &sniff_warnings,
+                mode,
+                &applied,
+            )
+        };
+        render_span.record("bytes", rendered.len());
+        rendered
     };
     print!("{rendered}");
 
@@ -265,4 +332,65 @@ fn run(args: cli::Cli) -> i32 {
         args.exit_code,
         !dedup.groups.is_empty(),
     )
+}
+
+// ── ADR-0017 §6 (security): span fields must never carry a path via `%` ────
+//
+// None of this crate's 11 real spans (see the table in ADR-0017) has a path
+// field at all — every field is a count, a size, or an enum, by design. The
+// two tests below are a *regression demonstration*, not a test of anything
+// in this crate's own spans: they pin the underlying `tracing` behavior the
+// rule depends on, the same way ADR-0017's own worked example does, so that
+// a test shaped like this is what would catch it if a path field were ever
+// added via `%` (Display) instead of `?` (Debug) or
+// `safe_text::escape_control_chars`.
+#[cfg(test)]
+mod security_tests {
+    use crate::trace_test_support::capture;
+
+    /// `%` (Display) formatting writes a path's raw bytes straight into the
+    /// formatted log line — the same terminal-injection channel TASK-0318
+    /// and `safe_text.rs` exist to close elsewhere (a filename containing
+    /// `ESC[2J` reaches the terminal raw, clearing the screen).
+    #[test]
+    fn percent_display_formatting_of_a_path_leaks_raw_control_bytes() {
+        let evil = "evil\u{1b}[2Jname.jpg";
+
+        let out = capture(|| {
+            let span = tracing::info_span!("security_demo_percent", path = %evil);
+            drop(span);
+        });
+
+        assert!(
+            out.contains('\u{1b}'),
+            "the raw ESC byte must reach the formatted line when a span \
+             field is recorded via `%` (Display) — this is exactly the \
+             injection ADR-0017 §6 forbids for any of this crate's real \
+             spans; got: {out:?}"
+        );
+    }
+
+    /// The safe alternative: `?` (Debug) escapes control characters via
+    /// `escape_debug`, so the same hostile path never reaches the terminal
+    /// raw. ADR-0017's rule: if a path ever must be recorded, use `?` —
+    /// never `%`.
+    #[test]
+    fn debug_formatting_of_a_path_escapes_control_bytes() {
+        let evil = "evil\u{1b}[2Jname.jpg";
+
+        let out = capture(|| {
+            let span = tracing::info_span!("security_demo_debug", path = ?evil);
+            drop(span);
+        });
+
+        assert!(
+            !out.contains('\u{1b}'),
+            "the raw ESC byte must never reach the formatted line when a \
+             span field is recorded via `?` (Debug); got: {out:?}"
+        );
+        assert!(
+            out.contains("\\u{1b}"),
+            "the ESC must render as a visible, escaped form instead; got: {out:?}"
+        );
+    }
 }

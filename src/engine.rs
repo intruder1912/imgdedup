@@ -377,6 +377,16 @@ where
     H: Fn(&Path) -> io::Result<[u8; 32]> + Sync,
     K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
+    // ADR-0017 (TASK-0338): the engine's own whole-stage span. `files` is
+    // known up front; `groups` is only known once the outcome is fully
+    // built (after the canonical sort below), so it is declared `Empty` and
+    // recorded just before returning. This span's guard is held for the
+    // entire function body, so every span opened below (`group_by_size`,
+    // `hash`, `verify`, `sort_canonical`) nests inside it.
+    let dedup_span =
+        tracing::info_span!("dedup", files = files.len(), groups = tracing::field::Empty,);
+    let _dedup_guard = dedup_span.enter();
+
     let mut outcome = DedupOutcome::default();
 
     // The engine is the single source of truth for the run-wide denominator
@@ -402,101 +412,195 @@ where
     // change to cohort construction that ever produced more cohort members
     // than input files would be a logic bug, but progress accounting must
     // not be where it panics (debug) or silently wraps (release).
-    let total_files = files.len();
-    let cohorts = if size_prefilter {
-        group_by_size(files)
-    } else if files.is_empty() {
-        Vec::new()
-    } else {
-        vec![files]
+    // ADR-0017 (TASK-0338): `group_by_size` gets its own span, wrapping the
+    // size pre-grouping stage. All three fields are known only once the
+    // cohorts are built, so they are declared `Empty` and recorded at the
+    // end of this block.
+    //
+    // **The span value itself — not just its guard — is created inside this
+    // block, deliberately** (architect review, TASK-0338). `FmtSpan::CLOSE`
+    // fires when the span *closes*, i.e. when the last `Span` handle is
+    // dropped, not when the guard exits. A span declared at function scope
+    // therefore prints its line at the end of `dedup_core_with_sink`, not at
+    // the end of its own stage: measured, that put the stage lines on stderr
+    // in reverse order (`sort_canonical` before `verify` before `hash`), gave
+    // them all the same end-of-engine timestamp, and reported a nonsense
+    // `time.idle` (`group_by_size ... time.busy=73.6µs time.idle=589ms` on a
+    // 4 000-file run) against ADR-0017's stated reading contract that
+    // `time.idle ≈ 0`. Keeping the handle's lifetime equal to the stage's
+    // restores "one line per stage, at stage end" (ADR-0017 §3) — which is
+    // also what makes a long run readable while it is still going.
+    let cohorts = {
+        let group_by_size_span = tracing::info_span!(
+            "group_by_size",
+            files = tracing::field::Empty,
+            cohorts = tracing::field::Empty,
+            size_singletons = tracing::field::Empty,
+        );
+        let _group_by_size_guard = group_by_size_span.enter();
+        let total_files = files.len();
+        let cohorts = if size_prefilter {
+            group_by_size(files)
+        } else if files.is_empty() {
+            Vec::new()
+        } else {
+            vec![files]
+        };
+        let cohort_files: usize = cohorts.iter().map(Vec::len).sum();
+        let size_singletons = total_files.saturating_sub(cohort_files);
+        if size_singletons > 0 {
+            sink.advance(size_singletons as u64);
+        }
+        group_by_size_span.record("files", total_files);
+        group_by_size_span.record("cohorts", cohorts.len());
+        group_by_size_span.record("size_singletons", size_singletons);
+        cohorts
     };
-    let cohort_files: usize = cohorts.iter().map(Vec::len).sum();
-    let size_singletons = total_files.saturating_sub(cohort_files);
-    if size_singletons > 0 {
-        sink.advance(size_singletons as u64);
-    }
 
     // Deferred hash groups (size > 1), collected across every cohort so the
     // verify pass below runs once, after all hashing is done.
     let mut pending_hash_groups: Vec<Vec<FileRec>> = Vec::new();
 
-    for cohort in cohorts {
-        // Stage 2 — hash each file in the cohort in parallel (ADR-0010, rayon).
-        // par_iter's collect into a Vec actually does preserve input order
-        // (indexed collect splits the destination by index, regardless of
-        // completion order — see sniff.rs's TASK-0321 doc comment for the
-        // full argument); the safety property here doesn't rely on that,
-        // though, since the outcome is canonically sorted below anyway. We
-        // collect all results and then split into recs and warnings so each
-        // per-file outcome is atomic. Every file's
-        // hashing disposition is final the instant it is hashed — success or
-        // failure — so it is advanced right here, inside the parallel
-        // closure, via the thread-safe sink (FR-19: this is what makes the
-        // hashing phase animate incrementally instead of jumping once at the
-        // end).
-        let hash_results: Vec<(ConfirmedFile, io::Result<[u8; 32]>)> = cohort
-            .into_par_iter()
-            .map(|cf| {
-                let result = hasher(&cf.path);
-                sink.advance(1);
-                (cf, result)
-            })
-            .collect();
+    // ADR-0017 (TASK-0338): `hash` is one of the two "zero-workload" spans
+    // (the other being `verify`) — it must fire even when `cohorts` is empty
+    // (e.g. an empty candidate set, or `--no-recurse` finding nothing),
+    // unlike `progress::Phase::Hashing`, which is skipped entirely in that
+    // case. This span wraps the whole loop over every cohort's rayon
+    // parallel section, never a per-file or per-cohort span (no span is ever
+    // created inside a rayon closure). Span *and* guard are block-scoped so
+    // the close line lands at the end of hashing — see the note on
+    // `group_by_size` above.
+    {
+        let hash_span = tracing::info_span!(
+            "hash",
+            files_hashed = tracing::field::Empty,
+            bytes_hashed = tracing::field::Empty,
+            errors = tracing::field::Empty,
+        );
+        let _hash_guard = hash_span.enter();
+        let mut files_hashed: u64 = 0;
+        let mut bytes_hashed: u64 = 0;
+        let mut errors: u64 = 0;
 
-        let mut recs: Vec<FileRec> = Vec::with_capacity(hash_results.len());
-        for (cf, result) in hash_results {
-            match result {
-                Ok(hash) => recs.push(FileRec {
-                    path: cf.path,
-                    size: cf.size,
-                    mtime: cf.mtime,
-                    hash,
-                }),
-                Err(e) => outcome.warnings.push(EngineWarning {
-                    path: cf.path,
-                    reason: format!("could not hash file: {e}"),
-                }),
+        for cohort in cohorts {
+            // Stage 2 — hash each file in the cohort in parallel (ADR-0010, rayon).
+            // par_iter's collect into a Vec actually does preserve input order
+            // (indexed collect splits the destination by index, regardless of
+            // completion order — see sniff.rs's TASK-0321 doc comment for the
+            // full argument); the safety property here doesn't rely on that,
+            // though, since the outcome is canonically sorted below anyway. We
+            // collect all results and then split into recs and warnings so each
+            // per-file outcome is atomic. Every file's
+            // hashing disposition is final the instant it is hashed — success or
+            // failure — so it is advanced right here, inside the parallel
+            // closure, via the thread-safe sink (FR-19: this is what makes the
+            // hashing phase animate incrementally instead of jumping once at the
+            // end).
+            let hash_results: Vec<(ConfirmedFile, io::Result<[u8; 32]>)> = cohort
+                .into_par_iter()
+                .map(|cf| {
+                    let result = hasher(&cf.path);
+                    sink.advance(1);
+                    (cf, result)
+                })
+                .collect();
+
+            let mut recs: Vec<FileRec> = Vec::with_capacity(hash_results.len());
+            for (cf, result) in hash_results {
+                files_hashed += 1;
+                match result {
+                    Ok(hash) => {
+                        bytes_hashed += cf.size;
+                        recs.push(FileRec {
+                            path: cf.path,
+                            size: cf.size,
+                            mtime: cf.mtime,
+                            hash,
+                        });
+                    }
+                    Err(e) => {
+                        errors += 1;
+                        outcome.warnings.push(EngineWarning {
+                            path: cf.path,
+                            reason: format!("could not hash file: {e}"),
+                        });
+                    }
+                }
+            }
+
+            // Stage 3 — group by hash (drop singletons). Every one of these
+            // files was already advanced above when it was hashed, so grouping
+            // itself advances nothing further; non-singleton groups are deferred
+            // to the verify pass.
+            pending_hash_groups.extend(group_by_hash(recs));
+        }
+
+        hash_span.record("files_hashed", files_hashed);
+        hash_span.record("bytes_hashed", bytes_hashed);
+        hash_span.record("errors", errors);
+    }
+
+    // ADR-0017 (TASK-0338): `verify` is the other "zero-workload" span — it
+    // fires even when nothing enters byte-verification, with `groups` and
+    // `files_verified` at zero, so a reader can tell "this stage cost
+    // nothing" apart from "this stage was never instrumented". Span *and*
+    // guard are block-scoped so the close line lands at the end of
+    // verification — see the note on `group_by_size` above.
+    {
+        let verify_span = tracing::info_span!(
+            "verify",
+            groups = tracing::field::Empty,
+            files_verified = tracing::field::Empty,
+        );
+        let _verify_guard = verify_span.enter();
+
+        // Stage 4 — verify every deferred hash group (identity collapse +
+        // keeper selection + byte-verify). This phase's workload is typically
+        // much smaller than `y`, so it gets its own denominator (FR-19) rather
+        // than continuing to count against the hashing-phase total — otherwise
+        // the display would either overrun `y` or sit at a misleading "100%"
+        // while still working. `retotal` is paired immediately with
+        // `set_phase` so the label and the new denominator change together in
+        // the rendered output. When there is nothing to verify, the phase is
+        // skipped entirely (finding 2) — `pending_hash_groups` is empty in
+        // that case by construction (every pushed group has length >= 2), so
+        // there is nothing left to iterate either way.
+        let verify_total: u64 = pending_hash_groups.iter().map(|g| g.len() as u64).sum();
+        let verify_group_count = pending_hash_groups.len();
+        if verify_total > 0 {
+            sink.retotal(verify_total);
+            sink.set_phase(Phase::Verifying);
+            for group in pending_hash_groups {
+                // Captured before the call because `process_hash_group`
+                // consumes `group`; every member's disposition is decided by
+                // the time it returns, regardless of which internal branch
+                // (all-anchor group, verify pass/fail, ...) was taken.
+                let group_len = group.len() as u64;
+                process_hash_group(group, &keeper_order, &mut outcome);
+                sink.advance(group_len);
             }
         }
-
-        // Stage 3 — group by hash (drop singletons). Every one of these
-        // files was already advanced above when it was hashed, so grouping
-        // itself advances nothing further; non-singleton groups are deferred
-        // to the verify pass.
-        pending_hash_groups.extend(group_by_hash(recs));
+        verify_span.record("groups", verify_group_count);
+        verify_span.record("files_verified", verify_total);
     }
 
-    // Stage 4 — verify every deferred hash group (identity collapse + keeper
-    // selection + byte-verify). This phase's workload is typically much
-    // smaller than `y`, so it gets its own denominator (FR-19) rather than
-    // continuing to count against the hashing-phase total — otherwise the
-    // display would either overrun `y` or sit at a misleading "100%" while
-    // still working. `retotal` is paired immediately with `set_phase` so the
-    // label and the new denominator change together in the rendered output.
-    // When there is nothing to verify, the phase is skipped entirely
-    // (finding 2) — `pending_hash_groups` is empty in that case by
-    // construction (every pushed group has length >= 2), so there is
-    // nothing left to iterate either way.
-    let verify_total: u64 = pending_hash_groups.iter().map(|g| g.len() as u64).sum();
-    if verify_total > 0 {
-        sink.retotal(verify_total);
-        sink.set_phase(Phase::Verifying);
-        for group in pending_hash_groups {
-            // Captured before the call because `process_hash_group` consumes
-            // `group`; every member's disposition is decided by the time it
-            // returns, regardless of which internal branch (all-anchor group,
-            // verify pass/fail, ...) was taken.
-            let group_len = group.len() as u64;
-            process_hash_group(group, &keeper_order, &mut outcome);
-            sink.advance(group_len);
-        }
+    // ADR-0017 (TASK-0338): `sort_canonical` gets its own span, wrapping the
+    // final canonical-sort pass. Span *and* guard are block-scoped so the
+    // close line lands at the end of the sort — see the note on
+    // `group_by_size` above.
+    {
+        let sort_canonical_span =
+            tracing::info_span!("sort_canonical", groups = tracing::field::Empty);
+        let _sort_canonical_guard = sort_canonical_span.enter();
+        // Canonical sort (ADR-0010, TASK-0306): sort before returning so two
+        // runs over identical state produce byte-identical DedupOutcome
+        // values regardless of thread scheduling or hash-map iteration
+        // order.
+        sort_canonical(&mut outcome, &keeper_order);
+        sort_canonical_span.record("groups", outcome.groups.len());
     }
 
-    // Canonical sort (ADR-0010, TASK-0306): sort before returning so two runs
-    // over identical state produce byte-identical DedupOutcome values regardless
-    // of thread scheduling or hash-map iteration order.
-    sort_canonical(&mut outcome, &keeper_order);
-
+    dedup_span.record("groups", outcome.groups.len());
     outcome
 }
 
@@ -2528,5 +2632,115 @@ mod tests {
             "progress must not change the dedup outcome, even with a real, \
              locking renderer in the loop"
         );
+    }
+
+    // ── ADR-0017 / TASK-0338: engine tracing spans ────────────────────────
+
+    #[test]
+    fn dedup_core_emits_all_five_stage_spans_with_expected_fields() {
+        use crate::trace_test_support::capture;
+
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(&dir, "a.jpg", b"DUPLICATE CONTENT");
+        let b = write(&dir, "b.jpg", b"DUPLICATE CONTENT");
+        let c = write(&dir, "c.jpg", b"a wholly unique file");
+        let a_size = fs::metadata(&a).unwrap().len();
+
+        let out = capture(|| {
+            let _ = find_duplicates(vec![cf(&a), cf(&b), cf(&c)], lex_order);
+        });
+
+        // `dedup`: the whole-stage span, files = input length, groups =
+        // verified duplicate groups in the outcome.
+        assert!(
+            out.contains("dedup"),
+            "expected a `dedup` span; got:\n{out}"
+        );
+        assert!(out.contains("files=3"), "got:\n{out}");
+        assert!(out.contains("groups=1"), "got:\n{out}");
+
+        // `group_by_size`: 3 files in, 1 cohort (a, b share a size), c is a
+        // size-singleton dropped without hashing.
+        assert!(
+            out.contains("group_by_size"),
+            "expected a `group_by_size` span; got:\n{out}"
+        );
+        assert!(out.contains("cohorts=1"), "got:\n{out}");
+        assert!(out.contains("size_singletons=1"), "got:\n{out}");
+
+        // `hash`: only the cohort's 2 files are ever hashed; c never is.
+        assert!(out.contains("hash"), "expected a `hash` span; got:\n{out}");
+        assert!(out.contains("files_hashed=2"), "got:\n{out}");
+        assert!(
+            out.contains(&format!("bytes_hashed={}", a_size * 2)),
+            "got:\n{out}"
+        );
+        assert!(out.contains("errors=0"), "got:\n{out}");
+
+        // `verify`: one hash group of 2 files enters byte-verification.
+        assert!(
+            out.contains("verify"),
+            "expected a `verify` span; got:\n{out}"
+        );
+        assert!(out.contains("files_verified=2"), "got:\n{out}");
+
+        // `sort_canonical`: the final canonical-sort pass over 1 group.
+        assert!(
+            out.contains("sort_canonical"),
+            "expected a `sort_canonical` span; got:\n{out}"
+        );
+
+        // Each sub-stage's close line must land at *that stage's* end, so the
+        // four appear in pipeline order with the enclosing `dedup` line last
+        // (architect review, TASK-0338). `FmtSpan::CLOSE` fires when the last
+        // `Span` handle drops, not when its guard exits: a function-scope
+        // handle defers every line to the end of `dedup_core_with_sink`, in
+        // reverse, with a meaningless `time.idle`. Each line's innermost span
+        // name is the last `name{` before `}: close` (parent names prefix
+        // every nested line, so a plain substring search would not do).
+        let closed: Vec<&str> = out
+            .lines()
+            .filter_map(|line| {
+                let head = line.split("}: close").next()?;
+                let innermost = head.rsplit(':').next()?;
+                innermost.split('{').next()?.split_whitespace().next_back()
+            })
+            .collect();
+        assert_eq!(
+            closed,
+            vec!["group_by_size", "hash", "verify", "sort_canonical", "dedup"],
+            "engine stage close lines must appear in pipeline order, each \
+             written at its own stage's end; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn dedup_core_emits_hash_and_verify_spans_even_for_empty_input() {
+        // ADR-0017: unlike progress::Phase (which skips a zero-workload
+        // phase entirely), a measurement surface must emit the span anyway,
+        // with its count fields at zero — so a reader can tell "this stage
+        // cost nothing" apart from "this stage was never instrumented".
+        use crate::trace_test_support::capture;
+
+        let out = capture(|| {
+            let _ = find_duplicates(Vec::new(), lex_order);
+        });
+
+        assert!(out.contains("dedup"), "got:\n{out}");
+        assert!(out.contains("files=0"), "got:\n{out}");
+        assert!(out.contains("groups=0"), "got:\n{out}");
+
+        assert!(
+            out.contains("hash"),
+            "the `hash` span must fire even with nothing to hash; got:\n{out}"
+        );
+        assert!(out.contains("files_hashed=0"), "got:\n{out}");
+        assert!(out.contains("bytes_hashed=0"), "got:\n{out}");
+
+        assert!(
+            out.contains("verify"),
+            "the `verify` span must fire even with nothing to verify; got:\n{out}"
+        );
+        assert!(out.contains("files_verified=0"), "got:\n{out}");
     }
 }

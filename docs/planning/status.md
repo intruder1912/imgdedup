@@ -11,6 +11,213 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 31 (TASK-0338, performance instrumentation — implementation), 2026-08-05
+  — fresh window._ Finishes what session 30 deliberately stopped at (the design
+  step, [ADR-0017](../adr/0017-performance-instrumentation-tracing-spans.md)):
+  the TDD implementation, its architect review, the real-corpus measurement the
+  whole task exists to produce, and the product-owner docs pass.
+  **Housekeeping first:** 34 local branches, each individually verified via
+  `gh pr list --head <branch>` to correspond to an already-merged (or, in one
+  case, closed-without-merging) PR, force-deleted with explicit confirmation;
+  one stale remote branch (`docs/sync-planning-task-0301`, PR #15, closed not
+  merged, content already superseded in `main`) removed too. Only `main` and
+  `chore/instrument-with-tracing` remain, locally and on `origin`.
+  **Implementer (TDD), on `chore/instrument-with-tracing`:** all 11 spans from
+  ADR-0017's table, the `--timings` flag, the progress-off interaction, and the
+  security rule (no span field via `%`/Display) — matching the ADR exactly, per
+  independent verification below. One real deviation from the ADR's illustrative
+  code, flagged and reasoned: `apply::apply()` gained a `mode: ActionMode`
+  parameter (used only to record the `apply` span's `mode` field; removal
+  behavior is unchanged and still driven entirely by the injected `Remover`) —
+  the ADR's own text hadn't threaded `mode` into that call, so a real signature
+  change was needed to record the field the ADR's table asks for. Also replaced
+  a per-test `tracing::subscriber::with_default` helper with a process-global
+  one (`src/trace_test_support.rs`, `#[cfg(test)]`-only): a genuine
+  `tracing-core` per-callsite `Interest`-cache race under `cargo test`'s default
+  parallel runner, reproduced directly (a nested span intermittently produced no
+  close line under default parallelism, never under `--test-threads=1`) —
+  confirmed by the architect review below against `tracing-core` source, not
+  just re-run stability.
+  **Independent architect review (one dispatch, converged on the branch): one
+  real defect found and fixed, everything else confirmed by direct measurement
+  rather than reading the diff — continues the run noted in
+  [[imgdedup-architect-review-value]].** `FmtSpan::CLOSE` fires when a span's
+  **value** (not its guard) drops; `group_by_size`/`hash`/`verify`/`sort_canonical`
+  (engine) and `render` (main) had created that value in function scope while
+  only entering/exiting the guard per-stage, so their close lines were deferred
+  to end-of-function and printed in **reverse** pipeline order with each
+  other's wall time bleeding into `time.idle` — reproduced live pre-fix
+  (`sort_canonical`, `verify`, `hash`, `group_by_size`, in that order, all
+  within microseconds of the engine returning). Fixed by scoping each stage's
+  span value to its own block; two new regression tests (CLI-level and
+  engine-unit-level), each independently verified to fail against the pre-fix
+  code, not just pass post-fix. Also independently re-verified rather than
+  trusted: all 11 spans at the right sites with the right fields (via an
+  end-to-end run exercising all 11 at once); zero spans inside any rayon
+  closure and zero per-file/entry/root/group spans (exhaustive grep); the root
+  `run` guard genuinely lives inside `run()` (last-stderr-line test, confirmed
+  across five invocation modes); the security rule holds crate-wide (every
+  production span field is a count, size, or enum — never a path); `--timings`
+  forces progress off with no bypass (`args.no_progress` has exactly one
+  reader in the whole tree); stdout byte-identical with/without `--timings` on
+  a 4,000-file fixture and on `--json` (866 KB, `cmp`-verified); `cargo deny
+  check` clean, no `deny.toml` edit, `Cargo.lock` 123→130 exactly as predicted;
+  cost when unused measured directly (3.563 s vs 3.564 s over 4,000 files);
+  binary size +225 KB (ADR estimated ~228 KB); stderr line count is O(1) per
+  run regardless of file count (9 lines on both a 6-file and a 4,000-file
+  tree). Should-fix nits noted, none blocking: `hash`'s `files_hashed` counts
+  attempts while `bytes_hashed` only accumulates on success (asymmetric, not
+  wrong — worth a comment); `apply(mode, remover)` can in principle be passed
+  an inconsistent pair (accepted, since deriving the label from `Remover`
+  instead would make it unrepresentable); the crate-wide `%`-vs-`?` security
+  guard is currently a manual grep, not a CI-enforced one (a future task, not
+  this one, if ever wanted).
+  **The real-corpus run this whole task exists to produce, done directly
+  (not delegated) against the same 2,021-file / 5.72 GB real photo corpus
+  sessions 26/29 used (`test-images/`, gitignored, still present on this
+  machine):** 3 runs, warm cache, default scope. **`hash` dominates at ~86% of
+  wall time** (401–417 ms of ~480 ms total); `sniff` ~11% (48–57 ms);
+  `enumerate` ~2% (8–11 ms); `verify` ~0 (0 duplicate groups in this corpus, so
+  nothing to verify). **This closes TASK-0321's open question
+  (["is `enumerate` now the dominant serial stage?"](../adr/0010-concurrency-and-memory-model.md#consequence-note--the-scan-stage-is-no-longer-serial-2026-08-03-task-0321)):
+  no** — recorded as a new consequence note on ADR-0010, with the honest
+  caveat that this is one corpus shape (avg. ~2.8 MB/file, every file clearing
+  `RAYON_HASH_THRESHOLD` — the smallest is 1.19 MB) and a tiny-file-heavy
+  corpus could shift the `enumerate`/`hash` ratio; not claimed to generalize.
+  **Product-owner pass:** concurs with ADR-0017's "no PRD-0001 FR/AC" ruling
+  (checked the reasoning rather than rubber-stamping it: `--timings` emits
+  nothing on stdout and changes no grouping/removal decision). Wrote a new
+  `--timings` section in
+  [`docs/guide/output-and-exit-codes.md`](../guide/output-and-exit-codes.md)
+  (how to read the nested stage lines, that it replaces progress, combining
+  with `--json`, diagnostic-not-benchmark caveat) plus a README usage mention
+  and a guide-index pointer. Two findings routed back rather than fixed
+  unilaterally (product-owner has no shell/write access to `.rs` files by
+  design): the `--timings` `--help` text was one ~8-line paragraph — the
+  longest entry in `--help` for the least important flag — and used internal
+  jargon (backtick-quoted crate names, an ADR citation) instead of user-facing
+  wording; rewritten to the project's two-tier summary/detail convention
+  (`--keep`'s precedent), verified the one existing `--help` test only checks
+  for the substring `"--timings"` so this was a safe non-behavioral change.
+  Also caught: ADR-0017's "output is pure ASCII" claim is wrong —
+  `tracing-subscriber`'s own `Duration` formatting renders the microsecond unit
+  as `µ` (U+00B5), confirmed in a real capture (`time.busy=207µs`); corrected
+  in the ADR with the reasoning for why this is accepted rather than worked
+  around (a numeric-field unit glyph carries none of the injection risk
+  `progress.rs`'s stricter rule exists to prevent). One item deliberately
+  deferred, not fixed, as disproportionate inside a chore unit: AC-23's
+  literal wording names only `--no-progress` as the way progress is
+  suppressed, and a future reader could wonder whether `--timings` (a second,
+  incidental way) is in scope — closed with a same-day dated PRD-0001
+  amendment (no behavior change; AC-24 already covered it by phrasing) rather
+  than an in-place edit, matching this document's own convention.
+  `make validate` (mdlint, spell, links, shellcheck, actionlint, fmt, clippy
+  `-D warnings`, full test suite) green throughout — 301 unit + 24 acceptance +
+  45 CLI-integration + 7 golden-set tests, `scale.rs`'s 4 correctly ignored.
+  **Final architect confirmation pass over the four post-review commits
+  (measured, not read):** the corpus run reproduced independently (3 fresh
+  runs — `hash` 435–447 ms, `sniff` 50–60 ms, `enumerate` 8–15 ms, i.e. the
+  note's ~86 / ~11 / ~2% split holds); `µ` confirmed as U+00B5 in real output
+  and `nu-ansi-term` confirmed absent from `Cargo.lock`, so ADR-0017's
+  corrected UTF-8-not-ASCII claim is right on both halves; the binary-size
+  delta re-derived by building `main` in a scratch worktree (1 724 176 →
+  1 954 688 bytes = +225 KiB); lock 123 → 130 and `cargo deny check`
+  advisories/bans/licenses/sources all ok; 9 stderr lines on both a 6-file and
+  a 4 000-file tree; stdout `cmp`-identical with and without `--timings` on
+  both report and `--json`; `--timings` still in `--help` (and now a single
+  line under `-h`); `make validate` plus `cargo test --release` green.
+  **One real correction made in this pass:** the ADR-0010 note quoted
+  "~2.2 GB/s aggregate" for the `hash` stage — that is session 29's
+  _per-CPU-second_ rate over the whole 5.72 GB corpus, not this stage's
+  wall-clock rate, which is ~5.2 GB/s (`bytes_hashed=2168910223` over 417 ms);
+  corrected there and the avg-file-size parenthetical tightened to the
+  measured ~2.8 MB/file (5.72 GB / 2 021) in both the ADR and this entry.
+  Session 29's own "2.76 MB/file" is the same arithmetic slip but is left
+  as-is: it is a dated historical record, and no conclusion turns on it.
+  Next: PR. This PR.
+
+- _Session 30 (TASK-0338, performance instrumentation — design step), 2026-08-05
+  — same window as sessions 26–29._
+  **The design landed as new
+  [ADR-0017](../adr/0017-performance-instrumentation-tracing-spans.md); the TDD
+  implementation pass is the rest of this unit** (new **TASK-0338**, chore,
+  `chore/instrument-with-tracing`). Prompted directly by session 29's numbers
+  immediately above: 0.50 s of wall clock over 2,021 real photos, with **no way
+  to say how much of it was the walk, the sniff, the hashing, or the verify** —
+  the same blind spot that made TASK-0312, TASK-0321 and TASK-0322 each build a
+  throwaway control fixture or standalone harness, and that leaves ADR-0010's
+  "is `enumerate` (still serial `walkdir`) the dominant stage now that sniff is
+  parallel?" open **in writing**.
+  **The `tracing`-over-OpenTelemetry call was the owner's, made in
+  conversation** (this ADR records it properly rather than deciding it): OTLP
+  exporters pull `tonic`/`hyper` → **`tokio`**, i.e. an async runtime added to a
+  fully synchronous, rayon-parallel CLI purely to serve a backend almost no run
+  will connect to. `tracing` is the ecosystem's zero-cost layer, and
+  `tracing-opentelemetry` keeps the OTLP door open later with **zero annotation
+  churn**. **Measured rather than asserted** (release build, M2 Pro, harness in
+  the scratchpad, not checked in): 3M span create/enter/exit cycles with **no
+  subscriber** cost 3.73 ms vs. a 3.29 ms span-free baseline — **~0.15 ns per
+  span**, at or below noise, which is what makes "always compiled in, inert by
+  default" honest.
+  **Four design questions the owner's framing left genuinely open, and how they
+  were closed.** (1) **Span boundaries mirror the ADR-0008 _pipeline_, not the
+  display `progress::Phase`** — 11 coarse spans (`run`, `enumerate`,
+  `symlink_alias_dedupe`, `sniff`, `dedup`, `group_by_size`, `hash`, `verify`,
+  `sort_canonical`, `apply`, `render`), each opened by the function that owns
+  its stage. `Phase` merges `enumerate` and `sniff` into "Scanning" **by product
+  decision** (AC-21/21a), which is exactly the split that needs measuring, and
+  it covers nothing after verification — mirroring it would make the
+  instrumentation structurally unable to answer the one question it exists for.
+  Per-file/per-entry spans are **rejected on a measurement**: ~1.75 µs each with
+  a subscriber attached, i.e. ~52 ms and **30,000 printed lines** on a 30k-entry
+  walk — the exact tension TASK-0332's `advance(0)` tick and TASK-0317/0328's
+  repaint throttling already navigated in this same hot loop. Counts go on the
+  stage span as fields (`files_hashed`, `bytes_hashed`, …) instead: O(1) events
+  per run, not O(files). (2) **A day-one consumer ships in the same unit** — a
+  new `--timings` flag installing a `tracing-subscriber` `fmt` subscriber on
+  stderr. Spans with nothing subscribed produce _literally nothing observable_,
+  so "instrumentation only" would deliver none of the stated goal and would
+  leave the PR with no behavior to assert under mandatory TDD. `RUST_LOG` was
+  rejected: `env-filter` pulls `regex` for one boolean's worth of intent.
+  (3) **Dependency footprint, measured on a scratch copy of this exact crate**:
+  normal graph 51 → 60, `Cargo.lock` 123 → 130 (only 7 genuinely new — the
+  proc-macro chain is already there for clap/serde derives), all
+  MIT / MIT-OR-Apache-2.0, and **`cargo deny check` run green**
+  (`advisories ok, bans ok, licenses ok, sources ok`) with **no `deny.toml`
+  edit**; `default-features = false, features = ["fmt"]` is doing real work
+  (63/134 with defaults vs. 60/130 without) and keeps ANSI machinery out of a
+  tool that hand-writes its own terminal control. (4) **`--timings` implies
+  progress-off** — not a nicety: a stage-close line written while the TTY
+  progress line is live lands _inside_ it, the exact corruption `progress.rs`'s
+  module doc forbids. Usage-error, buffer-until-`finish()`, TTY-sniffing and
+  routing-through-`Progress` were each weighed and rejected in the ADR.
+  **Two traps recorded for the implementer/reviewer, both verified this
+  session:** the root span guard must live _inside_ `run()`, since `main()` ends
+  in `process::exit` and runs no destructors (otherwise the run-total line
+  silently never prints); and **no span field may carry a path via `%`/Display**
+  — a filename containing `ESC[2J` was demonstrated reaching the terminal raw
+  through `fmt`, precisely the injection TASK-0318/`safe_text.rs` exists to
+  stop (`?`/Debug escapes it; shown side by side in the ADR).
+  **Product scope:** no PRD-0001 FR/AC is added — `--timings` changes no result
+  and writes nothing to stdout, so it is engineering tooling in service of
+  NFR-4, not product capability; the flag's _name/help text_ still wants a
+  lightweight product-owner sign-off and its user docs are product-owner-owned
+  (ADR-0012). `tests/scale.rs` remains the formal NFR-4 benchmark — this is a
+  diagnostic, not a regression gate. Design step only; no production code
+  written. **Deliberately stopped here, not carried into the same window's
+  implementation:** the architect's own size estimate ("medium," 7 production
+  files, and — the part not worth cutting — a follow-up run against the real
+  corpus to actually record the `enumerate`/`sniff` split ADR-0010 leaves
+  open) came with an explicit "if less than ~50% of the current 5h window
+  remains, start it fresh" line; the owner checked `/usage` at exactly that
+  point — **5h=62%, 7d=30%** — and confirmed the cut. TASK-0338's backlog row
+  and this ADR are the resumption point; no PR opens yet, per
+  [`branching.md`](../process/branching.md)'s "hold the PR until the unit is
+  converged" — this is a `chore/instrument-with-tracing` branch pushed with
+  the design step only — implementation follows in a fresh session, then the
+  whole branch (design + TDD code) opens as one PR and gets one review pass,
+  the same shape TASK-0219 used earlier this session.
+
 - _Session 29 (TASK-0314 addendum: informal real-world performance numbers;
   planning-only), 2026-08-05 — same window as sessions 26–28._ Captured on
   request, on the same corpus and machine as session 26's field validation

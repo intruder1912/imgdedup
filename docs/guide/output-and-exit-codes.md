@@ -414,6 +414,9 @@ not. Standard output is unaffected either way.
 imgdedup --no-progress ./photos
 ```
 
+The diagnostic [`--timings`](#--timings-where-the-time-went) flag also turns
+the indicator off, because the two cannot share standard error — see below.
+
 ### Progress is output-only
 
 Progress never changes what is scanned, grouped, or removed, and it is
@@ -422,6 +425,94 @@ covers standard-output content only (the report or `--json` document). The
 stderr progress stream — its exact timing and milestone lines — can
 legitimately vary between otherwise-identical runs without affecting the
 result.
+
+## `--timings`: where the time went
+
+Pass `--timings` to see how long each part of a run took. As each stage of the
+scan finishes, `imgdedup` prints one line describing it to **standard error**.
+Standard output is untouched: the report — or the `--json` document — is
+exactly what it would have been without the flag.
+
+```sh
+imgdedup --timings ./photos
+```
+
+A run over a 2,021-file photo library prints (abridged):
+
+```text
+2026-08-05T21:20:29.195834Z  INFO run{roots=1 apply=false json=false}:enumerate{roots=1 candidates=2021 warnings=0 root_errors=0}: close time.busy=11.3ms time.idle=917ns
+2026-08-05T21:20:29.247251Z  INFO run{roots=1 apply=false json=false}:sniff{candidates=2021 confirmed=2021 rejected=0}: close time.busy=51.4ms time.idle=291ns
+2026-08-05T21:20:29.247482Z  INFO run{roots=1 apply=false json=false}:dedup{files=2021}:group_by_size{files=2021 cohorts=421 size_singletons=1171}: close time.busy=207µs time.idle=251ns
+2026-08-05T21:20:29.664206Z  INFO run{roots=1 apply=false json=false}:dedup{files=2021}:hash{files_hashed=850 bytes_hashed=2168910223 errors=0}: close time.busy=417ms time.idle=1.04µs
+2026-08-05T21:20:29.664389Z  INFO run{roots=1 apply=false json=false}: close time.busy=480ms time.idle=1.96µs
+```
+
+### How to read it
+
+- **One line per stage, printed when that stage ends.** The nesting —
+  `run{...}:dedup{...}:hash{...}` — shows where a stage sits inside the
+  pipeline. The outermost `run` line comes last and is the whole-run total
+  (480 ms above, of which hashing was 417 ms).
+- **`time.busy` is the number to read.** It is how long that stage took.
+  `time.idle` is its bookkeeping counterpart and stays near zero here.
+- **The `{...}` values are that stage's own counts** — files seen, files
+  hashed, bytes hashed, candidates rejected — so a duration can be turned into
+  a throughput (above: 2.17 GB hashed in 417 ms).
+- **A stage with nothing to do still prints**, with its counts at zero, rather
+  than being omitted — so "this stage cost nothing" stays visibly different
+  from "this stage never ran". A few stages are genuinely conditional, though:
+  the removal stage only appears under `--apply`, for instance.
+
+The stages are `imgdedup`'s internal pipeline, and they are deliberately
+finer-grained than the progress indicator's phases: the single `scanning`
+phase you watch on screen is two separate stages here (walking the tree, then
+confirming each found file's content really is an image), and the work after
+verification — removing files under `--apply`, and rendering the report — has
+no progress phase at all. Splitting exactly there is the point: it is what
+lets a slow run be attributed to a specific stage.
+
+### `--timings` replaces the progress indicator
+
+Turning on timings turns the live progress indicator **off**. You do not need
+to pass `--no-progress` as well, and passing both is not an error — `--timings`
+always wins.
+
+The reason is that both write to standard error, and the progress indicator
+keeps a single line open and redraws it in place, so a stage line arriving
+mid-redraw would land in the middle of it. Rather than garble the display, or
+make you type two flags to express one intention, `--timings` takes the stream
+for itself. The apply-time `removed:` / `warning:` lines and run-level
+`error:` lines are unaffected: they are ordinary whole lines and interleave
+with timing lines harmlessly.
+
+### Combining with `--json`
+
+`--timings --json` is the recommended shape for measuring a scripted run: the
+JSON document goes to standard output, the timing lines to standard error, and
+neither can contaminate the other.
+
+```sh
+imgdedup --timings --json ./photos > result.json 2> timings.log
+```
+
+### A diagnostic, not a benchmark
+
+`--timings` answers "where did the time go on **this** run, on **this**
+machine". It is meant for informal investigation — a scan that felt slow, a
+library that behaves differently from another one — not for publishing
+numbers. A single run's figures include whatever the operating system happened
+to have in its file cache and whatever else the machine was doing, so compare
+several runs before believing a difference. (`imgdedup`'s own repeatable
+scale benchmark is a separate contributor-facing test, `make scale`, not this
+flag.)
+
+Consequently the stage names, their fields, and the line format are **not a
+stable interface**: they exist to be read, not parsed, and they may change in
+any release. Like progress, the timing stream is excluded from the
+[determinism](#determinism) guarantee above — that guarantee covers standard
+output only — and, also like progress, timings never change what is scanned,
+grouped, or removed. The design and its rationale are recorded in
+[ADR-0017](../adr/0017-performance-instrumentation-tracing-spans.md).
 
 ## Saving results to a file
 
@@ -438,9 +529,10 @@ its two output streams:
 
 - **Standard output** carries **only** the result — the human report, or exactly
   one JSON document with `--json`. Nothing else is ever written there.
-- **Standard error** carries diagnostics — run-level `root_errors`, and the
+- **Standard error** carries diagnostics — run-level `root_errors`, the
   live progress indicator while a scan runs (see
-  [Progress while it runs](#progress-while-it-runs) above). Under the default
+  [Progress while it runs](#progress-while-it-runs) above), and, with
+  `--timings`, the per-stage timing lines. Under the default
   report the per-file `Warnings:` section prints on stdout as part of the report;
   under `--json` those per-file problems move into the JSON `warnings` array. To
   redirect only the result and let diagnostics stay on the terminal, capture stdout

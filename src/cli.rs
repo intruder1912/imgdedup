@@ -96,6 +96,18 @@ pub struct Cli {
     /// written to any stream, and stdout is unaffected either way (AC-23).
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_progress: bool,
+
+    // ── Diagnostics (ADR-0017, TASK-0338) ──────────────────────────────────
+    /// Print per-stage timing lines to stderr (diagnostic).
+    ///
+    /// Writes one line per pipeline stage to stderr as that stage finishes,
+    /// with the time it took. Implies `--no-progress`: timing lines and the
+    /// live progress indicator cannot share stderr, so `--timings` wins, and
+    /// passing both is not an error. Off by default; stdout is never
+    /// changed, so `--timings --json` is the way to measure a scripted run.
+    /// The output is diagnostic, not a stable interface (ADR-0017).
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub timings: bool,
 }
 
 impl Cli {
@@ -375,6 +387,20 @@ mod tests {
     fn no_progress_parses() {
         let cli = try_parse(&["imgdedup", ".", "--no-progress"]).unwrap();
         assert!(cli.no_progress);
+    }
+
+    // ── --timings (ADR-0017, TASK-0338) ───────────────────────────────────
+
+    #[test]
+    fn timings_defaults_false() {
+        let cli = try_parse(&["imgdedup", "."]).unwrap();
+        assert!(!cli.timings);
+    }
+
+    #[test]
+    fn timings_parses() {
+        let cli = try_parse(&["imgdedup", ".", "--timings"]).unwrap();
+        assert!(cli.timings);
     }
 
     // ── Unknown flag ──────────────────────────────────────────────────────
