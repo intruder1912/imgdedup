@@ -1,7 +1,8 @@
 name: Release
 
-# Automated releases — ADR-0015 (docs/adr/0015-release-publishing-tag-and-github-release.md),
-# amended 2026-08 for TASK-0211 (prebuilt binaries).
+# Releases — ADR-0015 (docs/adr/0015-release-publishing-tag-and-github-release.md),
+# amended 2026-08-02 for TASK-0211 (prebuilt binaries) and 2026-08-05 for
+# TASK-0333(b) (manual-only trigger).
 #
 # semantic-release computes the SemVer bump from the Conventional Commit history,
 # creates the `v<version>` tag and the GitHub Release with generated notes.
@@ -18,22 +19,41 @@ name: Release
 # actually published.
 
 on:
-  # Gate on a green CI run for the merged commit rather than on the push itself,
-  # so a release can never be published from a commit whose checks are red or
-  # still running. `workflow_run` only fires for the copy of this file on the
-  # default branch.
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-  # Manual trigger, two uses:
-  #  1. Leave `tag` empty: re-run a release that failed after CI had already
-  #     passed (e.g. a transient GitHub API error) — behaves exactly like the
-  #     workflow_run path.
+  # Manual only, by owner ruling (2026-08-05, TASK-0333(b)). This workflow used
+  # to be triggered by every green CI run on `main`, i.e. every merge carrying a
+  # `feat:`/`fix:` published a version: 12 releases in four days, and the four-
+  # platform `assets` matrix below that each one starts cost 485 billed
+  # Actions minutes over that window — 27% of the repository's entire bill — for
+  # a private, single-maintainer project where nobody was waiting on any of
+  # those versions. Nothing is lost by cutting releases deliberately instead:
+  # semantic-release derives the next version from *all* Conventional Commits
+  # since the last tag, so one dispatch releases everything accumulated since
+  # the previous one, with the same version arithmetic.
+  #
+  # The trigger it replaces (`workflow_run` on the CI workflow completing,
+  # filtered to a successful push-triggered run of `main`) had exactly one
+  # load-bearing property: a release could never be published from a commit
+  # whose checks were red or still running. That property is NOT dropped with
+  # it. It moves, deliberately and explicitly, into the "Verify the required
+  # checks are green" step below, which asks the checks API about the dispatched
+  # commit and fails the job unless the answer is an unambiguous success — a
+  # dispatcher's memory is not a security gate (ADR-0005). Making the check
+  # explicit also closes ADR-0015's recorded gap of *not* gating on the
+  # `Security` workflow: that gap existed only because `workflow_run` fires per
+  # workflow and coordinating a second one would have meant polling its
+  # status — which is precisely what this now does anyway.
+  #
+  # Two uses, distinguished by the `tag` input:
+  #  1. Leave `tag` empty — the normal path: cut a release from the ref this
+  #     workflow was dispatched against (which must be `main`, and must already
+  #     have a green CI run recorded for it).
   #  2. Set `tag` to an existing `v*` tag: skip semantic-release entirely and
   #     (re-)build + attach binaries for that already-published release. This
   #     is the recovery path for a release whose assets job failed, and the
   #     one-time path used to backfill v0.1.0 (published before this workflow
-  #     could build binaries).
+  #     could build binaries). It asserts nothing about CI, on purpose: it
+  #     repairs a release that already exists and was gated when it was cut,
+  #     rather than deciding that anything should be released.
   workflow_dispatch:
     inputs:
       tag:
@@ -56,20 +76,17 @@ concurrency:
 jobs:
   release:
     name: release
-    # head_repository check: a fork PR's CI run happens in *this* repository
-    # and can report head_branch 'main' (the contributor's fork's own default
-    # branch name), not this repo's main. Already excluded today by
-    # `event == 'push'` — a push-triggered workflow_run can only originate
-    # from a push to this repository — so this clause is redundant, not
-    # load-bearing. It exists so that safety property is self-evident to a
-    # future reader, without needing to re-derive workflow_run's fork
-    # semantics from scratch.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository)
+    # No job-level `if:` any more. The previous one existed to sort a
+    # `workflow_run` event into "CI went green on a push to this repository's
+    # `main`" versus everything else (a red run, a still-running one, a fork
+    # PR's run reporting its own default branch as `main`). With
+    # `workflow_dispatch` as the only trigger none of those cases can occur:
+    # a dispatch never originates from a fork and only a principal with write
+    # access can start one. What remains — is this the right ref, and has it
+    # actually passed CI — is now asserted by the first step below, which fails
+    # loudly rather than skipping the job silently. A manual run that does
+    # nothing and says nothing is the wrong answer to a human who just asked
+    # for a release.
     runs-on: ubuntu-latest
     permissions:
       # Create the tag, the git notes ref and the GitHub Release. Nothing else:
@@ -77,21 +94,115 @@ jobs:
       # need `issues: write` / `pull-requests: write`) are disabled in
       # .releaserc.json.
       contents: write
+      # Read the check runs of the commit being released (TASK-0333(b)). This
+      # is its own scope: `contents: write` does not imply it, and `checks:
+      # read` is the narrowest permission that can read the checks API —
+      # `actions: read` would also answer the question, via the workflow-runs
+      # endpoint, but grants this job read access to every workflow run, its
+      # logs and its artifacts, which it has no other use for.
+      checks: read
     env:
-      # Empty on every path that carries no workflow_dispatch input: the
-      # workflow_run path has no `github.event.inputs` at all, and a null
-      # expression result renders as '' when written into an env value. Steps
-      # below gate on this variable rather than on `github.event.inputs.tag`
-      # directly so that "input absent" and "input supplied but empty" collapse
-      # into one plain string-to-string comparison, and — the reason that
-      # matters — so this free-text input reaches a shell only as an
-      # environment variable, never via `${{ }}` interpolation into a `run:`.
+      # The `tag` input, or '' when the dispatcher left it empty (the input
+      # declares `default: ""`). Steps below gate on this variable rather than
+      # on `github.event.inputs.tag` directly so that "input absent" and "input
+      # supplied but empty" collapse into one plain string-to-string
+      # comparison, and — the reason that matters — so this free-text input
+      # reaches a shell only as an environment variable, never via `${{ }}`
+      # interpolation into a `run:`.
       BACKFILL_TAG: ${{ github.event.inputs.tag }}
     outputs:
       released: ${{ steps.detect.outputs.released }}
       tag: ${{ steps.detect.outputs.tag }}
       version: ${{ steps.detect.outputs.version }}
     steps:
+      # First, and before the checkout: this step is what makes a manual
+      # release trigger safe (see the `on:` block above for what it replaces).
+      # It needs no working tree, and everything after it is either an install
+      # or a publish, so failing here costs a few seconds and touches nothing.
+      #
+      # Skipped on the backfill path, which repairs the assets of a release
+      # that already exists rather than deciding to cut one — see use (2) in
+      # the trigger comment.
+      - name: Verify the required checks are green for the commit being released
+        if: env.BACKFILL_TAG == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # The dispatched ref and the commit it resolved to when this run was
+          # created. Both are GitHub-authored (a ref name and a 40-hex SHA),
+          # but they reach the shell as environment variables anyway, per this
+          # file's rule for every value that a `run:` block consumes.
+          DISPATCH_REF: ${{ github.ref }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # `main` is the only branch .releaserc.json will release from and the
+          # only one ADR-0003 protects. semantic-release would refuse anything
+          # else on its own, but only after ~400 packages are installed, and
+          # with a message about release branches rather than about the mistake
+          # actually made. This also restores the `head_branch == 'main'`
+          # clause of the trigger this replaced.
+          if [ "$DISPATCH_REF" != "refs/heads/main" ]; then
+            echo "::error::refusing to release from '$DISPATCH_REF' — releases are cut from refs/heads/main only"
+            exit 1
+          fi
+
+          # Exactly the contexts `main`'s branch protection requires, minus
+          # `checks`: `ci-gate` already aggregates it (it fails unless `checks`
+          # succeeded and `rust` succeeded or was skipped), so naming both
+          # would assert the same fact twice. `security` is aggregated by
+          # nothing — it lives in a separate workflow — so it is named
+          # explicitly, which is the ADR-0015 gap this step closes.
+          contexts=(ci-gate security)
+
+          failed=0
+          for context in "${contexts[@]}"; do
+            # `filter=latest` picks the most recent check run of that name, so
+            # a re-run supersedes the attempt it re-ran, exactly as branch
+            # protection judges it. `app_id` pins the answer to GitHub Actions
+            # (15368) — the same pinning branch protection uses for these
+            # contexts — so a same-named check run from any other integration
+            # holding `checks: write` cannot satisfy this gate. The name match
+            # is exact and case-sensitive: ci.yml suffixes a manually
+            # dispatched run's gate with ` (manual)` precisely so it cannot
+            # stand in for a required context, and that holds here too — only a
+            # real `push: main` run can answer.
+            #
+            # One consequence of `filter=latest` worth knowing about, and
+            # wanted: security.yml's weekly `schedule:` run reports an
+            # unsuffixed `security` check run against `main`'s tip, so a new
+            # RUSTSEC advisory found by the cron against an unchanged
+            # `Cargo.lock` supersedes the push run's green one and blocks a
+            # release until it is dealt with. That is the correct direction for
+            # an ADR-0005 gate: do not publish binaries built from a dependency
+            # set that is currently known-vulnerable.
+            result="$(gh api \
+              "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=$context&filter=latest&app_id=15368" \
+              --jq '(.check_runs[0].status // "missing") + " " + (.check_runs[0].conclusion // "none")')"
+            status="${result% *}"
+            conclusion="${result#* }"
+            # Fail-closed on anything that is not a completed success:
+            # "missing none" (CI never ran for this commit), "in_progress none"
+            # (still running), and every non-success conclusion — failure,
+            # cancelled, timed_out, action_required, skipped, neutral. A `gh
+            # api` error exits here too, via `set -e` on the assignment above.
+            if [ "$status" = "completed" ] && [ "$conclusion" = "success" ]; then
+              echo "$context: success"
+            else
+              echo "::error::required check '$context' is not green for $HEAD_SHA (status=$status, conclusion=$conclusion)"
+              failed=1
+            fi
+          done
+
+          # Every context is reported before the step fails, for the same
+          # reason ci.yml's `checks` job runs all of its steps: one dispatch
+          # should surface every reason it was refused, not just the first.
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::refusing to release $HEAD_SHA — wait for its checks to finish green (or re-run them), then dispatch this workflow again"
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history *and all tags* — `fetch-depth: 0` makes checkout use
@@ -100,10 +211,11 @@ jobs:
           # detection, and the backfill tag lookup all depend on tags being
           # present.
           fetch-depth: 0
-          # The exact commit CI validated, or (backfill) the tag to rebuild.
-          # Checkout credentials are persisted (the default) on purpose —
-          # semantic-release pushes the tag through this remote.
-          ref: ${{ env.BACKFILL_TAG || github.event.workflow_run.head_sha || github.sha }}
+          # The dispatched commit — the same `github.sha` the step above just
+          # proved has a green `ci-gate` and `security` — or (backfill) the tag
+          # to rebuild. Checkout credentials are persisted (the default) on
+          # purpose: semantic-release pushes the tag through this remote.
+          ref: ${{ env.BACKFILL_TAG || github.sha }}
 
       - name: Check the version line is bootstrapped
         id: bootstrap

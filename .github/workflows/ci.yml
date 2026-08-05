@@ -10,12 +10,16 @@ on:
   # only ever be reproduced by merging. Costs nothing unless someone asks for
   # it, and only a collaborator with write access can ask.
   #
-  # Checked against the release pipeline, since `release.yml` is triggered by
-  # this workflow's completion and is the one job in the repository holding
-  # `contents: write`: a dispatched run cannot publish anything. Its
-  # `workflow_run.event` is `workflow_dispatch`, not `push`, which
-  # `release.yml`'s trigger condition requires — so the release job is skipped
-  # (no runner, no billing) rather than merely failing later.
+  # Checked against the release pipeline, since `release.yml` holds the one job
+  # in the repository with `contents: write`: a dispatched run of this workflow
+  # cannot publish anything. That was originally because `release.yml` triggered
+  # on this workflow's completion and required `workflow_run.event == 'push'`;
+  # since TASK-0333(b) it is not triggered by this workflow at all (manual
+  # dispatch only), and the CI-verification step that replaced that trigger
+  # matches the check-run name `ci-gate` exactly — which a dispatched run of
+  # this workflow never reports, per (1) below. The property survives the
+  # rewrite: a manual CI run can neither publish a release nor satisfy the gate
+  # that permits one.
   #
   # Two further properties of this trigger, both handled below rather than left
   # implicit:
@@ -27,10 +31,11 @@ on:
   #     workflow's PR-title lint cannot run without a PR context).
   #  2. `concurrency` is keyed on the ref, so dispatching this workflow *on
   #     `main`* while a merge's own CI run is still in flight would cancel it,
-  #     and `release.yml` requires `conclusion == 'success'` — that merge would
-  #     publish nothing until the release workflow is dispatched manually. Run
-  #     this on the branch under test, which is what it is for; dispatching on
-  #     `main` reproduces nothing that the push run is not already running.
+  #     leaving that commit with a `cancelled` `ci-gate` — which is exactly what
+  #     `release.yml`'s verification step refuses to release from, until CI is
+  #     re-run for it. Run this on the branch under test, which is what it is
+  #     for; dispatching on `main` reproduces nothing that the push run is not
+  #     already running.
   workflow_dispatch:
 
 # Minimal default permissions; jobs widen only if needed.

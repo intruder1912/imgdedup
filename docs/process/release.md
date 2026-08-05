@@ -2,17 +2,32 @@
 
 `imgdedup` uses [Semantic Versioning](https://semver.org/) with **automated**
 releases derived from the [Conventional Commit](commits.md) history, via
-[semantic-release](https://semantic-release.gitbook.io/). The mechanism is
-decided in [ADR-0004](../adr/0004-conventional-commits-semver-and-releases.md)
-and [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md).
+[semantic-release](https://semantic-release.gitbook.io/) — **published on
+demand, not on merge** (owner ruling, 2026-08-05). The mechanism is decided in
+[ADR-0004](../adr/0004-conventional-commits-semver-and-releases.md) and
+[ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md).
 
 ## How it works
 
 1. PRs are squash-merged into `main`; each merge adds one Conventional Commit.
-2. The `CI` workflow runs on the push to `main`. When it finishes **green**, it
-   triggers the release workflow
-   ([`../../.github/workflows/release.yml`](../../.github/workflows/release.yml)),
-   which checks out the exact commit CI validated and runs semantic-release:
+   **A merge publishes nothing by itself.** The `CI` and `Security` workflows
+   run on the push to `main`; that is all.
+2. When a release is wanted, someone dispatches the release workflow
+   ([`../../.github/workflows/release.yml`](../../.github/workflows/release.yml))
+   against `main`:
+
+   ```sh
+   gh workflow run release.yml --ref main   # then: gh run watch
+   ```
+
+3. Its first step **refuses to release a commit that has not passed CI**: it
+   checks that the dispatched ref is `refs/heads/main` and that the required
+   contexts `ci-gate` and `security` are both recorded `completed` +
+   `success` for that exact commit, and fails with a clear error otherwise
+   (still running, red, never ran, cancelled — all refused). This is the
+   explicit replacement for the old "trigger on green CI" behaviour; see the
+   [2026-08-05 amendment to ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-05--manual-only-release-trigger-task-0333b).
+4. It then runs semantic-release against that commit:
    - analyzes commits since the last release,
    - computes the next SemVer version (`fix:` → patch, `feat:` → minor,
      `BREAKING CHANGE` → major),
@@ -22,7 +37,23 @@ and [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md).
      [Distribution targets](#distribution-targets) below).
 
 No release happens when only release-neutral commits (`docs`, `chore`, `ci`,
-`test`, `refactor`, `style`) are present since the last tag.
+`test`, `refactor`, `style`) are present since the last tag — the run finishes
+green having published nothing.
+
+### Why on demand
+
+Every `feat:`/`fix:` merge used to publish, which produced 12 releases in four
+days and made the four-platform `assets` matrix 27% of the repository's entire
+Actions bill (485 billed minutes over that window) for a private project where
+nobody was waiting on any of those versions. Batching costs nothing in version
+arithmetic: semantic-release computes the next version from **all** commits
+since the last tag, so one dispatch releases everything accumulated. The cost
+is that a merge worth shipping sits unreleased until someone asks — so ask,
+when it is worth shipping.
+
+If the dispatch is refused because `main`'s tip has no green CI (this is
+possible without anything being broken: `main` is no longer `strict`, and CI on
+`main` may still be running), wait for it or re-run it, then dispatch again.
 
 ## Why nothing is committed back to `main`
 
@@ -58,6 +89,10 @@ green CI run on `main` published **v0.1.0** the same day — both steps verified
 in advance by dry run (see below). The bootstrap guard (skip green, with a
 `::notice::`, while no `v*` tag exists) stays in the workflow permanently as a
 harmless no-op safeguard; it never triggers again once tags accumulate.
+
+Releases up to and including **v0.5.1** (2026-08-05) were published
+automatically on merge. From 2026-08-05 the workflow is dispatched manually, as
+described above.
 
 ### Verifying a release without publishing
 

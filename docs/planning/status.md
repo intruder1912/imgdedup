@@ -1172,7 +1172,23 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-- **Owner action, with TASK-0331's PR, not after it — swap `main`'s required
+- **Resolved 2026-08-05 (was: owner action with TASK-0331's PR) — `main`'s
+  required status checks are swapped.** Verified live during TASK-0333(b):
+  `gh api …/branches/main/protection/required_status_checks --jq '{strict,
+  checks}'` returns `checks`, `ci-gate`, `security`, each pinned to app `15368`,
+  with **`strict: false`** (the owner also applied TASK-0333(c) — see its
+  backlog row). Nothing is waiting on the owner here. The original entry is
+  kept below for the record, since the exact command and its `checks`-vs-
+  `contexts` reasoning are the template for the next rename. Note that
+  TASK-0333(b) makes this list load-bearing in a second place: `release.yml`'s
+  CI-verification step derives the contexts it checks (`ci-gate` + `security`,
+  `checks` being aggregated by `ci-gate`) from it, so a future rename must
+  update that step too — it reads check-run _results_, not the protection
+  settings, so a drift would not fail loudly on its own.
+
+  <details><summary>Original entry (superseded)</summary>
+
+  **Owner action, with TASK-0331's PR, not after it — swap `main`'s required
   status checks.** That PR folds `secret-scan` and `cargo-deny` into a single
   `security` job (TASK-0331(d)), so both of those context names stop existing.
   Branch protection still requires them by exact string, and a required check
@@ -1208,6 +1224,8 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   Note the macOS half of TASK-0331 needs **no** protection change: `rust`
   varies its matrix width by event, `ci-gate` remains the single aggregating
   required check, and none of the per-leg `rust (…)` contexts is required.
+
+  </details>
 
 - `main`'s required checks, verified live via the GitHub API on 2026-08-04 and
   again on 2026-08-05 (post-TASK-0330, pre-TASK-0331): `secret-scan`,

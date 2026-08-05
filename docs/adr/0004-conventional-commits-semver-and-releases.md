@@ -42,6 +42,12 @@ work merges.
   `CHANGELOG.md` is **not** generated — release notes only.)*
 - The human gate is at **merge time** (ADR-0003): nothing reaches `main` without
   the owner merging, so "auto-publish on merge" is still owner-controlled.
+  *(Amended 2026-08-05 by the [manual-only trigger amendment to ADR-0015](0015-release-publishing-tag-and-github-release.md#amendment-2026-08-05--manual-only-release-trigger-task-0333b):
+  publishing is no longer on merge at all — a release is dispatched on demand,
+  and cutting one refuses any commit whose required checks are not green. The
+  choice of tooling and the version arithmetic here are unchanged; only the
+  cadence is, and it moves toward option 2's "extra human gate" without its
+  release-PR machinery.)*
 
 ### Phase 0 status — resolved 2026-08-02 by [ADR-0015](0015-release-publishing-tag-and-github-release.md)
 
