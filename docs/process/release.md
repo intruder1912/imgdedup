@@ -55,6 +55,15 @@ If the dispatch is refused because `main`'s tip has no green CI (this is
 possible without anything being broken: `main` is no longer `strict`, and CI on
 `main` may still be running), wait for it or re-run it, then dispatch again.
 
+Two more ways a run can finish **green having published nothing**, both worth
+checking the log for rather than assuming a version was cut:
+
+- only release-neutral commits accumulated since the last tag (above); or
+- a merge landed in the seconds between the dispatch and the checkout, so the
+  commit the run resolved to is now behind `main` and semantic-release skips.
+  Nothing retries automatically now that merging does not publish — just
+  dispatch again.
+
 ## Why nothing is committed back to `main`
 
 `main` is protected and forbids direct pushes (ADR-0003). semantic-release does

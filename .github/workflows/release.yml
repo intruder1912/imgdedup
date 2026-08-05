@@ -158,28 +158,44 @@ jobs:
 
           failed=0
           for context in "${contexts[@]}"; do
-            # `filter=latest` picks the most recent check run of that name, so
-            # a re-run supersedes the attempt it re-ran, exactly as branch
-            # protection judges it. `app_id` pins the answer to GitHub Actions
-            # (15368) — the same pinning branch protection uses for these
-            # contexts — so a same-named check run from any other integration
-            # holding `checks: write` cannot satisfy this gate. The name match
-            # is exact and case-sensitive: ci.yml suffixes a manually
-            # dispatched run's gate with ` (manual)` precisely so it cannot
-            # stand in for a required context, and that holds here too — only a
-            # real `push: main` run can answer.
+            # `app_id` pins the answer to GitHub Actions (15368) — the same
+            # pinning branch protection uses for these contexts — so a
+            # same-named check run from any other integration holding
+            # `checks: write` cannot satisfy this gate. (Verified against the
+            # live API: a wrong `app_id` returns zero check runs rather than
+            # being ignored.) The name match is exact and case-sensitive:
+            # ci.yml suffixes a manually dispatched run's gate with ` (manual)`
+            # precisely so it cannot stand in for a required context, and that
+            # holds here too — only a real `push: main` run can answer.
             #
-            # One consequence of `filter=latest` worth knowing about, and
-            # wanted: security.yml's weekly `schedule:` run reports an
-            # unsuffixed `security` check run against `main`'s tip, so a new
-            # RUSTSEC advisory found by the cron against an unchanged
-            # `Cargo.lock` supersedes the push run's green one and blocks a
-            # release until it is dealt with. That is the correct direction for
-            # an ADR-0005 gate: do not publish binaries built from a dependency
-            # set that is currently known-vulnerable.
+            # **Every returned check run must be green, not just one of them.**
+            # `filter=latest` deduplicates *within a check suite* — it is what
+            # makes a re-run supersede the attempt it re-ran — but GitHub
+            # Actions creates one check suite per workflow *run*, so two
+            # different runs reporting the same check name against the same
+            # commit both come back. That is not hypothetical here: every
+            # recent commit on `main` carries two or three `release` check runs
+            # for exactly this reason, and `security.yml`'s weekly `schedule:`
+            # run reports a second, unsuffixed `security` check run against
+            # whatever `main`'s tip is at 06:23 on a Monday. Taking
+            # `.check_runs[0]` would therefore have made the verdict depend on
+            # an array order the REST API does not document — and the case it
+            # decides is precisely the one this gate exists for: a new RUSTSEC
+            # advisory found by the cron against an unchanged `Cargo.lock`,
+            # sitting next to the push run's green `security`. Requiring all of
+            # them is order-independent, strictly fail-closed, and still clears
+            # by re-running the red run (a re-run lands in its own suite's
+            # `latest`). It also means a hypothetical future `workflow_dispatch`
+            # on `security.yml` could not launder a red result by adding a
+            # green run beside it, the way ci.yml needs its ` (manual)` suffix
+            # to prevent.
             result="$(gh api \
               "repos/$REPO/commits/$HEAD_SHA/check-runs?check_name=$context&filter=latest&app_id=15368" \
-              --jq '(.check_runs[0].status // "missing") + " " + (.check_runs[0].conclusion // "none")')"
+              --jq 'if (.check_runs | length) == 0 then "missing none"
+                    else ([.check_runs[] | select(.status != "completed" or .conclusion != "success")]
+                          | if length == 0 then "completed success"
+                            else ((.[0].status // "unknown") + " " + (.[0].conclusion // "none")) end)
+                    end')"
             status="${result% *}"
             conclusion="${result#* }"
             # Fail-closed on anything that is not a completed success:

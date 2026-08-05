@@ -124,7 +124,12 @@ bypass, no long-lived secret, and ADR-0003 stays exactly as written.
   `workflow_run.head_sha` — the exact commit CI validated. If a newer commit
   reaches `main` in the meantime, semantic-release detects that the checkout is
   behind and skips; the next merge's run then releases everything accumulated,
-  so nothing is lost.
+  so nothing is lost. *(That last clause lapsed with the trigger: there is no
+  "next merge's run" any more. A dispatch whose `github.sha` fell behind
+  `main`'s tip — a merge landing in the seconds between dispatch and checkout —
+  still skips, but now finishes green having published nothing and retries
+  nothing. Recovery is to dispatch again; noted in
+  [`../process/release.md`](../process/release.md).)*
 - **Not gated on the `Security` workflow.** *(No longer true as of 2026-08-05 —
   the [manual-only trigger amendment](#amendment-2026-08-05--manual-only-release-trigger-task-0333b)
   verifies `security` as well as `ci-gate`, because the reason for this gap was
@@ -420,16 +425,33 @@ before any dependency is installed:
   release branches rather than about the mistake made.)
 - It queries `GET /repos/{owner}/{repo}/commits/{sha}/check-runs` — via `gh
   api`, this repository's established tool — once per required context, with
-  `filter=latest` (a re-run supersedes what it re-ran, as branch protection
-  judges it) and `app_id=15368`, pinning the answer to GitHub Actions exactly
-  as `main`'s branch protection pins those contexts. A same-named check run
-  reported by any other integration holding `checks: write` cannot satisfy the
-  gate.
-- It requires `status == "completed" && conclusion == "success"`, and is
-  fail-closed on everything else: a missing check run (CI never ran for that
-  commit), one still in progress, and every non-success conclusion —
-  `failure`, `cancelled`, `timed_out`, `action_required`, `skipped`, `neutral`.
-  A `gh api` error fails the step too, via `set -euo pipefail`.
+  `filter=latest` and `app_id=15368`, pinning the answer to GitHub Actions
+  exactly as `main`'s branch protection pins those contexts. A same-named check
+  run reported by any other integration holding `checks: write` cannot satisfy
+  the gate (verified live: a wrong `app_id` returns zero check runs rather than
+  being ignored).
+- It requires **every** returned check run to be `status == "completed" &&
+  conclusion == "success"`, and is fail-closed on everything else: a missing
+  check run (CI never ran for that commit), one still in progress, and every
+  non-success conclusion — `failure`, `cancelled`, `timed_out`,
+  `action_required`, `skipped`, `neutral`. A `gh api` error fails the step too,
+  via `set -euo pipefail`.
+- **Every** rather than the newest, because `filter=latest` deduplicates only
+  *within* a check suite (which is what makes a re-run supersede the attempt it
+  re-ran), and GitHub Actions creates one check suite per workflow *run* — so
+  two runs reporting the same check name against the same commit both come
+  back. Verified against this repository's live data: every recent commit on
+  `main` carries two or three `release` check runs for exactly that reason. The
+  case it decides is the one this gate exists for: `security.yml`'s weekly
+  `schedule:` run reports a second, unsuffixed `security` check run against
+  `main`'s tip, so a new RUSTSEC advisory found by the cron against an
+  unchanged `Cargo.lock` sits next to the push run's green `security`. Reading
+  only the first element would have made that verdict depend on an array order
+  the REST API does not document; requiring all of them is order-independent
+  and strictly fail-closed, and still clears by re-running the red run (whose
+  re-run wins its own suite's `latest`). It also removes the need for a
+  `(manual)`-style suffix should `security.yml` ever gain a
+  `workflow_dispatch`: a green manual run cannot launder a red one beside it.
 - The name match is exact and case-sensitive, which matters: TASK-0331(a)
   suffixes a manually dispatched CI run's gate with a `(manual)` marker so it
   cannot
@@ -454,11 +476,12 @@ fails unless `checks` succeeded and `rust` succeeded or was skipped), so naming
 both would assert one fact twice. `security` is aggregated by nothing, living
 in a separate workflow, so it is named explicitly. The release gate is now
 strictly stronger than the one this ADR originally described. One consequence
-of `filter=latest` follows from that and is wanted: `security.yml`'s weekly
-`schedule:` run reports an unsuffixed `security` check run against `main`'s
-tip, so an advisory the cron finds against an unchanged `Cargo.lock`
-supersedes the push run's green result and blocks releases until it is dealt
-with — the correct direction for an ADR-0005 gate.
+follows from that and is wanted: `security.yml`'s weekly `schedule:` run
+reports an unsuffixed `security` check run against `main`'s tip, so an advisory
+the cron finds against an unchanged `Cargo.lock` blocks releases of that commit
+until it is dealt with — the correct direction for an ADR-0005 gate, and the
+reason the step requires *every* returned check run to be green rather than the
+newest one (see the bullet above).
 
 **The backfill path is deliberately exempt.** `workflow_dispatch` with a `tag`
 input repairs the assets of a release that *already exists* and was gated when
