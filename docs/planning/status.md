@@ -11,6 +11,74 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 23 (TASK-0335, lint shell scripts and GitHub Actions workflows),
+  2026-08-05 — continuing session 22's window (5h≈30% at start)._ Direct
+  follow-up from TASK-0334's own review: neither `shellcheck` nor `actionlint`
+  ran anywhere, locally or in CI, so the real command-injection defect that
+  review found in `scripts/release-preflight.sh` was caught only because a
+  human ran the tools by hand. Closes that gap. New `make shellcheck`/`make
+  actionlint` targets folded into `validate`; `scripts/validate.sh` gets
+  matching steps and install hints in the same style as its existing
+  typos/lychee checks; `ci.yml`'s `checks` job installs both tools the same
+  way it already installs typos — downloaded into `RUNNER_TEMP`,
+  checksum-verified against a hand-pinned sha256 (shellcheck's v0.11.0 release
+  publishes no separate checksums file to verify against, matching the
+  `typos` precedent; actionlint's own `checksums.txt` is fetched but not
+  trusted as the verification source, since an attacker able to tamper with
+  one release asset could tamper with the checksums file beside it — both
+  hand-pinned values were independently re-derived from the real upstream
+  assets, not copied from anywhere). `actionlint` also picks up the installed
+  `shellcheck` on `PATH`, so it re-lints every workflow's embedded shell for
+  free. Both tools lint `git ls-files '*.sh'` rather than a `scripts/*.sh`
+  glob, so a script added below the top level of `scripts/` (which already
+  has a subdirectory, `scripts/release-preflight/`) can never go silently
+  unlinted. One pre-existing finding worked around rather than fixed: `typos
+  $(git ls-files '*.md')`'s word-splitting is intentional (typos wants one
+  filename per argument; every tracked path here is plain ASCII with no
+  spaces or glob metacharacters), silenced with an explanatory comment at its
+  two call sites (`ci.yml`, `scripts/validate.sh`) rather than restructured.
+  Docs synced: `CONTRIBUTING.md`, `docs/process/sdlc.md`.
+  **One mechanical fix landed first, in its own commit, on the repository's
+  only `contents: write` workflow:** `release.yml` carried a pre-existing
+  SC2129 finding (two sequences of individual `>> "$GITHUB_OUTPUT"` redirects,
+  shellcheck's own suggestion is to group them) that would otherwise have
+  forced an exclusion on the new gate's very first run. Classified `style:`,
+  not `fix:` — no behavior change, verified directly (output content/order,
+  exit-code propagation under `set -euo pipefail`, and the surrounding
+  branches are all identical before and after) — specifically so it carries
+  no release semantics; the architect review's own should-fix flagged that the
+  first draft of this commit had used `fix:`, which would have put a
+  lint-only chore into the next release's user-facing changelog as a patch
+  bump.
+  **Independent architect review (one dispatch, converged on the branch),
+  required regardless of size because the unit touches `release.yml` per
+  ADR-0011's carve-out — even though the actual `release.yml` change is a
+  two-line style fix.** Confirmed correct rather than assumed: re-derived both
+  tools' pinned checksums independently against the live upstream releases
+  (matched); reproduced the SC2129 diff's behavior-equivalence by hand
+  (matched); ran both linters against a clean snapshot of `main` and confirmed
+  they surface exactly the two findings this unit resolves and nothing else,
+  so no baseline/exclusion file was needed. Two real, if small, gaps found and
+  fixed: **(1)** the first draft's `shellcheck scripts/*.sh` glob would have
+  silently missed any script added below `scripts/`'s top level — a live gap,
+  since `scripts/release-preflight/` already exists — fixed to lint
+  `git ls-files '*.sh'` instead. **(2)** `actionlint` silently drops its
+  embedded-shell rule (exits 0, no error) if it can't find `shellcheck` on
+  `PATH`, so a future reordering of the two install steps could quietly halve
+  workflow coverage with no signal; the workflow step now asserts the pairing
+  explicitly before running. Also caught and fixed: `fix:` → `style:` on the
+  `release.yml` commit (above), a stale `docs/process/sdlc.md` line
+  enumerating the old `make validate` contents, and an ADR-0005 amendment
+  recording the addition — the ADR's own security-gate bullet named only the
+  Rust stack's static analysis and had gone stale the moment this repository's
+  other executable surface (scripts, workflows) went unlinted. Nits noted but
+  not acted on: the local install hint for `actionlint` had no non-Homebrew
+  path (added `go install`); no automated bump path exists yet for the two
+  new hand-pinned tool versions, same as `typos` already has (accepted
+  residual, not a new one this unit introduces). This continues the run of
+  sessions where the reserved review dispatch finds real substance on a unit
+  that looked mechanical from the outside. This PR.
+
 - _Session 22 (TASK-0334, local release-pipeline pre-flight), 2026-08-05 —
   fresh window (5h=0%, 7d=17% at start)._ Owner picked this as the next unit
   from three unblocked `todo` items (TASK-0219, TASK-0332, TASK-0334) after
