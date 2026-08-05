@@ -11,6 +11,35 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 29 (TASK-0314 addendum: informal real-world performance numbers;
+  planning-only), 2026-08-05 — same window as sessions 26–28._ Captured on
+  request, on the same corpus and machine as session 26's field validation
+  (2,021 real JPEGs, 5.72 GB, one 2009 vacation-trip tree, Apple M2 Pro, 10
+  cores) — not part of TASK-0314's own scope (that task is correctness-only)
+  and **explicitly not a formal benchmark**: single machine, single hardware
+  configuration, no `main`-baseline comparison, warm-OS-cache only (the one
+  cold-cache run measured, 1.84 s wall, was not repeated rigorously), and one
+  corpus shape (avg. 2.76 MB/file — every file in it clears TASK-0322's 1 MiB
+  `RAYON_HASH_THRESHOLD`, so this run exercises the parallel intra-file
+  hashing path on essentially every file, unlike a corpus with many small
+  images). `tests/scale.rs` (`make scale`) remains the project's actual
+  controlled regression benchmark (NFR-4); this is a single illustrative data
+  point on genuine camera files, recorded here rather than left in chat only.
+  **Numbers** (`/usr/bin/time -l`, 3 runs, warm cache):
+
+  | Run | Wall | User | Sys | Peak RSS |
+  |---|---|---|---|---|
+  | plain report | 0.57 s | 1.62 s | 1.04 s | 46 MB |
+  | `--json` | 0.50 s | 1.61 s | 0.95 s | 61 MB |
+  | plain report (repeat) | 0.50 s | 1.61 s | 0.96 s | 65 MB |
+
+  ~11 GB/s wall-clock, ~2.2 GB/s per CPU-second (user+sys spread across
+  parallel cores, not a single-core figure), ~4,000 files/sec. **Peak memory
+  46–65 MB against 5.72 GB of input** is the number worth keeping: it's a
+  real-data confirmation that ADR-0010's bounded-memory design
+  (`O(2 × pool width × buffer)`, TASK-0322's amendment) holds outside the
+  synthetic fixtures it was originally measured against. This PR.
+
 - _Session 28 (new TASK-0337, public-readiness pre-flight; planning-only),
   2026-08-05 — same window as sessions 26–27._ The public-readiness
   conversation that produced session 27's docs fix also produced a set of
