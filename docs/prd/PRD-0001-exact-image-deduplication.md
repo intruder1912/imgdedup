@@ -181,6 +181,13 @@ User stories:
   candidate total `y` (which is only fixed once examination has rejected the
   non-images, and is therefore never larger).
 
+  **Walk liveness cue (Amendment 2026-08-05, TASK-0332).** On a tree where
+  very few entries match the extension scope, the walk's found-so-far count
+  can itself sit static for a long stretch, indistinguishable on screen from
+  a hung process. The indeterminate walk state therefore also shows **elapsed
+  time since the scan started**, ticking on the same throttled cadence as
+  every other repaint (AC-21b).
+
   **Denominator across phases (Amendment 2026-08-01; refined 2026-08-05).**
   Scanning runs before the candidate total `y` is known, so it renders an
   indeterminate counting state while walking and then a determinate count
@@ -436,6 +443,25 @@ Behavior:
   never `scanning: 0 of 0` — consistent with AC-21's zero-workload rule. On a
   non-TTY the same state appears only as bounded coarse-milestone plain lines
   per AC-22 (no in-place redraw, no per-file line).
+- **AC-21b (FR-19, walk liveness cue; added 2026-08-05, TASK-0332):** Given
+  stderr is an interactive terminal, when the tree walk (AC-21's indeterminate
+  scanning state) is running, then the indicator shows **elapsed time since
+  the scan started** (the process's own progress-indicator construction,
+  fractions of a second before the walk's first entry — not distinguishable
+  in practice, since the indeterminate state is the very first thing shown)
+  alongside the found-so-far count on every repaint, e.g.
+  `scanning... 3 files found (14s elapsed)`, updating on the same throttled
+  cadence as every other repaint (AC-21) — unconditionally, from the very
+  first render, not only once some threshold of time or non-matching entries
+  is crossed. This is deliberately not framed as a response to the walk
+  finding nothing: the suffix is part of every indeterminate repaint, not a
+  special case that switches on when a tree happens to be slow to walk, even
+  though the case it matters for is a tree where very few entries match the
+  extension scope, where the found-so-far count alone would otherwise sit
+  static for a long stretch (indistinguishable on screen from a hung
+  process). Non-TTY is unaffected — AC-22's existing "found-so-far count
+  stays TTY-only" reasoning applies identically to elapsed time, since a
+  non-redrawn line could only ever record a stale value.
 - **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01, 2026-08-05):** Given stderr is
   **not** a TTY (redirected or piped), when a scan runs, then **no in-place
   redraw / carriage-return / ANSI control sequences** are emitted; progress
@@ -449,7 +475,8 @@ Behavior:
   other phase, but its denominator is the examined-file count, not `y` — it
   therefore does **not** discharge the problem-size minimum above, which is
   about `y`. Scanning's indeterminate found-so-far count stays TTY-only: a
-  non-redrawn line could only ever record a stale count.
+  non-redrawn line could only ever record a stale count. The AC-21b elapsed-
+  time liveness cue is TTY-only for the identical reason.
 - **AC-23 (FR-19, opt-out):** Given `--no-progress`, when a scan runs, then **no
   progress output is written to stderr at all**, and stdout is unchanged.
 - **AC-24 (FR-19, output-only):** Given identical inputs and flags, the groups,
@@ -698,3 +725,69 @@ truthful — three files really is all it has found — but it does not evidence
 liveness, and this ruling does not fix it, because the fix is a different
 mechanism (a liveness cue, not a counter) and the walk is the ≈10% part.
 Tracked as TASK-0332 rather than folded in here.
+
+## Amendment 2026-08-05 — walk liveness cue (product-owner ruling, TASK-0332)
+
+Closes the residual TASK-0328 named and explicitly declined to fix: on a tree
+where very few entries match the extension scope (a source checkout, a backup
+volume), the walk can grind through a long stretch of directory entries while
+`scanning... 3 files found` sits static — truthful, but indistinguishable on
+screen from a hung process, the exact complaint FR-19 exists to answer.
+
+**Ratified ruling** (reflected in FR-19 and AC-21b above): show **elapsed time
+since the scan started**, appended to the existing indeterminate line —
+`scanning... 3 files found (14s elapsed)` — updating on the same throttled
+cadence as every other repaint, from the first render of the state (no
+threshold before it appears).
+
+Two alternatives were on the table, both named in TASK-0332's own backlog
+row, both rejected:
+
+1. **An entries-visited tick** (`scanning... 3 files found, 48213 entries
+   scanned`) — rejected as the more informative-*looking* option that is
+   actually the more misleading one. There is no denominator for "entries
+   visited" (the walk does not know how many entries a tree has until it
+   finishes), so a growing number next to a percentage-shaped display
+   invites exactly the reading TASK-0332's backlog row warned against:
+   that it measures progress *toward* something, when it measures nothing
+   more than "the walk has not stopped". Elapsed time carries no such
+   implication — a clock is legible as "still running", full stop, to
+   every reader, technical or not.
+2. **A spinner** — rejected as strictly weaker than elapsed time for equal
+   implementation cost. Both are liveness-only signals that assert nothing
+   about quantified progress, so neither has an honesty edge over the
+   other; but a spinner communicates only "alive", while a ticking clock
+   communicates "alive" *and* "for this long" — genuinely useful
+   information a spinner discards for no offsetting benefit here (this
+   tool's other progress text is plain counts and percentages throughout,
+   not iconography, so a spinner would also be the one glyph-based element
+   in an otherwise plain-text display).
+
+**Mechanism, not just UX.** The elapsed clock can only *tick* if something
+keeps triggering repaints while the walk finds nothing — today, a repaint is
+driven exclusively by `advance()` calls, and on a low-match-density tree those
+are exactly the calls that go quiet for a long stretch. The walk now checks in
+on **every** directory entry it visits, accepted or not, through the same
+throttled repaint path `advance()` already uses (a zero-count "tick" that
+updates no counter but is still subject to the existing ≤1-repaint-per-100ms
+throttle). This adds no *extra repaint*, since the throttle already bounds
+how often a repaint can happen; the per-entry cost of the tick call itself
+(an atomic increment-by-zero plus a clock read) is negligible next to the
+syscalls the walk already pays per entry, but is not literally free. This is
+what makes the elapsed suffix actually move during the slow case, rather than
+freezing alongside the count it sits next to.
+
+**Residual, named rather than silently narrowed:** a single directory read
+that itself blocks for longer than one repaint interval (an unresponsive
+network mount, a very large single directory) still cannot be ticked through
+mid-read — the clock resumes the moment the next entry is visited, same as
+the count it accompanies. The same gap exists, less prominently, in two
+places outside `enumerate_root`'s walk itself: `dedupe_roots`'s per-root
+canonicalization (before any walk starts) and, under `--follow-symlinks`
+only, `dedupe_symlink_aliases_across_roots`'s post-walk canonicalization pass
+(I/O proportional to the candidate count) — neither is ticked, both are
+normally short, and both are the same class of gap as the mid-read case
+rather than a new one. This is the same "truthful, not exhaustive" posture
+AC-21/AC-22 already take everywhere else (a repaint can only reflect work
+already completed, never work in flight), not a new gap this ruling
+introduces.

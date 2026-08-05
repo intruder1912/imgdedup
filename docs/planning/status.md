@@ -11,6 +11,101 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 24 (TASK-0332, scanning's walk liveness cue), 2026-08-05 —
+  continuing session 23's window (5h=49% at start; owner explicitly
+  authorized running this session up to 95%, above the usual 60–70%
+  target/75% hard stop — a real-time override, not a process miss, recorded
+  here per the session-12 precedent for the same kind of override)._ Closes
+  the residual TASK-0328's own ruling named and explicitly declined to fix:
+  on a tree where very few entries match the extension scope (a source
+  checkout, a backup volume), the tree-walk sub-phase of Scanning can grind
+  for a long stretch while `scanning... 3 files found` sits static — truthful,
+  but indistinguishable on screen from a hung process.
+  **Product-owner ruling** (new PRD-0001 **AC-21b**, [2026-08-05
+  amendment](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-08-05--walk-liveness-cue-product-owner-ruling-task-0332)):
+  show elapsed time since the scan started, appended to the existing
+  indeterminate line — `scanning... 3 files found (14s elapsed)` — from the
+  first render, not only past some threshold. Two named alternatives from the
+  backlog row, both rejected with reasons recorded in the PRD amendment: an
+  entries-visited tick (no denominator exists for "entries visited", so a
+  growing raw number there would read as quantified progress it isn't — the
+  exact concern the backlog row itself raised) and a spinner (strictly weaker
+  than elapsed time for equal implementation cost — both are liveness-only,
+  but a clock also says _how long_, which a spinner discards, and this tool's
+  other progress text is plain counts/percentages throughout, not
+  iconography).
+  **Implementer (TDD):** the walk liveness cue can only tick if something
+  keeps triggering repaints while the walk finds nothing — today, only
+  `advance()` does that, and on a low-match tree those calls are exactly the
+  ones that go quiet. `enumerate_root`'s walk loop (`enumerate.rs`) now calls
+  a zero-count `advance(0)` on **every** directory entry it visits, accepted
+  or not, before any of the existing `continue`s — a "tick" that changes no
+  counter but still runs through the exact same throttled repaint check a
+  real advance does (≤1 repaint per 100 ms), so a fast walk over a dense tree
+  pays nothing extra it wasn't already paying. `progress.rs`'s `line()` gained
+  an `elapsed_secs` parameter, computed once per repaint in `paint()` from the
+  existing `now_millis()` clock, rendered only in the TTY indeterminate
+  branch — non-TTY is unaffected, for the identical reason AC-22 already
+  keeps the found-so-far count TTY-only (a non-redrawn line could only ever
+  record a stale value). 6 new unit tests initially (progress.rs: elapsed
+  time shown alongside the count and from the very first render; `advance(0)`
+  repaints without changing or regressing the displayed count; non-TTY never
+  shows elapsed time — plus enumerate.rs: a tick fires once per directory
+  entry visited, separately from the one real advance per accepted candidate,
+  proven with a sink that records every call's `n` rather than just summing
+  it). **Verified against the real release binary, not just the unit
+  suite:** built a 400,000-file synthetic tree (all `.dat`, nothing an image
+  extension) and ran both `main`'s binary and this branch's under a real
+  pseudo-TTY (`script`). `main` writes the indeterminate scanning line
+  exactly once for the whole walk (frozen, since nothing is ever accepted as
+  a candidate — the exact defect this task exists to fix); this branch
+  writes it 4 times over the identical walk. The elapsed value itself stayed
+  at `0s` in that run only because the walk finished in under a second on
+  this machine's SSD — a real-wall-clock fact the deterministic unit tests
+  don't depend on.
+  **Independent architect review (one dispatch, converged on the branch):
+  no blockers, one real test-coverage gap found by mutation, plus should-fix
+  doc/wording gaps — all resolved. Continues the run of sessions where the
+  reserved concurrency-adjacent review dispatch finds real substance, per the
+  TASK-0317/TASK-0328 precedent this task itself deliberately followed.**
+  **(1)** The enumerate.rs tick-placement test didn't actually pin the
+  placement it claimed to: the reviewer mutated the tick to fire _after_ the
+  hidden-entry skip instead of before it, and the entire 284-test suite
+  still passed — silently re-freezing the indicator on exactly the
+  motivating case (a source checkout, where `.git/` is a long run of hidden
+  entries filtered out post-yield). Fixed by adding a hidden subtree to the
+  fixture (verified: the same mutation now fails). **(2)** The `Err`-entry
+  half of "the tick fires for every walk entry, not just accepted ones" was
+  asserted in a code comment and the PRD but pinned by no test; added one
+  using this file's existing `#[cfg(unix)]`/`chmod`-based precedent
+  (a permission-denied subdirectory), empirically confirming walkdir yields
+  it as _two_ entries (the directory itself, then a separate read error) —
+  4 ticks, not the 3 first guessed. **(3)** The elapsed-seconds divisor
+  (`now_millis() / 1000`) was completely untested: every prior test observes
+  a process running for single-digit milliseconds, so it could only ever
+  assert `0s` — a regression to raw milliseconds would have shipped green.
+  Closed two ways: a new `Progress::new_with_interval_ms_and_elapsed_ms`
+  (`#[cfg(test)]`, unlike its always-compiled `new_with_interval_ms` sibling,
+  since no production caller has a legitimate reason to fake its own start
+  time) injects a deterministic past start time, pinning `61_500ms → "61s
+  elapsed"`; plus a narrower test calling `line()` directly. Also fixed:
+  `Progress::line`'s and `ProgressSink::advance`'s rustdoc, and
+  `enumerate.rs`'s module/function docs, all still described the pre-tick
+  world (`advance` "called once per candidate... not once per directory
+  entry visited" — now false for the `n == 0` tick, still true for the
+  displayed count); AC-21b reworded, since its Given/When phrasing read as
+  "the suffix appears in response to a slow tree" when it's actually
+  unconditional on every indeterminate repaint; FR-19 gained the short clause
+  the amendment's "reflected in FR-19 and AC-21b" claim required but hadn't
+  actually done; the amendment's residual paragraph now also names
+  `dedupe_roots`/`dedupe_symlink_aliases_across_roots` as the same class of
+  untickable stretch, not just a blocked directory read; and the guide's
+  "ticking up as proof the tool has not hung" softened to "evidence" (a
+  blocked read is a named, accepted gap, not something this cue rules out).
+  `docs/guide/output-and-exit-codes.md` updated throughout (the walk's
+  worked example now shows the suffix as part of the normal line, not a
+  slow-tree-only addition, and the non-TTY note). This PR.
+
 - _Session 23 (TASK-0335, lint shell scripts and GitHub Actions workflows),
   2026-08-05 — continuing session 22's window (5h≈30% at start)._ Direct
   follow-up from TASK-0334's own review: neither `shellcheck` nor `actionlint`

@@ -47,13 +47,18 @@
 //!   — but the paths reported downstream are always the as-walked ones.)
 //! - No deduplication or grouping logic.
 //!
-//! ## Progress (TASK-0317)
+//! ## Progress (TASK-0317, TASK-0332)
 //!
 //! [`enumerate_with_progress`] additionally depends on
 //! [`crate::progress::ProgressSink`], notifying it once per accepted
-//! candidate so `main.rs` can animate the indeterminate Scanning phase
-//! instead of leaving it frozen for the whole traversal. This is the only
-//! dependency this module has outside `walkdir`/`std`.
+//! candidate (`advance(1)`) so `main.rs` can animate the indeterminate
+//! Scanning phase instead of leaving it frozen for the whole traversal. It
+//! also notifies it once per directory entry visited regardless of outcome
+//! (`advance(0)`, a "tick" — TASK-0332), so a display element that depends
+//! only on wall-clock time can keep moving through a stretch where nothing
+//! is accepted (see [`ProgressSink::advance`]'s doc for the `n == 0`
+//! contract). This is the only dependency this module has outside
+//! `walkdir`/`std`.
 
 use crate::keeper;
 #[cfg(test)]
@@ -262,9 +267,17 @@ pub(crate) fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet 
 /// until enumeration finishes, so `main.rs` shows a live, indeterminate
 /// count ("scanning... N files found") rather than a frozen "scanning..."
 /// for the whole enumeration sub-phase. `sink.advance(1)` is called exactly
-/// once per candidate that passes every scope rule — not once per directory
-/// entry walkdir visits — so the count only ever grows by files that will
-/// actually reach the next pipeline stage.
+/// once per candidate that passes every scope rule — so the *displayed
+/// count* only ever grows by files that will actually reach the next
+/// pipeline stage.
+///
+/// Separately, `sink.advance(0)` is called once per directory entry
+/// **walkdir visits, full stop** — accepted, rejected, hidden, or even a
+/// walk error — regardless of the above (TASK-0332, AC-21b): a zero-count
+/// "tick" that changes no counter but still lets a wall-clock-only display
+/// element (the elapsed-time liveness cue) keep moving through a stretch
+/// where nothing is accepted. See [`ProgressSink::advance`]'s doc for the
+/// general `n == 0` contract this relies on.
 ///
 /// One exception, under `--follow-symlinks` only: a candidate that
 /// [`dedupe_symlink_aliases_across_roots`] later collapses as a proven alias
@@ -675,6 +688,16 @@ fn enumerate_root(
     let mut saw_symlink = false;
 
     for entry_result in walker {
+        // Zero-count tick (TASK-0332, AC-21b): `advance(0)` changes no
+        // counter but still runs through the same throttled repaint check
+        // every real `advance` call does, which is what lets the
+        // indeterminate scanning line's elapsed-time suffix actually move
+        // during a long stretch where nothing below is accepted as a
+        // candidate. Placed before any `continue`, so it fires for every
+        // entry the walker yields — accepted, rejected, hidden, or even a
+        // walk error — not only the ones that become candidates.
+        sink.advance(0);
+
         match entry_result {
             Err(e) => {
                 // Collect the path from the error if available; otherwise use
@@ -836,6 +859,25 @@ mod tests {
         fn set_phase(&self, _phase: crate::progress::Phase) {}
         fn advance(&self, n: u64) {
             self.advanced.fetch_add(n, Ordering::SeqCst);
+        }
+        fn retotal(&self, _total: u64) {}
+        fn finish(&self) {}
+    }
+
+    /// Spy `ProgressSink` (TASK-0332) that records every `advance` call's `n`
+    /// individually, not just their sum — needed to distinguish a zero-count
+    /// liveness "tick" (`n == 0`) from a real advance (`n > 0`), which
+    /// `CountingSink`'s running total cannot.
+    #[derive(Default)]
+    struct RecordingSink {
+        calls: std::sync::Mutex<Vec<u64>>,
+    }
+
+    impl crate::progress::ProgressSink for RecordingSink {
+        fn set_total(&self, _total: u64) {}
+        fn set_phase(&self, _phase: crate::progress::Phase) {}
+        fn advance(&self, n: u64) {
+            self.calls.lock().unwrap().push(n);
         }
         fn retotal(&self, _total: u64) {}
         fn finish(&self) {}
@@ -2240,10 +2282,112 @@ mod tests {
         assert_eq!(
             sink.advanced.load(Ordering::SeqCst),
             3,
-            "advance() must be called exactly once per accepted candidate, \
-             not per directory entry visited (the excluded .txt file must \
-             not advance the counter)"
+            "the displayed count must advance by exactly one per accepted \
+             candidate, not per directory entry visited — the excluded .txt \
+             file must not move it (TASK-0332's zero-count liveness tick on \
+             rejected entries, pinned separately below, must never inflate \
+             this sum: advance(0) contributes 0)"
         );
+    }
+
+    #[test]
+    fn enumerate_with_progress_ticks_on_every_entry_not_just_accepted_candidates() {
+        // TASK-0332 (AC-21b): the walk liveness cue's elapsed-time suffix can
+        // only tick during a long stretch of non-matching entries if
+        // something keeps triggering repaint checks through that stretch —
+        // this pins that a zero-count "tick" `advance(0)` is called once per
+        // directory entry visited (accepted or not), separately from the
+        // real `advance(1)` call `enumerate_with_progress_advances_once_per_candidate_found`
+        // already pins for each accepted candidate. Both happen for an
+        // accepted entry (a tick, then the real advance).
+        //
+        // The fixture deliberately includes a **hidden subtree** (`.git/…`,
+        // the motivating source-checkout case from the PRD amendment): the
+        // hidden filter is applied per entry *after* walkdir yields it (there
+        // is no `filter_entry` prune), so those entries are exactly the long
+        // static stretch the cue exists for — and the tick must therefore fire
+        // *before* the hidden `continue`, not after it. Without a hidden entry
+        // in the fixture, moving the tick below that check would leave every
+        // assertion here passing while re-freezing the indicator on precisely
+        // the tree the ruling was written for (architect review, TASK-0332 —
+        // verified by mutation: the whole suite passed with the tick moved).
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "a.jpg");
+        touch(&dir, "not-an-image.txt");
+        touch(&dir, "also-not-an-image.md");
+        touch(&dir, ".git/objects/x.pack");
+
+        let opts = ScopeOptions::default_scope();
+        let sink = RecordingSink::default();
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+
+        assert_eq!(result.candidates.len(), 1, "only the .jpg is a candidate");
+
+        let calls = sink.calls.lock().unwrap();
+        let ticks = calls.iter().filter(|&&n| n == 0).count();
+        let real_advances = calls.iter().filter(|&&n| n > 0).count();
+        // Seven entries: the root directory itself (depth 0, not a file), the
+        // three files directly under it, and the hidden subtree's three
+        // entries (`.git`, `.git/objects`, `.git/objects/x.pack`) — all of
+        // which walkdir yields and the hidden filter then skips.
+        assert_eq!(
+            ticks, 7,
+            "expected one zero-count tick per directory entry visited — \
+             root dir + 3 files + 3 hidden entries, hidden ones included \
+             (the tick must precede the hidden-skip `continue`), \
+             got calls: {calls:?}"
+        );
+        assert_eq!(
+            real_advances, 1,
+            "expected exactly one real advance, for the single accepted \
+             candidate, got calls: {calls:?}"
+        );
+    }
+
+    // Note: we cannot easily create an unreadable file in a cross-platform /
+    // CI-safe way without platform-specific helpers — see the identical note
+    // above `unreadable_descendant_produces_warning_not_root_error`.
+    #[cfg(unix)]
+    #[test]
+    fn enumerate_with_progress_ticks_on_a_walk_error_entry_too() {
+        // TASK-0332 (AC-21b): the liveness tick is placed before the
+        // Err(e)/Ok(entry) match, specifically so a walk error (e.g. a
+        // permission-denied subdirectory) still ticks — a run with a lot of
+        // unreadable subtrees must not go quiet either.
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir, "good.jpg");
+        let bad_dir = dir.path().join("bad_subdir");
+        fs::create_dir(&bad_dir).unwrap();
+        fs::set_permissions(&bad_dir, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let opts = ScopeOptions::default_scope();
+        let sink = RecordingSink::default();
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+
+        fs::set_permissions(&bad_dir, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(result.candidates.len(), 1, "only good.jpg is a candidate");
+        assert_eq!(
+            result.warnings.len(),
+            1,
+            "the permission-denied subdirectory must produce exactly one warning"
+        );
+
+        let calls = sink.calls.lock().unwrap();
+        let ticks = calls.iter().filter(|&&n| n == 0).count();
+        let real_advances = calls.iter().filter(|&&n| n > 0).count();
+        // Four entries: the root, good.jpg, bad_subdir itself (yielded as a
+        // normal Ok directory entry first), and then a *separate* Err when
+        // walkdir tries to read bad_subdir's own contents and cannot —
+        // empirically confirmed (not assumed): walkdir yields the
+        // unreadable directory as two entries, not one.
+        assert_eq!(
+            ticks, 4,
+            "expected a tick for the Err entry too, not only Ok ones, got calls: {calls:?}"
+        );
+        assert_eq!(real_advances, 1, "got calls: {calls:?}");
     }
 
     #[test]
