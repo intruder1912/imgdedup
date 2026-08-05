@@ -38,7 +38,14 @@
 //!   always repaint immediately, bypassing the throttle, so they are never
 //!   silently dropped. `finish` renders a final `Phase::Done` line and then
 //!   terminates it with a newline, leaving the terminal clean for whatever
-//!   prints next.
+//!   prints next. Because `advance`-driven repaints are throttled, a phase's
+//!   **final** `x == y` frame is rendered only if something forces it — the
+//!   last `advance` of a phase lands on a due tick only by luck. Callers that
+//!   need that closing frame must force it (as `main.rs` does for scanning's
+//!   determinate state, whose closing `N of N (100%)` AC-21a mandates, by
+//!   pairing the state with a `set_phase` call at *both* ends); phases whose
+//!   end is immediately superseded by another forced transition — hashing
+//!   into verifying, verifying into `finish`'s `Done` — need nothing extra.
 //! - **Non-TTY:** no carriage returns, no ANSI escapes, ever. Occasional
 //!   plain, newline-terminated lines at coarse milestones only — phase
 //!   transitions plus [`NON_TTY_PERCENT_STEP`]-sized percentage steps — so
@@ -754,6 +761,15 @@ mod tests {
             "expected the determinate scanning state to end at N of N (100%), \
              got: {out:?}"
         );
+        // Caveat this test cannot express (architect review, TASK-0328):
+        // `immediate()` disables the repaint throttle, so the closing frame
+        // above lands purely because *every* advance repaints here. Under the
+        // production throttle the last advance almost never falls on a due
+        // tick, so `main.rs` must force the closing repaint explicitly — pinned
+        // through the real binary by
+        // `scanning_determinate_state_appears_as_a_milestone_line_on_non_tty`
+        // in `tests/cli_integration.rs`, which is where a regression in that
+        // pairing would actually be caught.
     }
 
     #[test]
