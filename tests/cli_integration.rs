@@ -910,3 +910,67 @@ fn piped_stderr_has_no_redraw_or_ansi_and_bounded_line_count() {
         "expected a small, bounded number of non-TTY progress lines, got {line_count}:\n{stderr}"
     );
 }
+
+// ── AC-21a (FR-19, scanning's determinate second state, TASK-0328) ────────
+
+/// AC-21a end to end: once the walk finds `N > 0` candidates, scanning
+/// leaves the indeterminate "scanning... N files found" state for a
+/// determinate "scanning: x of N (p%)" state while each found file is
+/// examined — on this non-TTY (piped) path that appears as a coarse
+/// milestone line, at the same granularity as every other phase (AC-22),
+/// distinct from both the earlier indeterminate line and from hashing's own
+/// `0 of y` (`y` is the *confirmed* candidate count; `N`, scanning's own
+/// denominator, is the count of files *examined* — `N >= y` in general,
+/// though this particular fixture confirms every file it examines).
+#[test]
+fn scanning_determinate_state_appears_as_a_milestone_line_on_non_tty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // The 6-format progress fixture has exactly 6 candidate files, all of
+    // which are genuinely confirmed images, so the determinate scanning
+    // state's denominator (N, files examined) and hashing's denominator (y,
+    // confirmed candidates) coincide at 6 here — this test only asserts the
+    // *scanning*-labeled milestone line exists and is well formed, not that
+    // N and y differ (a scenario the sniff.rs/progress.rs unit tests already
+    // cover directly).
+    assert!(
+        stderr.contains("scanning: 0 of 6 (0%)") || stderr.contains("scanning: 6 of 6 (100%)"),
+        "expected a determinate scanning milestone line (0 of N or N of N); \
+         got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("scanning: 6 of 6 (100%) ("),
+        "scanning's determinate state must never carry a (N candidates) \
+         suffix (AC-21a; that suffix is Verifying-only); got:\n{stderr}"
+    );
+}
+
+/// AC-21a's zero-workload rule: when the walk finds nothing (`N == 0`), the
+/// determinate second state is skipped entirely — never a degenerate
+/// `scanning: 0 of 0`, mirroring the same rule already applied to Hashing
+/// and Verifying (`find_duplicates_with_progress_skips_*` in `engine.rs`).
+#[test]
+fn empty_scan_root_never_shows_a_degenerate_scanning_zero_of_zero() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // No files at all: enumeration finds N = 0 candidates.
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        !stderr.contains("scanning: 0 of 0"),
+        "N == 0 must skip the determinate scanning state entirely, never \
+         render a degenerate 0-of-0 line; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("scanning...\n"),
+        "the indeterminate scanning line must still appear even when \
+         nothing was found; got:\n{stderr}"
+    );
+}

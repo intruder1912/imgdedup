@@ -716,6 +716,102 @@ mod tests {
         );
     }
 
+    // ── TASK-0328: scanning's determinate second state (AC-21a) ────────────
+
+    #[test]
+    fn scanning_second_state_retotal_then_same_phase_forces_immediate_zero_of_n_render() {
+        // AC-21a: once the walk finishes with N candidates, the indicator
+        // leaves the indeterminate "scanning... N files found" state for a
+        // determinate "scanning: x of N (p%)" state — a *second* state of
+        // the same phase, so the label never changes and `set_phase` is
+        // called again with the *same* Phase::Scanning value. `retotal`
+        // alone never repaints (by design, see its trait doc and
+        // `retotal_alone_does_not_trigger_a_repaint` below); pairing it with
+        // an (even same-phase) `set_phase` call is what produces the
+        // AC-21a-mandated forced immediate `0 of N (0%)` render.
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1); // indeterminate: "scanning... 3 files found"
+
+        p.retotal(3);
+        p.set_phase(Phase::Scanning); // same phase; must still force a repaint
+
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning: 0 of 3 (0%)"),
+            "expected a forced immediate 0-of-N render on entering the \
+             determinate scanning state, got: {out:?}"
+        );
+
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+        let out = captured(&p);
+        assert!(
+            out.contains("scanning: 3 of 3 (100%)"),
+            "expected the determinate scanning state to end at N of N (100%), \
+             got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scanning_determinate_state_has_no_candidates_suffix() {
+        // AC-21a: unlike Verifying, scanning's determinate second state must
+        // not show a "(N candidates)" suffix — the run-wide candidate total
+        // y is genuinely not known yet at this point in the run.
+        let p = immediate(true);
+        p.set_phase(Phase::Scanning);
+        p.retotal(5);
+        p.set_phase(Phase::Scanning);
+        p.advance(2);
+
+        let out = captured(&p);
+        assert!(out.contains("scanning: 2 of 5 (40%)"), "got: {out:?}");
+        assert!(
+            !out.contains("candidates)"),
+            "scanning's determinate state must never show a candidates \
+             suffix, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scanning_determinate_state_numerator_does_not_leak_into_hashing() {
+        // TASK-0328 regression, one stage earlier than TASK-0317's
+        // `set_total_resets_the_numerator_carried_from_scanning`: scanning's
+        // own determinate second state (AC-21a) ends at N of N, so
+        // `set_total` must reset the numerator again before Hashing starts,
+        // or hashing would render as already-100%-complete from its very
+        // first repaint — exactly the class of bug that test already guards
+        // one transition later.
+        let p = immediate(false);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+        p.retotal(3);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.advance(1);
+        p.advance(1);
+        assert!(captured(&p).contains("scanning: 3 of 3 (100%)"));
+
+        p.set_total(10);
+        p.set_phase(Phase::Hashing);
+
+        let out = captured(&p);
+        assert!(
+            out.contains("hashing: 0 of 10 (0%)"),
+            "hashing must start at 0, not carry scanning's determinate-state \
+             count forward; got: {out:?}"
+        );
+        assert!(
+            !out.contains("hashing: 3 of 10"),
+            "must not show the leaked scanning count; got: {out:?}"
+        );
+    }
+
     #[test]
     fn tty_hashing_shows_phase_count_and_percent() {
         let p = immediate(true);
