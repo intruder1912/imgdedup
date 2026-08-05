@@ -1,0 +1,28 @@
+# Build environment for release-preflight.sh's linux-gnu leg (TASK-0334).
+#
+# Ubuntu 24.04 to match .github/workflows/release.yml's `ubuntu-24.04` runner
+# as closely as practical without literally running inside GitHub's runner
+# image — this is a pre-flight sanity check on the build/package/verify
+# mechanics, not a byte-identical reproduction of the runner's exact glibc
+# point release or preinstalled package set. Deliberately does not bake in a
+# specific Rust version: rustup is installed here, but the toolchain itself is
+# resolved at container-run time from the mounted checkout's own
+# rust-toolchain.toml (via `rustup show`), so this image cannot drift from
+# whatever version the repo is actually pinned to.
+FROM docker.io/library/ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+# --profile minimal: no docs/other components here — the mounted checkout's
+# rust-toolchain.toml is what actually pins the toolchain + components
+# (rustfmt, clippy) via `rustup show` at container-run time.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path

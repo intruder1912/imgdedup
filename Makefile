@@ -8,7 +8,7 @@
 # rust-toolchain.toml).
 
 .DEFAULT_GOAL := help
-.PHONY: help validate mdlint spell links build test fmt lint coverage deny release-dry-run
+.PHONY: help validate mdlint spell links build test fmt lint coverage deny release-dry-run release-preflight
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -60,6 +60,9 @@ lint: ## Run clippy with warnings-as-errors
 release-dry-run: ## Preview the next release without publishing (needs gh auth + npm)
 	npm ci --ignore-scripts
 	GITHUB_TOKEN=$$(gh auth token) npx --no-install semantic-release --dry-run --no-ci
+
+release-preflight: ## Rehearse the assets job's build/package steps locally (needs podman; see docs/process/release.md)
+	scripts/release-preflight.sh
 
 # ── Coverage (not in the blocking validate path) ──────────────────────────────
 # NOTE: enforced coverage floor is deferred; see TASK-0301 Deviation note in
