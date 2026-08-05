@@ -36,18 +36,27 @@ Summary:
 
 ## Local validation
 
-Until the product stack is chosen (Phase 2), local validation covers
-documentation quality. Run:
+Run:
 
 ```sh
 make validate
 ```
 
 This runs Markdown lint, spell check, link check, shell script lint
-(`shellcheck`) and GitHub Actions workflow lint (`actionlint`), and (once code
-exists) the language test suite. See [`scripts/`](scripts/) and the
+(`shellcheck`), GitHub Actions workflow lint (`actionlint`), `cargo fmt`/
+`clippy`, and the full Rust test suite. See [`scripts/`](scripts/) and the
 [`Makefile`](Makefile). If a tool is not installed, the script tells you how to
 install it. CI runs the same checks and is the enforcement boundary.
+
+**No real images are needed to build or test this project.** The test suite
+(`tests/golden_set.rs` and friends) synthesizes its own fixtures at test time:
+`tests/support/images.rs` generates, deterministically, the smallest byte
+sequences the pipeline accepts as images for every supported format signature,
+and `tests/support/tree.rs` builds the fixture trees around them — nothing is
+downloaded and no real-world image is checked into the repository. A handful of
+larger scale/benchmark tests (`tests/scale.rs`) are `#[ignore]`d by default and
+only run via `make scale`; a plain `cargo test` or `make validate` is fast and
+fully self-contained.
 
 ## Commits & PRs
 
