@@ -11,6 +11,88 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 30 (TASK-0338, performance instrumentation — design step), 2026-08-05
+  — same window as sessions 26–29._
+  **The design landed as new
+  [ADR-0017](../adr/0017-performance-instrumentation-tracing-spans.md); the TDD
+  implementation pass is the rest of this unit** (new **TASK-0338**, chore,
+  `chore/instrument-with-tracing`). Prompted directly by session 29's numbers
+  immediately above: 0.50 s of wall clock over 2,021 real photos, with **no way
+  to say how much of it was the walk, the sniff, the hashing, or the verify** —
+  the same blind spot that made TASK-0312, TASK-0321 and TASK-0322 each build a
+  throwaway control fixture or standalone harness, and that leaves ADR-0010's
+  "is `enumerate` (still serial `walkdir`) the dominant stage now that sniff is
+  parallel?" open **in writing**.
+  **The `tracing`-over-OpenTelemetry call was the owner's, made in
+  conversation** (this ADR records it properly rather than deciding it): OTLP
+  exporters pull `tonic`/`hyper` → **`tokio`**, i.e. an async runtime added to a
+  fully synchronous, rayon-parallel CLI purely to serve a backend almost no run
+  will connect to. `tracing` is the ecosystem's zero-cost layer, and
+  `tracing-opentelemetry` keeps the OTLP door open later with **zero annotation
+  churn**. **Measured rather than asserted** (release build, M2 Pro, harness in
+  the scratchpad, not checked in): 3M span create/enter/exit cycles with **no
+  subscriber** cost 3.73 ms vs. a 3.29 ms span-free baseline — **~0.15 ns per
+  span**, at or below noise, which is what makes "always compiled in, inert by
+  default" honest.
+  **Four design questions the owner's framing left genuinely open, and how they
+  were closed.** (1) **Span boundaries mirror the ADR-0008 _pipeline_, not the
+  display `progress::Phase`** — 11 coarse spans (`run`, `enumerate`,
+  `symlink_alias_dedupe`, `sniff`, `dedup`, `group_by_size`, `hash`, `verify`,
+  `sort_canonical`, `apply`, `render`), each opened by the function that owns
+  its stage. `Phase` merges `enumerate` and `sniff` into "Scanning" **by product
+  decision** (AC-21/21a), which is exactly the split that needs measuring, and
+  it covers nothing after verification — mirroring it would make the
+  instrumentation structurally unable to answer the one question it exists for.
+  Per-file/per-entry spans are **rejected on a measurement**: ~1.75 µs each with
+  a subscriber attached, i.e. ~52 ms and **30,000 printed lines** on a 30k-entry
+  walk — the exact tension TASK-0332's `advance(0)` tick and TASK-0317/0328's
+  repaint throttling already navigated in this same hot loop. Counts go on the
+  stage span as fields (`files_hashed`, `bytes_hashed`, …) instead: O(1) events
+  per run, not O(files). (2) **A day-one consumer ships in the same unit** — a
+  new `--timings` flag installing a `tracing-subscriber` `fmt` subscriber on
+  stderr. Spans with nothing subscribed produce _literally nothing observable_,
+  so "instrumentation only" would deliver none of the stated goal and would
+  leave the PR with no behavior to assert under mandatory TDD. `RUST_LOG` was
+  rejected: `env-filter` pulls `regex` for one boolean's worth of intent.
+  (3) **Dependency footprint, measured on a scratch copy of this exact crate**:
+  normal graph 51 → 60, `Cargo.lock` 123 → 130 (only 7 genuinely new — the
+  proc-macro chain is already there for clap/serde derives), all
+  MIT / MIT-OR-Apache-2.0, and **`cargo deny check` run green**
+  (`advisories ok, bans ok, licenses ok, sources ok`) with **no `deny.toml`
+  edit**; `default-features = false, features = ["fmt"]` is doing real work
+  (63/134 with defaults vs. 60/130 without) and keeps ANSI machinery out of a
+  tool that hand-writes its own terminal control. (4) **`--timings` implies
+  progress-off** — not a nicety: a stage-close line written while the TTY
+  progress line is live lands _inside_ it, the exact corruption `progress.rs`'s
+  module doc forbids. Usage-error, buffer-until-`finish()`, TTY-sniffing and
+  routing-through-`Progress` were each weighed and rejected in the ADR.
+  **Two traps recorded for the implementer/reviewer, both verified this
+  session:** the root span guard must live _inside_ `run()`, since `main()` ends
+  in `process::exit` and runs no destructors (otherwise the run-total line
+  silently never prints); and **no span field may carry a path via `%`/Display**
+  — a filename containing `ESC[2J` was demonstrated reaching the terminal raw
+  through `fmt`, precisely the injection TASK-0318/`safe_text.rs` exists to
+  stop (`?`/Debug escapes it; shown side by side in the ADR).
+  **Product scope:** no PRD-0001 FR/AC is added — `--timings` changes no result
+  and writes nothing to stdout, so it is engineering tooling in service of
+  NFR-4, not product capability; the flag's _name/help text_ still wants a
+  lightweight product-owner sign-off and its user docs are product-owner-owned
+  (ADR-0012). `tests/scale.rs` remains the formal NFR-4 benchmark — this is a
+  diagnostic, not a regression gate. Design step only; no production code
+  written. **Deliberately stopped here, not carried into the same window's
+  implementation:** the architect's own size estimate ("medium," 7 production
+  files, and — the part not worth cutting — a follow-up run against the real
+  corpus to actually record the `enumerate`/`sniff` split ADR-0010 leaves
+  open) came with an explicit "if less than ~50% of the current 5h window
+  remains, start it fresh" line; the owner checked `/usage` at exactly that
+  point — **5h=62%, 7d=30%** — and confirmed the cut. TASK-0338's backlog row
+  and this ADR are the resumption point; no PR opens yet, per
+  [`branching.md`](../process/branching.md)'s "hold the PR until the unit is
+  converged" — this is a `chore/instrument-with-tracing` branch pushed with
+  the design step only — implementation follows in a fresh session, then the
+  whole branch (design + TDD code) opens as one PR and gets one review pass,
+  the same shape TASK-0219 used earlier this session.
+
 - _Session 29 (TASK-0314 addendum: informal real-world performance numbers;
   planning-only), 2026-08-05 — same window as sessions 26–28._ Captured on
   request, on the same corpus and machine as session 26's field validation
