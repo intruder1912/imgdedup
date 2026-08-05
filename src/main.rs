@@ -13,6 +13,8 @@ mod progress;
 mod report;
 mod safe_text;
 mod sniff;
+#[cfg(test)]
+mod trace_test_support;
 
 fn main() {
     let args = cli::Cli::parse();
