@@ -11,6 +11,36 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 28 (new TASK-0337, public-readiness pre-flight; planning-only),
+  2026-08-05 — same window as sessions 26–27._ The public-readiness
+  conversation that produced session 27's docs fix also produced a set of
+  verified findings (fork-PR/Actions safety, repo permissions, secret/PII
+  history, git-history handling, test-data privacy — see that conversation,
+  not a task file) that were at risk of being lost to chat history rather than
+  the repo, the one thing [`CLAUDE.md`](../../CLAUDE.md) §2 says never to rely
+  on. Recorded as new **TASK-0337**, wired as a new dependency of both
+  **TASK-0326** and **TASK-0336** (both already gated on "the repository goes
+  public" — TASK-0337 is the pre-flip half, TASK-0336's Trigger A the
+  at-the-flip half). Most of TASK-0337 is already closed by the audit itself
+  (full findings in its backlog row): full-history gitleaks scanning since the
+  repo's first CI commit, no `pull_request_target` anywhere, no custom
+  secrets, both `contents: write` jobs gated behind manual dispatch, no
+  PII/absolute-path leaks, no real image binaries ever tracked, and a
+  deliberate decision **not** to rewrite git history (the all-or-nothing
+  nature of GitHub's visibility toggle means the only way to actually "limit"
+  it is a rewrite or a fresh repo, and the audit found nothing that needs
+  hiding). Two items genuinely still open and left for a pre-flip session:
+  tightening GitHub's fork-PR-workflow-approval setting to "require approval
+  for all outside collaborators" (owner-only, not settable via the `gh api`
+  surface available here) and the still-undecided planning-docs restructuring
+  question (`status.md`'s session-narration volume vs. a public first
+  impression). Docs-only, no code, no write-permission CI touched — claimed
+  under ADR-0011's low-risk skip exception as a **planning/status sync**
+  (the exception's own named category), self-verified rather than
+  architect-dispatched: every claim in the new backlog row restates something
+  already independently verified live in this session or session 27's
+  architect review, nothing new is asserted. This PR.
+
 - _Session 27 (`SECURITY.md`/`CONTRIBUTING.md` staleness fix, chore), 2026-08-05
   — same window as session 26._ Surfaced during a public-readiness discussion
   (Actions/fork-PR safety, repo permissions, secret-history coverage, git
