@@ -37,9 +37,46 @@ fn run(args: cli::Cli) -> i32 {
         return exit_code::USAGE;
     }
 
+    // Performance instrumentation (ADR-0017, TASK-0338). `--timings`
+    // installs a minimal `tracing-subscriber` `fmt` consumer over this run's
+    // own tracing spans, writing one line per pipeline stage to stderr at
+    // stage close. Off by default: with no subscriber installed, every span
+    // macro below is a near-zero-cost no-op (measured ~0.15 ns/span,
+    // ADR-0017). Installation is **non-fatal** on failure — instrumentation
+    // must never be the reason the tool fails (the AC-24 principle again):
+    // a failed `try_init()` just means no timing lines get printed.
+    if args.timings {
+        let _ = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+            .with_max_level(tracing::Level::INFO)
+            .with_target(false)
+            .with_ansi(false)
+            .try_init();
+    }
+
+    // The root `run` span (ADR-0017). `roots`/`apply`/`json` are known right
+    // here, before any pipeline stage runs. **Hard constraint (easy to get
+    // wrong):** `main()` ends in `process::exit(code)`, which runs no
+    // destructors — this guard must therefore be created *and dropped
+    // inside `run()`*, exactly like `SinkGuard` below, or the run-total
+    // close line silently never fires. Held for the rest of this function,
+    // so every span opened by a later pipeline stage nests inside it.
+    let run_span = tracing::info_span!(
+        "run",
+        roots = args.paths.len(),
+        apply = args.apply,
+        json = args.json,
+    );
+    let _run_guard = run_span.enter();
+
     // Progress sink (FR-19, TASK-0315). Default-on; --no-progress disables it
     // completely (AC-23), in which case `NoProgress` writes nothing on any
-    // stream. Otherwise progress always targets stderr, and TTY-ness is
+    // stream. `--timings` also disables it (ADR-0017 §4): a stage-close
+    // timing line written while the TTY progress line is live would corrupt
+    // it mid-redraw (`progress.rs`'s module doc), so the two are mutually
+    // exclusive and `--timings` always wins — no error, no second flag
+    // needed. Otherwise progress always targets stderr, and TTY-ness is
     // probed exactly once here — never inside `progress::Progress` itself —
     // so the renderer stays unit-testable with an injected boolean (AC-21 /
     // AC-22). `Box<dyn ProgressSink>` lets both arms share one call site
@@ -54,8 +91,9 @@ fn run(args: cli::Cli) -> i32 {
     // is fully flushed *before* the stdout report — AC-20, which `Drop`
     // alone cannot guarantee the ordering of) does not double-render the
     // completion line when `Drop` runs afterwards.
+    let progress_enabled = !args.no_progress && !args.timings;
     let stderr_is_tty = std::io::stderr().is_terminal();
-    let sink: progress::SinkGuard = progress::SinkGuard::new(if args.no_progress {
+    let sink: progress::SinkGuard = progress::SinkGuard::new(if !progress_enabled {
         Box::new(progress::NoProgress)
     } else {
         Box::new(progress::Progress::new(std::io::stderr(), stderr_is_tty))
@@ -243,23 +281,38 @@ fn run(args: cli::Cli) -> i32 {
     // JSON carries the diagnostics too (resilience F3): warnings and
     // root_errors are part of the document, while root errors additionally
     // went to stderr above (F1) so stdout stays one valid JSON document.
-    let rendered = if args.json {
-        json::render(
-            &dedup,
-            &candidate_set.warnings,
-            &sniff_warnings,
-            &candidate_set.root_errors,
-            mode,
-            &applied,
-        )
-    } else {
-        report::render(
-            &dedup,
-            &candidate_set.warnings,
-            &sniff_warnings,
-            mode,
-            &applied,
-        )
+    //
+    // ADR-0017 (TASK-0338): `render` is the other span `main.rs` owns
+    // outright (alongside `run`). `format` is a fixed, small string — never
+    // user-controlled data — and `bytes` is the size of the rendered
+    // document, known only once rendering completes.
+    let render_span = tracing::info_span!(
+        "render",
+        format = if args.json { "json" } else { "human" },
+        bytes = tracing::field::Empty,
+    );
+    let rendered = {
+        let _render_guard = render_span.enter();
+        let rendered = if args.json {
+            json::render(
+                &dedup,
+                &candidate_set.warnings,
+                &sniff_warnings,
+                &candidate_set.root_errors,
+                mode,
+                &applied,
+            )
+        } else {
+            report::render(
+                &dedup,
+                &candidate_set.warnings,
+                &sniff_warnings,
+                mode,
+                &applied,
+            )
+        };
+        render_span.record("bytes", rendered.len());
+        rendered
     };
     print!("{rendered}");
 

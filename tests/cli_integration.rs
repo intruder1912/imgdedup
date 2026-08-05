@@ -184,6 +184,14 @@ fn help_lists_all_flags() {
         stdout.contains("--exit-code"),
         "--help must list --exit-code"
     );
+    assert!(
+        stdout.contains("--no-progress"),
+        "--help must list --no-progress"
+    );
+    assert!(
+        stdout.contains("--timings"),
+        "--help must list --timings (ADR-0017)"
+    );
 }
 
 // ── Valid flag combinations ───────────────────────────────────────────────
@@ -1109,5 +1117,210 @@ fn empty_scan_root_never_shows_a_degenerate_scanning_zero_of_zero() {
         stderr.contains("scanning...\n"),
         "the indeterminate scanning line must still appear even when \
          nothing was found; got:\n{stderr}"
+    );
+}
+
+// ── ADR-0017 / TASK-0338: `--timings` ─────────────────────────────────────
+
+/// Instrumentation must never influence results (ADR-0017 §Security, the
+/// AC-24 principle extended): stdout is byte-identical with and without
+/// `--timings` on the same input, default report format.
+#[test]
+fn timings_flag_does_not_change_default_report_stdout() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let without = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    let with = cmd()
+        .arg(dir.path())
+        .arg("--timings")
+        .output()
+        .expect("imgdedup must spawn");
+
+    assert!(without.status.success());
+    assert!(with.status.success());
+    assert_eq!(
+        without.stdout,
+        with.stdout,
+        "--timings must never change stdout; got without:\n{:?}\nwith:\n{:?}",
+        String::from_utf8_lossy(&without.stdout),
+        String::from_utf8_lossy(&with.stdout)
+    );
+}
+
+/// The same guarantee holds for `--json`.
+#[test]
+fn timings_flag_does_not_change_json_stdout() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let without = cmd()
+        .arg(dir.path())
+        .arg("--json")
+        .output()
+        .expect("imgdedup must spawn");
+    let with = cmd()
+        .arg(dir.path())
+        .arg("--json")
+        .arg("--timings")
+        .output()
+        .expect("imgdedup must spawn");
+
+    assert!(without.status.success());
+    assert!(with.status.success());
+    assert_eq!(
+        without.stdout, with.stdout,
+        "--timings --json must produce byte-identical stdout to --json alone"
+    );
+}
+
+/// `--timings --json` must still emit exactly one valid JSON document on
+/// stdout — the timing consumer writes only to stderr (the S2 stdout-purity
+/// contract, ADR-0017 §3).
+#[test]
+fn timings_with_json_still_emits_one_valid_json_document() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd()
+        .arg(dir.path())
+        .arg("--json")
+        .arg("--timings")
+        .output()
+        .expect("imgdedup must spawn");
+    assert!(out.status.success());
+
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .expect("--timings --json stdout must parse as a single JSON document");
+    let groups = doc["groups"]
+        .as_array()
+        .expect("groups must be a JSON array");
+    assert_eq!(groups.len(), 3, "positive control: 3 duplicate groups");
+}
+
+/// Without `--timings`, no tracing-style timing output reaches stderr at
+/// all (off by default).
+#[test]
+fn no_timings_flag_produces_no_timing_output_on_stderr() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    for marker in ["close time.busy", " INFO ", "run{", "render{"] {
+        assert!(
+            !stderr.contains(marker),
+            "no --timings flag: stderr must not contain timing marker \
+             {marker:?}; got:\n{stderr}"
+        );
+    }
+}
+
+/// `--timings` produces the run-total close line (proving the root `run`
+/// span's guard really is dropped inside `run()`, not lost to
+/// `process::exit`'s skipped destructors — ADR-0017's hard implementation
+/// constraint) and every one of the always-emitted stage spans, and implies
+/// progress-off: no progress phase text or redraw appears on stderr at all.
+#[test]
+fn timings_flag_emits_stage_spans_and_disables_progress() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd()
+        .arg(dir.path())
+        .arg("--timings")
+        .output()
+        .expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // Positive control: the timing consumer really did install and log.
+    for marker in [
+        "run{",
+        "enumerate{",
+        "sniff{",
+        "dedup{",
+        "group_by_size{",
+        "hash{",
+        "verify{",
+        "sort_canonical{",
+        "render{",
+    ] {
+        assert!(
+            stderr.contains(marker),
+            "expected a {marker:?} span close line under --timings; got:\n{stderr}"
+        );
+    }
+    // The `run` span's own close line must be the *last* line to print
+    // (ADR-0017's hard constraint: `main()` ends in `process::exit`, which
+    // runs no destructors, so the root `run` span's guard must be created
+    // *and dropped inside `run()`* — exactly like `SinkGuard` — or this line
+    // silently never fires at all). Since `run` is entered first and every
+    // other span nests and closes inside it, its own close line is
+    // necessarily the last one written.
+    let last_line = stderr
+        .lines()
+        .next_back()
+        .expect("stderr must not be empty");
+    assert!(
+        last_line.contains("run{") && last_line.contains("}: close"),
+        "expected the last stderr line to be a `run` span close line; got \
+         last line:\n{last_line}\nfull stderr:\n{stderr}"
+    );
+    for other in [
+        "enumerate{",
+        "sniff{",
+        "dedup{",
+        "group_by_size{",
+        "hash{",
+        "verify{",
+        "sort_canonical{",
+        "render{",
+    ] {
+        assert!(
+            !last_line.contains(other),
+            "the last line must be `run`'s own close, not a nested span \
+             closing (found {other:?} in it); got:\n{last_line}"
+        );
+    }
+
+    // progress_enabled = !no_progress && !timings (ADR-0017 §4): no progress
+    // phase text, and no TTY redraw control characters, anywhere in stderr.
+    for marker in PROGRESS_MARKERS.iter().copied().chain(["\r", "\x1b"]) {
+        assert!(
+            !stderr.contains(marker),
+            "--timings must disable progress entirely; stderr must not \
+             contain progress marker {marker:?}; got:\n{stderr}"
+        );
+    }
+}
+
+/// `--timings` alone (no `--no-progress`) must behave identically to
+/// `--timings --no-progress` — the implied-off rule means the user never
+/// needs to type both.
+#[test]
+fn timings_alone_behaves_like_timings_plus_no_progress() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let timings_alone = cmd()
+        .arg(dir.path())
+        .arg("--timings")
+        .output()
+        .expect("imgdedup must spawn");
+    let timings_and_no_progress = cmd()
+        .arg(dir.path())
+        .arg("--timings")
+        .arg("--no-progress")
+        .output()
+        .expect("imgdedup must spawn");
+
+    assert!(timings_alone.status.success());
+    assert!(timings_and_no_progress.status.success());
+    assert_eq!(
+        timings_alone.stdout, timings_and_no_progress.stdout,
+        "stdout must be identical"
     );
 }
