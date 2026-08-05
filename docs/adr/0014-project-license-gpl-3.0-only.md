@@ -114,6 +114,10 @@ This is the nuance most easily glossed over, so it is recorded explicitly.
 
 ### Copyright notice and headers
 
+*(Ruled 2026-08-05 — see the
+[TASK-0219 amendment](#amendment-2026-08-05--public-release-licensing-readiness-task-0219):
+per-file headers **no**, `--version` notice **yes**.)*
+
 The copyright holder is the repository owner. GPLv3 *recommends* per-file
 notices but does not require them; adding a header to every source file is
 churn that would land in every future diff for little benefit while the project
@@ -139,6 +143,8 @@ is a single-author private repo. Decision: keep the notice in `LICENSE` and
   second copyright holder appears; relicensing then needs their consent.
   Mitigation: revisit before accepting the first outside contribution
   (TASK-0219) — either stay `-only`, move to `-or-later`, or adopt a CLA/DCO.
+  *(Re-checked 2026-08-05: still a single copyright holder, `-only` stands; the
+  trigger now sits on TASK-0336.)*
 - Negative / trade-off: dependency choices are constrained forever after —
   a crate under a GPLv3-incompatible license (e.g. GPL-2.0-only) can never be
   added. `deny.toml`'s allow-list enforces this mechanically.
@@ -146,7 +152,10 @@ is a single-author private repo. Decision: keep the notice in `LICENSE` and
   publishing to crates.io, which is its own (unmade) decision.
 - Follow-ups: **TASK-0219** — public-release licensing readiness (per-file
   headers if wanted, `--version` notice, source-offer wording for binaries,
-  `-only` vs `-or-later` re-check before outside contributions).
+  `-only` vs `-or-later` re-check before outside contributions). *(All four
+  ruled 2026-08-05 — see the
+  [TASK-0219 amendment](#amendment-2026-08-05--public-release-licensing-readiness-task-0219);
+  what remains is trigger-bound verification, tracked as **TASK-0336**.)*
 
 ## Pros and cons of the options
 
@@ -180,6 +189,330 @@ is a single-author private repo. Decision: keep the notice in `LICENSE` and
   `deny.toml` policy with no decision behind it; and the "all rights reserved"
   state is the one that actually needs care, since it is the ambiguous one for
   anyone given access.
+
+## Amendment 2026-08-05 — public-release licensing readiness (TASK-0219)
+
+This ADR deferred four items to TASK-0219: **per-file headers**, a
+**license/copyright line in `--version`**, **GPLv3 §6 source-offer wording**
+wherever binaries are distributed, and a **`-only` vs `-or-later` re-check**
+before the first outside contribution. All four are ruled here.
+
+**The decision this ADR records does not change.** `GPL-3.0-only` stands, the
+canonical text stays at `LICENSE`, and the private-repo analysis above is
+untouched. What is decided is what ships *alongside* the license.
+
+**State of the world when these rulings were made,** checked rather than
+assumed: the repository is still **private** (`gh repo view --json visibility`
+→ `PRIVATE`, 2026-08-05) and **no public-release date exists**. Each ruling
+therefore says explicitly whether it applies **now** or is **trigger-bound**.
+Nothing below depends on the flip happening, and nothing below has to be
+redone if it never does.
+
+### 1. Per-file GPL headers — no, deliberately; and if ever, then REUSE whole
+
+**Ruling: do not add per-file copyright/SPDX headers.** Not to `src/*.rs`, not
+to the workflows, not to the scripts. This is a decision, not a deferral.
+
+- **Nothing requires them.** GPLv3's per-file notice guidance lives in the
+  non-normative appendix *"How to Apply These Terms to Your New Programs"*.
+  The normative obligations on conveying — §4's "keep intact all notices" and
+  "give all recipients a copy of this License", §5's marking of modified
+  works — are satisfied here by `LICENSE` at the repository root, the
+  `license = "GPL-3.0-only"` field in `Cargo.toml`, the README's License
+  section, and `LICENSE` being bundled inside every release archive
+  (`scripts/build-release-artifact.sh`).
+- **Nothing in this project conveys a single file.** There is one crate, one
+  copyright holder, `publish = false`, and `[[bin]]` with no library target —
+  the unit that travels is the repository or the release archive, both of
+  which already carry the license. The scenario headers exist for (a file
+  copied out of context) is not one this project creates.
+- **A half-adopted convention is worse evidence than none.** Twelve headers
+  today are twelve headers that silently rot: the thirteenth file arrives
+  without one, review has a new thing to check by eye, and a scanner that
+  finds headers on 12 of 20 files reads the repository as *partially*
+  licensed. Keeping the claim in exactly the places tooling actually reads
+  keeps it true by construction.
+- **The standard that would make headers pay is [REUSE](https://reuse.software).**
+  REUSE compliance means an SPDX header on *every* file (source, config,
+  workflows, docs, fixtures), a `LICENSES/` directory, a `REUSE.toml`
+  (formerly `.reuse/dep5`) covering the un-headerable ones, and a `reuse lint`
+  job in CI to keep it
+  honest. That is a real, machine-verifiable property. Adopting a fragment of
+  it — SPDX lines on `src/*.rs` only — buys none of that property and pays a
+  share of the cost.
+- **Considered and rejected middle option:** a bare `// SPDX-License-Identifier:
+  GPL-3.0-only` on `src/*.rs`, enforced by a grep in `scripts/validate.sh`.
+  Cheap, but the benefit is zero *for this repository's actual scanner set* —
+  GitHub's license detection, `cargo-deny`, `cargo metadata`, and crates.io
+  all read `Cargo.toml`/`LICENSE`, none of them read Rust source comments —
+  against a permanent per-file overhead and one more check to maintain
+  (TASK-0335 has just finished paying down the cost of ungated conventions).
+
+**Revisit triggers** (any one of these, and the answer may flip — to *full*
+REUSE adoption with a CI check, not to a piecemeal header pass):
+
+1. the project grows a library target or its source is vendored into another
+   project file-by-file;
+2. a second copyright holder appears (see ruling 4) and per-file attribution
+   starts carrying information the repository root cannot;
+3. the project adopts REUSE for its own sake (e.g. to appear in a compliance
+   toolchain that requires it).
+
+### 2. `--version` — yes: a GNU-style block on `--version`, terse `-V` retained
+
+**Ruling: `imgdedup --version` prints the GNU-conventional block below;
+`imgdedup -V` keeps printing exactly one line.** Applies **now**, not at the
+flip — it is correct today and needs no revisiting when visibility changes.
+
+```text
+imgdedup 0.1.0
+Copyright (C) 2026 the imgdedup authors
+License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Source: https://github.com/intruder1912/imgdedup
+```
+
+**Mechanism: clap's `long_version`, not a new flag and not a new subcommand.**
+clap 4 renders `--version` from `long_version` and `-V` from `version` when
+both are set — verified by direct experiment against clap 4 rather than read
+off the docs: with `#[command(version, long_version = LONG_VERSION)]`,
+`--version` printed the multi-line block and `-V` printed `imgdedup 0.1.0`,
+and clap prepends the binary name itself (so the constant must start with the
+version and must **not** repeat `imgdedup`). A separate `--license` flag was
+rejected: it is not a convention anyone would look for, and it adds a CLI
+surface to carry a string that belongs on the surface everybody already tries.
+
+**Why the split rather than the same block on both.** GNU tools print the same
+text for both only because they have no short version flag at all. Here, the
+one-line form is load-bearing for exactly one consumer:
+`scripts/build-release-artifact.sh` asserts the built binary's version output
+equals `imgdedup <version>` *exactly* — the check that catches a
+version-stamping failure before a mislabeled binary is published (ADR-0015).
+That assertion moves to `-V`. The only other in-repo caller, the Claude
+plugin's preflight (`claude-plugin/skills/using-imgdedup/SKILL.md` and
+`claude-plugin/agents/imgdedup-operator.md`), runs `imgdedup --version` and
+checks only that it *succeeds* — checked, not assumed: it parses nothing, so
+the long block reaches it harmlessly (it now reads six lines of context
+instead of one, which is if anything an improvement, and no plugin change is
+needed). Keeping a stable machine-readable one-liner **and** a
+human-conventional long form costs one constant.
+
+**Wording, decided rather than left to taste:**
+
+- `GPL-3.0-only:` rather than GNU's bare `GPLv3:`. GNU's convention encodes
+  "or later" as a `+` suffix, so `GPLv3` (no `+`) already means only — but
+  that convention is not widely known, and the SPDX identifier is what
+  `Cargo.toml`, `deny.toml`, `CONTRIBUTING.md` and this ADR already say. One
+  spelling everywhere, unambiguous to a reader who knows neither convention.
+- `(C)` in ASCII, not `©`. The whole output must stay ASCII so it renders on a
+  legacy Windows console code page; this codebase already carries `safe_text.rs`
+  for exactly that class of problem, and a mojibake copyright notice is a worse
+  notice. Pinned by a test (see the handoff below).
+- The two warranty sentences are GNU's long-standing phrasing verbatim,
+  because recognizability is the point — users skim them and know what they
+  are.
+- Every line ≤ 80 columns, so an 80-column terminal never re-wraps the license
+  URL into something un-clickable. This is why the URL is
+  `https://gnu.org/licenses/gpl-3.0.html` (79 columns with its line) rather
+  than the `www.` form used in prose links; both are the same document.
+- The `Source:` URL comes from `CARGO_PKG_REPOSITORY`, so it cannot drift from
+  `Cargo.toml`. See ruling 3 — this line is the §6 direction that travels
+  *inside the object code itself*.
+- No trailing period on the three metadata lines (`Copyright`, `License`,
+  `Source`) so that a URL is never selected with a stray `.`; periods stay on
+  the two full sentences.
+- Year `2026` is static and matches `README.md`. A year bump is a deliberate
+  one-line edit, and the test pinning the string is what will surface it.
+
+**Rejected: embedding the exact tag or commit** (via `build.rs`, `vergen`, or a
+release-time env var). The released version already maps to its tag by
+construction — `tagFormat` is pinned to `v${version}` (ADR-0015) — so `0.1.0`
+identifies tag `v0.1.0` without help, and a build script would add
+supply-chain surface *and* break ADR-0015's deliberately zero-Rust-source
+version-stamping design. A locally built development binary would additionally
+name a tag whose contents it is not, which is worse than saying nothing.
+
+**This notice is voluntary, and that is worth recording precisely.** GPLv3
+§5(d) requires "Appropriate Legal Notices" only from works with *interactive
+user interfaces* (§0). `imgdedup` reads nothing from the user during a run —
+verified: no `stdin`/`read_line` use anywhere in `src/` — so it has no
+interactive interface in that sense and owes no displayed notice. It is
+adopted anyway because a binary is the one artifact that can be separated from
+its archive, its README and its repository, and this is the cheapest way for
+it to keep saying what it is and where its source lives.
+
+### 3. GPLv3 §6 — the route is §6(d), and the *directions* ship now
+
+**What §6 actually requires**, since "source-offer wording" is a phrase that
+hides five different obligations. Conveying object code is lawful only in one
+of five ways: (a) with the Corresponding Source on a physical medium; (b) with
+a **written offer**, valid three years, to supply the source; (c) by passing
+along an offer received (non-commercial, occasional only); (d) by **offering
+access from a designated place**, with equivalent access to the Corresponding
+Source **through the same place**; or (e) peer-to-peer transmission.
+
+**Ruling: this project's route is §6(d), and it needs no written offer — ever,
+as long as binaries are conveyed from GitHub Releases.** The object code is
+offered from a Release page; GitHub attaches an auto-generated source archive
+to every Release and the tag itself stays fetchable, which *is* equivalent
+access to the Corresponding Source from the same place. §6(d)'s one
+human-supplied requirement is the rest of that sentence: *"maintain clear
+directions next to the object code saying where to find the Corresponding
+Source."*
+
+**The archive half of that claim is verified, not assumed** (2026-08-05, over
+the API — the repository is private, so anonymous reachability is the one part
+that can only be confirmed after the flip and stays on TASK-0336):
+
+- every one of the 15 published releases (`v0.1.0`…`v0.5.1`) carries a
+  populated `tarball_url`/`zipball_url` alongside its eight binary assets, so
+  the source archive really is offered from the same page as the object code;
+- the `v0.5.1` tarball was downloaded and inspected: 150 entries, the complete
+  tag tree including `src/`, `Cargo.toml`, `Cargo.lock`, `LICENSE`,
+  `scripts/` and `.github/workflows/`;
+- `.gitattributes` carries **no `export-ignore`** — the one repository-side
+  setting that could silently strip files out of GitHub's generated archive
+  and quietly falsify this ruling. Adding one is therefore a licensing change,
+  not a formatting change.
+
+**The stamping wrinkle, stated so nobody has to rediscover it.** The tag's
+`Cargo.toml` says `version = "0.1.0"` (the permanent development placeholder —
+ADR-0015 never commits a bump back), while the binary published for that tag
+reports the real version, stamped at build time. A plain `cargo build` from
+the source archive therefore yields a binary that prints a different version
+string. This does **not** weaken §6(d): §1 defines Corresponding Source as the
+source *plus the scripts to control compilation*, and those scripts —
+`scripts/build-release-artifact.sh` and `.github/workflows/release.yml`, which
+perform the stamp from the release version — are inside the archive too. The
+recipient receives everything needed to regenerate the object code, including
+the step that makes it call itself `0.5.1`.
+
+**Ruling: those directions ship now, in the two places that travel with the
+object code** — not deferred to the flip:
+
+1. **The binary itself** — the `Source:` line in `--version` (ruling 2).
+2. **The archive** — a *Corresponding Source* paragraph in `README.md`'s
+   License section, which `build-release-artifact.sh` already bundles into
+   every `.tar.gz`/`.zip` alongside `LICENSE`. Zero new files, zero new
+   packaging steps; the directions are literally next to the object code, in
+   the same archive.
+
+The exact wording for (2), to be added as a subsection of `README.md`'s
+existing License section — drafted here because it is a licensing artifact,
+but `README.md` is **product-owner-owned** ([ADR-0012](0012-documentation-ownership-and-placement.md)),
+so it lands with their sign-off:
+
+```markdown
+### Corresponding Source
+
+`imgdedup` binaries are distributed only from this repository's
+[GitHub Releases](https://github.com/intruder1912/imgdedup/releases). The
+complete Corresponding Source for any released binary is available from the
+same place: each release is built from the tag of the same name — `v<version>`,
+where `<version>` is what the binary itself prints for `imgdedup --version` —
+and GitHub attaches an auto-generated source archive to every release
+alongside the binary archives. This is how `imgdedup` satisfies GPLv3 §6(d);
+no separate written offer is made, and none is needed.
+```
+
+**Ruling: do not write a §6(b) written offer.** It is a three-year commitment
+to operate a source-delivery channel that does not exist and would never be
+used, it is unnecessary the moment (d) holds, and — the point of the question
+— **it is the artifact that would actually be misleading.** Publishing a
+"valid for three years, contact us for source" notice while the repository is
+private would advertise a service nobody runs.
+
+**Is writing §6(d) directions now, while private, honest?** Yes, and the
+distinction matters. The `Source:` line and the README paragraph say *where
+the source is*. That is true for every actual recipient today — everyone who
+can download a private Release asset already holds the source by the same
+grant, which is exactly why ADR-0015's TASK-0211 amendment could conclude "no
+additional action while private" — and it becomes true for everyone at the
+flip, with no edit. Neither artifact claims anonymous availability, so neither
+becomes false in either direction. What would be dishonest is the *offer*, and
+that is the thing not being written.
+
+**Rejected alternatives:** a `NOTICE` file (an Apache-ecosystem convention; a
+third place for the same sentence to rot, and it would not be read by anyone
+who did not already read `LICENSE`); and appending a static §6 footer to the
+semantic-release release notes (it would mean editing the release body from
+the repository's only `contents: write` job to assert a property GitHub's own
+auto-attached source archives already provide).
+
+**Trigger-bound, carried to TASK-0336** — the flip-day checklist, because
+these are facts to *verify at the flip*, not text to write now:
+
+- every published release still has its tag, and GitHub's auto-generated
+  source archives are actually present and anonymously downloadable (verify,
+  do not assume — this is the load-bearing half of the §6(d) claim);
+- `README.md`'s Corresponding Source paragraph and the LICENSE section are
+  publicly reachable;
+- `docs/guide/getting-started.md`'s "the repository is currently private"
+  download instructions are updated (they already anticipate this);
+- ADR-0015's TASK-0211 §6 paragraph and `docs/process/release.md`'s licensing
+  note are re-stated for a public repo — the conclusion holds, but for the
+  §6(d) reason rather than the "recipients already have repo access" reason.
+
+### 4. `-only` vs `-or-later` — re-checked, unchanged
+
+**Ruling: `GPL-3.0-only` stands.** Checked, not skipped: the condition this
+ADR made the choice conditional on — a single copyright holder — still holds.
+`git log --format='%an <%ae>'` over the entire history returns three
+identities, of which two are the owner under the same GitHub no-reply address
+(`andy.d` and `intruder1912`, both
+`6000952+intruder1912@users.noreply.github.com`) and the third is
+`dependabot[bot]`, whose commits are machine-generated manifest/lockfile
+version bumps carrying no copyrightable authorship of this project's code.
+**There has never been an outside contribution.** Every argument in the
+decision above therefore applies verbatim; nothing is re-litigated here.
+
+**The one thing `%an`/`%ae` does not see, checked separately:** 78 commits
+carry `Co-authored-by: Claude <model> <noreply@anthropic.com>` trailers (plus
+8 naming dependabot). These are a GitHub *attribution* convention, not a
+copyright grant, and they do not add a second copyright holder: the machine is
+not an author for copyright purposes, and Anthropic's commercial terms assign
+whatever rights it may hold in an output to the user who prompted it. The
+trailers are the only thing in this history that superficially reads as
+co-authorship, so the fact that they are *not* is recorded here rather than
+left for a future reader to re-derive.
+
+- **No CLA.** It requires infrastructure, asks contributors for rights beyond
+  inbound=outbound, and deters exactly the drive-by contributions a small CLI
+  gets. `CONTRIBUTING.md`'s existing inbound=outbound statement ("by
+  contributing you agree that your contribution is licensed under those same
+  terms") is the load-bearing artifact and already exists.
+- **No DCO yet.** If outside PRs actually appear, requiring `Signed-off-by`
+  is the cheap next step (no rights assignment, no infrastructure, one CI
+  check) — proposed then, not pre-emptively.
+- **The asymmetry to keep in view:** widening to `-or-later` is a unilateral
+  one-line edit *only while the owner is the sole holder*. If that flexibility
+  is ever wanted, the cheapest moment is **before** the first outside
+  contribution, not after.
+
+**Trigger: re-check before merging the first PR authored by anyone other than
+the owner** — recorded on TASK-0336. Deliberately *not* the public flip:
+making the repository public creates readers, not copyright holders, and does
+not by itself change this analysis.
+
+### Consequences of this amendment
+
+- Positive: the four open edges this ADR left are closed as *decisions*
+  (headers: no, with named revisit triggers) or as *shipped artifacts*
+  (`--version` block, §6(d) directions), rather than staying a checklist that
+  must be re-derived under the time pressure of a public-release day.
+- Positive: nothing here is conditional on going public, so the flip becomes a
+  short verification (TASK-0336) rather than a licensing project.
+- Negative / trade-off: declining per-file headers means a file copied out of
+  this repository carries no in-band license statement. Accepted: copying it
+  without the license is a violation with or without a header, and the
+  scenario is not one this project's packaging creates.
+- Negative / trade-off: `--version` and `-V` now differ, which is unusual in
+  the Rust ecosystem (though standard in GNU's). Mitigated by pinning both
+  forms with tests and by the release pipeline asserting the short form.
+- Implementation is handed to the implementer under TDD (exact texts, files
+  and tests in TASK-0219's backlog row); the flip-day checklist and the
+  first-outside-contribution re-check are **TASK-0336**.
 
 ## Links
 

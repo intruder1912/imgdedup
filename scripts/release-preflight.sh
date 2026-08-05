@@ -36,7 +36,8 @@
 #
 # Usage: scripts/release-preflight.sh [--ref <git-ref>] [--version <semver>] [--keep]
 #   --ref <git-ref>   Ref to build from (default: HEAD).
-#   --version <semver> Version to stamp and assert in `--version` output
+#   --version <semver> Version to stamp and assert in the built binary's `-V`
+#                      output (and in `--version`'s first line)
 #                      (default: 0.0.0-preflight+<12-char short SHA of --ref>).
 #   --keep            Don't remove the worktree on exit; print its path
 #                      instead, for inspecting a failed build.

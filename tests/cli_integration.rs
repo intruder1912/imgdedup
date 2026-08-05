@@ -89,6 +89,49 @@ fn bad_keep_value_exits_2() {
         .code(2);
 }
 
+// ── --version / -V (ADR-0014 TASK-0219 amendment) ─────────────────────────
+//
+// `src/cli.rs`'s own unit tests already pin the exact rendered strings via
+// clap's `render_long_version()`/`render_version()`; these two run the real
+// binary end to end, the same way every other exit-code/stdout contract in
+// this file is verified through the actual process rather than the library
+// surface alone.
+
+/// `imgdedup --version` exits 0, writes nothing to stderr, and stdout is
+/// exactly the 6-line GNU-style license/copyright block. The version and the
+/// Source URL are the two things a `Cargo.toml` change could actually drift,
+/// so both are interpolated from `env!` rather than hand-typed here.
+#[test]
+fn version_flag_prints_the_full_license_block_and_exits_0() {
+    let expected = format!(
+        "imgdedup {}\n\
+         Copyright (C) 2026 the imgdedup authors\n\
+         License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>\n\
+         This is free software: you are free to change and redistribute it.\n\
+         There is NO WARRANTY, to the extent permitted by law.\n\
+         Source: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_REPOSITORY"),
+    );
+
+    cmd()
+        .arg("--version")
+        .assert()
+        .code(0)
+        .stderr("")
+        .stdout(expected);
+}
+
+/// `imgdedup -V` exits 0 and stdout is exactly `imgdedup <version>\n` — the
+/// stable, one-line, machine-readable form `scripts/build-release-artifact.sh`
+/// and the Claude plugin's preflight both depend on.
+#[test]
+fn short_version_flag_prints_exactly_one_line_and_exits_0() {
+    let expected = format!("imgdedup {}\n", env!("CARGO_PKG_VERSION"));
+
+    cmd().arg("-V").assert().code(0).stderr("").stdout(expected);
+}
+
 // ── --help surface (TASK-0301 AC) ─────────────────────────────────────────
 
 /// `--help` lists every PRD §8 flag.

@@ -262,3 +262,20 @@ The repository is still **private**, which is an access-control state, not a
 licensing one: anyone who receives a copy — for example a collaborator added to
 the repository — receives it under GPL-3.0-only. Whether to publish the
 repository is a separate decision that has not been made.
+
+### Corresponding Source
+
+`imgdedup` binaries are distributed only from this repository's
+[GitHub Releases](https://github.com/intruder1912/imgdedup/releases), and the
+complete **Corresponding Source** for any released binary is available from that
+same place: each release is built from the Git tag `v<version>` — the version
+the binary itself reports — and GitHub attaches an auto-generated source archive
+of that tag to the release, alongside the binary archives.
+
+Every binary carries those directions with it, too: `imgdedup --version` prints
+its version, its license, and the URL of the repository its source lives in.
+
+This is how `imgdedup` satisfies GPLv3 §6(d) — the source is offered from the
+same place as the object code — so no separate written offer is made, and none
+is needed. The reasoning is recorded in
+[ADR-0014](docs/adr/0014-project-license-gpl-3.0-only.md#amendment-2026-08-05--public-release-licensing-readiness-task-0219).

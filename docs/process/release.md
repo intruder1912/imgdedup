@@ -161,9 +161,13 @@ artifact, `sha256sum -c` format) accompanies each archive:
 sha256sum -c imgdedup-v0.1.0-x86_64-unknown-linux-gnu.tar.gz.sha256
 ```
 
-The binary's own `--version` output is stamped with the real released version
-at build time (see the Cargo.toml comment above `version` and the `assets` job
-in `release.yml`) — Cargo.toml's in-tree value never changes.
+The binary's own version is stamped with the real released version at build
+time (see the Cargo.toml comment above `version` and the `assets` job in
+`release.yml`) — Cargo.toml's in-tree value never changes. This is asserted
+via `imgdedup -V`, which prints exactly `imgdedup <version>`; `imgdedup
+--version` additionally carries a GNU-style license/copyright block (ADR-0014's
+TASK-0219 amendment) whose first line is checked against the same stamped
+value.
 
 **Not in scope:** GPG signing, macOS codesigning/notarization, Windows
 Authenticode. Downloaded binaries are unsigned: macOS Gatekeeper will quarantine

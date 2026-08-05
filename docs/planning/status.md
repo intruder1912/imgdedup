@@ -11,6 +11,138 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 25 (TASK-0219, public-release licensing readiness), 2026-08-05 —
+  fresh window._
+  **The architect's four rulings landed as a dated
+  [amendment to ADR-0014](../adr/0014-project-license-gpl-3.0-only.md#amendment-2026-08-05--public-release-licensing-readiness-task-0219);
+  the TDD implementation pass is the rest of this unit.** ADR-0014 deliberately
+  left four edges open for this task, and all four are now closed as
+  _decisions_ rather than as a checklist to re-derive on public-release day.
+  **(1) Per-file GPL headers: no** — a reasoned decision, not a deferral.
+  GPLv3's per-file guidance is a non-normative appendix; this project conveys
+  repositories and release archives, never single files (one crate,
+  `publish = false`, `[[bin]]` only, no library target); the scanners that
+  actually read this repo (GitHub license detection, `cargo-deny`,
+  `cargo metadata`, crates.io) read `Cargo.toml`/`LICENSE` and never read Rust
+  comments; and an ungated header convention rots into _worse_ evidence than
+  none — a scanner finding headers on 12 of 20 files reads the repository as
+  partially licensed. Revisit triggers are named (a library target or
+  file-level vendoring, a second copyright holder, or adopting REUSE for its
+  own sake), and if it ever flips it flips to **full REUSE with a `reuse lint`
+  CI job**, not a piecemeal `src/*.rs` pass. **(2) `--version`: yes**, a
+  GNU-conventional block (copyright, `License GPL-3.0-only:` with the canonical
+  URL, the two recognizable warranty sentences, and a `Source:` line), added
+  via clap's `long_version` so that **`-V` keeps printing exactly
+  `imgdedup <version>`**. That split is not cosmetic: the one-line form is
+  load-bearing for `scripts/build-release-artifact.sh`, which asserts
+  version-stamp correctness by _exact equality_ on it (the check that stops a
+  mislabeled binary from being published, ADR-0015). The only other in-repo
+  caller — the Claude plugin's preflight — runs `--version` and checks only
+  that it succeeds, so the block reaches it harmlessly and no plugin change is
+  needed. clap 4's `version`/`long_version` split was
+  verified by direct experiment rather than read off the docs, including that
+  clap prepends the binary name itself. Wording decided rather than left to
+  taste: ASCII `(C)` not `©` (legacy Windows console code pages — the class of
+  problem `safe_text.rs` exists for), the SPDX identifier rather than GNU's
+  `+`-suffix "or later" convention, ≤80 columns per line so the license URL
+  never re-wraps, and the `Source:` URL taken from `CARGO_PKG_REPOSITORY` so it
+  cannot drift from `Cargo.toml`. Recorded explicitly as **voluntary**: GPLv3
+  §5(d) binds _interactive_ user interfaces, and this CLI reads no stdin at all
+  (verified across `src/`). **(3) GPLv3 §6: the route is §6(d), and only the
+  "clear directions" half needs writing.** GitHub attaches an auto-generated
+  source archive to every Release and keeps the tag fetchable, which _is_
+  equivalent access to the Corresponding Source from the same place; §6(d)'s
+  one human-supplied requirement is directions next to the object code, and
+  those ship **now** in the two artifacts that travel with the binary — the
+  `Source:` line inside `--version`, and a Corresponding Source paragraph in
+  `README.md`, which the release archives already bundle next to `LICENSE`
+  (zero new files, zero packaging changes). A §6(b) **written offer is
+  deliberately not written**: that is the artifact that would actually mislead,
+  advertising a three-year source-delivery channel nobody operates. The
+  directions, by contrast, are honest today — they say where the source is,
+  which is already true for every possible recipient of a private release asset
+  (TASK-0211's position) and becomes true for everyone at the flip with no edit.
+  **(4) `-only` vs `-or-later`: re-checked, unchanged** — and recorded rather
+  than silently skipped. Whole-history `git log` shows a single copyright holder
+  (two owner identities on the same GitHub no-reply address, plus
+  `dependabot[bot]` manifest bumps carrying no copyrightable authorship of
+  project code) and no outside contribution has ever existed, so ADR-0014's
+  reasoning applies verbatim. No CLA; DCO only if outside PRs actually appear;
+  re-check trigger is the first PR authored by anyone else — **not** the public
+  flip, which creates readers, not copyright holders. **Residual work is
+  trigger-bound and split out as new TASK-0336** (verify at the flip that every
+  published release's auto-generated source archive is really present and
+  anonymously downloadable, plus the guide/process wording that assumes a
+  private repo; and re-run the `-only` check before merging a first outside
+  PR).
+  **Implementation (TDD), same session:** `src/cli.rs` gained a `LONG_VERSION`
+  `concat!` constant (starting with the bare version — clap prepends the
+  binary name itself to `long_version`'s render, verified empirically against
+  a scratch clap 4.6.3 crate before touching production code) wired via
+  `#[command(version, long_version = LONG_VERSION, ...)]`; `-V` is unchanged
+  (`imgdedup <version>`), `--version` now prints the full 6-line block, both
+  confirmed against a real `cargo run --`. Five new `src/cli.rs` unit tests
+  (the exact block, ASCII-only, ≤80 columns/line, first-line/`-V` drift guard,
+  and a regression pin on the pre-existing `-V` contract — the last
+  deliberately not forced red, since it guards behavior that already existed)
+  plus two `tests/cli_integration.rs` tests exercising the real binary via
+  `assert_cmd` for both flags. `scripts/build-release-artifact.sh`'s
+  exact-equality version-stamp assertion moved from `--version` to `-V`
+  (the one-line form that assertion depends on),
+  with a second check that `--version`'s first line matches the same stamped
+  value — sliced from a captured variable via bash parameter expansion rather
+  than piped through `head`, avoiding a `set -o pipefail` SIGPIPE footgun
+  under the script's `set -euo pipefail`. `docs/process/release.md` updated to
+  match. `make validate` green (289+24+38+7 tests passing, `scale.rs`
+  correctly skipped). The README Corresponding Source paragraph (§6(d),
+  product-owner-owned under ADR-0012) was routed to the product-owner rather
+  than landed unilaterally: three short paragraphs rather than the ADR's one
+  dense sentence, corrected to no longer describe `--version` as printing a
+  bare version string (it now prints the license block, which the paragraph
+  cites as the _other_ half of the §6(d) directions), and a pointer to the
+  ADR amendment rather than restating its legal reasoning inline. Explicitly
+  left out of both passes, per the ADR's own rejections: per-file SPDX
+  headers, a `NOTICE` file, a §6(b) written offer, a `--license` flag, and any
+  build.rs/vergen commit stamp.
+  **Architect review of the branch diff vs `main` (2026-08-05), independent of
+  the instance that designed it — reproduced rather than read.** Verified:
+  `--version`/`-V` byte-for-byte against the running binary (stdout only,
+  stderr empty, exit 0, ASCII-only, longest line 79 columns), and stable under
+  a renamed executable (clap uses `#[command(name)]`, not `argv[0]`); the five
+  unit tests and two integration tests were **mutation-tested** — a year
+  change, a non-ASCII `©`, an over-80-column URL and a `Cargo.toml`
+  `repository` change each turned the intended test red and nothing else; the
+  new shell assertion block was harness-run against three fake binaries (good,
+  `-V`-skewed, `--version`-skewed) and the `${var%%$'\n'*}` slice re-verified
+  under **bash 3.2** as well as 5.x, since `#!/usr/bin/env bash` can resolve to
+  3.2 on a macOS runner; `shellcheck` clean; `make validate` green. Removing
+  the `head` pipe _eliminates_ the `pipefail` exposure rather than moving it —
+  the new code has no pipeline at all. `make release-preflight` was judged
+  unnecessary: the changed lines are two assertions, exercised directly by the
+  harness above, and the rest of the script is untouched. Four findings, all
+  fixed in place by the reviewer, none in product code: (a) the ADR/backlog/
+  status all claimed the Claude plugin's preflight depends on the one-line
+  form — it actually runs `--version` and parses nothing, so the rationale was
+  resting on a wrong fact (the `-V` rationale stands on
+  `build-release-artifact.sh` alone); (b) ruling 3's load-bearing "GitHub
+  attaches a source archive" claim was asserted, not checked — now verified
+  over the API (15/15 releases carry `tarball_url`/`zipball_url`; the `v0.5.1`
+  tarball inspected, 150 entries, complete tree; `.gitattributes` carries no
+  `export-ignore`, the one setting that could silently falsify it) and
+  recorded; (c) ruling 3 didn't mention that the tag's `Cargo.toml` holds the
+  `0.1.0` placeholder while the released binary is stamped — noted, with why
+  §6(d) still holds (§1's "scripts to control compilation" are in the archive);
+  (d) ruling 4's `%an`/`%ae` evidence doesn't see the 78 `Co-authored-by:
+  Claude` trailers — the only thing in this history that reads like
+  co-authorship — so why they create no second copyright holder is now
+  recorded. Plus one stale usage line in `scripts/release-preflight.sh`
+  (`--version` → `-V`). Deliberately **not** touched: the
+  "`--version` assertion" phrase in `release.yml`'s comment (still true, and
+  not worth extending this unit's diff into the repo's only `contents: write`
+  workflow for a comment). No blocking findings; the single architect dispatch
+  is the right depth here — nothing in the unit holds a write permission or a
+  secret. Next: PR. This PR.
+
 - _Session 24 (TASK-0332, scanning's walk liveness cue), 2026-08-05 —
   continuing session 23's window (5h=49% at start; owner explicitly
   authorized running this session up to 95%, above the usual 60–70%
@@ -1097,8 +1229,10 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   (release wiring), **TASK-0211** (prebuilt binaries), **TASK-0206** (link
   check promoted to a required gate — **PR #56, merged**), and **TASK-0205**
   (cspell → typos migration — PR #57) are done.
-- TASK-0219 (public-release licensing readiness) still available in
-  parallel. **TASK-0327** (`Makefile`'s `links` target folded onto lychee,
+- TASK-0219 (public-release licensing readiness) — **design ruled 2026-08-05
+  (ADR-0014 amendment), implementation in flight in session 25**; the
+  trigger-bound remainder is now **TASK-0336**. **TASK-0327** (`Makefile`'s
+  `links` target folded onto lychee,
   wired into `validate`) — **done, PR #70**. **TASK-0324/TASK-0325**
   (release.yml deprecation + trigger-condition nits) — **done, this PR**.
 
