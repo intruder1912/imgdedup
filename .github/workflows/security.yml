@@ -4,40 +4,133 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Weekly audit on `main`, added with TASK-0331(d) and load-bearing for it.
+  # Path-filtering cargo-deny (see the step below) makes the dependency audit
+  # *event*-driven, but the thing it checks for is *time*-driven: RUSTSEC
+  # publishes advisories against dependency sets nobody has touched, and before
+  # TASK-0331(d) any unrelated PR ran the audit and would have surfaced one
+  # within a day. Without this trigger a new advisory against an unchanged
+  # `Cargo.lock` would go unreported until something happened to edit a
+  # dependency file — which can be weeks — quietly weakening ADR-0005's
+  # "caught early and continuously" for a saving. One billed minute a week buys
+  # it back. Dependabot is not a substitute: it opens a PR only when a newer
+  # *version* exists, and an advisory need not come with one.
+  schedule:
+    - cron: "23 6 * * 1" # Mondays, 06:23 UTC
 
 permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.workflow }}-${{ github.ref }}
+  # Keyed on the event as well as the ref: the scheduled run above is the only
+  # audit that is not tied to a change, so a push to `main` landing inside its
+  # (~1 minute) window must not cancel it. Runs of the same kind for the same
+  # ref still supersede each other, which is what this is for.
+  group: security-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  secret-scan:
-    name: secret-scan
+  # One job replacing what were previously two separate ubuntu jobs,
+  # `secret-scan` and `cargo-deny` — TASK-0331(d), CI-minutes optimization,
+  # continuing TASK-0330's finding that the per-job one-minute billing floor,
+  # not job duration, buys most of this repository's Actions bill. Measured
+  # 2026-08-01..04 from the Actions API (billed rounded up to the whole minute
+  # per job, Linux 1x):
+  #
+  #   job          real work/run  billed min  of which floor
+  #   secret-scan            14s          72             ~72
+  #   cargo-deny             65s          95             ~48
+  #
+  # 167 billed minutes for ~79 seconds of work per run. secret-scan is pure
+  # floor. cargo-deny's 65s crosses the minute boundary by five seconds and so
+  # bills two minutes, half of it rounding. Run back-to-back in one job the two
+  # take ~79s plus one checkout — still two billed minutes, so folding alone
+  # saves ~1 min/run; on the majority of runs, where the path filter below
+  # skips cargo-deny, the job lands back inside a single minute and saves ~2.
+  # At this repository's run mix that is an estimated ~85 of the 167 minutes.
+  #
+  # Two constraints from ADR-0005 shaped the shape of this, and neither is
+  # negotiable for a saving:
+  #
+  #  1. **Secret scanning is not path-filtered.** A secret can land in any
+  #     file, so gitleaks runs unconditionally on every PR and push, over the
+  #     full history, exactly as it did as its own job. Only cargo-deny is
+  #     filtered, and only to inputs that can change its verdict.
+  #  2. **The filtering is done at the step level, inside a job that always
+  #     runs.** A job-level `if:` would make this required check report
+  #     "skipped" as its own commit status on most PRs, which is a materially
+  #     worse thing for a security gate to do than to run for 14 seconds — and
+  #     it is the same `needs:`/`if:`/skip sharp edge `ci-gate` already has to
+  #     handle explicitly. This job always reports a real success or failure.
+  #
+  # As in `ci.yml`'s `checks` job, every step carries `if: ${{ !cancelled() }}`:
+  # GitHub abandons the remaining steps of a job at the first failure, so
+  # without it a leaked secret would hide whether the dependency audit also
+  # failed (and vice versa), turning one red run into two sequential ones.
+  #
+  # OWNER ACTION REQUIRED — tracked in docs/planning/status.md under
+  # "Blockers / waiting on owner". `main`'s branch protection requires the
+  # context names `secret-scan` and `cargo-deny`; neither exists after this
+  # change, so both will sit at "Expected — waiting for status to be reported"
+  # on this and every later PR until they are replaced with `security`.
+  # `enforce_admins` is false, so the owner can still merge, but the swap
+  # belongs with this PR. Same manual step TASK-0330 and TASK-0206 needed.
+  security:
+    name: security
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter reads the PR's changed-files list via the API when
+      # the base commit is not available locally.
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history: gitleaks scans every commit, not the worktree.
           fetch-depth: 0
+
       # Run the gitleaks CLI via its official image (no GitHub API integration,
       # so it works on a private personal repo under a least-privilege token).
       # Scans the full git history; non-zero exit = leaks found = job fails.
+      # Unconditional by design — see constraint (1) above.
       - name: Scan for secrets (gitleaks)
+        if: ${{ !cancelled() }}
         run: |
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect --source=/repo --redact --no-banner --verbose
 
-  # Rust dependency audit (TASK-0208). cargo-deny covers RUSTSEC advisories
-  # (superseding a standalone cargo-audit) plus license, bans, and source
-  # checks — config in deny.toml. Runs on every PR/push like secret-scan;
-  # it reads only Cargo.lock/deny.toml, so doc-only runs are cheap.
-  cargo-deny:
-    name: cargo-deny
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Same action and pin as `ci.yml`'s `checks` job. The filter includes
+      # this workflow file itself for the same reason that one includes
+      # `ci.yml`: a change to how the audit runs must re-run the audit.
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        if: ${{ !cancelled() }}
+        with:
+          filters: |
+            deps:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - '.github/workflows/security.yml'
+
+      # Rust dependency audit (TASK-0208). cargo-deny covers RUSTSEC advisories
+      # (superseding a standalone cargo-audit) plus license, bans, and source
+      # checks — config in deny.toml.
+      #
+      # The condition is deliberately fail-closed: it skips only when the
+      # filter *successfully* determined that nothing the audit reads has
+      # changed. If the filter step itself failed, its output is empty, and an
+      # `== 'true'` test alone would silently drop an ADR-0005 gate on the run
+      # least able to tell whether it was needed — so the audit runs.
+      #
+      # The `schedule` clause is not redundant with that. On a scheduled event
+      # dorny/paths-filter has no PR base and no `before` SHA to diff against,
+      # so it falls back to "changes in the last commit" — it *succeeds* and
+      # reports `deps: false` on essentially every scheduled run, which would
+      # turn the weekly audit into a weekly no-op. The whole point of that
+      # trigger is to run irrespective of what changed.
       - name: Audit dependencies (advisories, licenses, bans, sources)
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || steps.filter.outcome != 'success' || steps.filter.outputs.deps == 'true') }}
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
@@ -45,5 +138,5 @@ jobs:
 
   # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,
   # which is unavailable on free private repositories. Dependency-review is
-  # instead covered by Dependabot + the cargo-deny job above. Re-enable
+  # instead covered by Dependabot + the cargo-deny step above. Re-enable
   # dependency-review if GHAS becomes available or the repository goes public.
