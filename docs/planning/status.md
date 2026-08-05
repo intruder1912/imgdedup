@@ -11,6 +11,76 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 21 (TASK-0333, the two CI-minutes policy calls TASK-0331 deferred),
+  2026-08-05 — continuing session 20's window._ Both halves needed an owner
+  ruling before any code, obtained directly this session rather than assumed:
+  **(c) branch protection `strict: true` → `false`** — applied immediately by
+  the orchestrator via `gh api` on explicit real-time authorization (the
+  owner answered "yes" to the direct question), not written up as a
+  deferred owner-action command like TASK-0330/0331's precedent, since this
+  was live confirmation in the same turn rather than a design the owner
+  would review later. Verified live before and after; the three required
+  contexts (`checks`, `ci-gate`, `security`) stayed app-pinned, unaffected.
+  **(b) release cadence — manual-only trigger.** Owner ruling: stop
+  auto-publishing on every green `push: main` (12 releases in 4 days, 485 of
+  ~1790 billed CI-minutes/4 days, 27%, in the `assets` matrix alone) and
+  switch to `workflow_dispatch`-only, batching whatever accumulated since
+  the last tag. A separate, larger idea raised in the same conversation —
+  local podman/macOS release builds usable for testing and installation, not
+  just CI-check — was explicitly scoped out as its own follow-up: **new
+  TASK-0334**.
+  The trigger swap looked mechanical but wasn't: the removed `workflow_run`
+  trigger had one load-bearing property (ADR-0005/ADR-0015) — a release can
+  never publish from a commit whose checks are red or still running — that a
+  bare `workflow_dispatch` would have silently dropped. Implemented as an
+  explicit step, before checkout, querying the checks API for the dispatched
+  commit and failing closed unless `ci-gate` and `security` (this repo's
+  required contexts; `checks` isn't queried separately since `ci-gate`
+  already aggregates it) are both a completed success from GitHub Actions
+  (`app_id`-pinned, matching branch protection's own pinning). Also
+  incidentally closes ADR-0015's recorded gap of not gating on the Security
+  workflow. New `checks: read` permission on the job (rejected the broader
+  `actions: read` alternative). `release`'s job-level `if:` — previously
+  sorting `workflow_run` payloads — was removed outright rather than left
+  inert, since none of those cases can occur once `workflow_run` is gone.
+  **Because this is the repository's only `contents: write` job, this unit
+  took two architect dispatches** (design+implement, then an independent
+  review), per ADR-0011's explicit carve-out that write-permission jobs
+  never qualify for the low-risk review-skip exception regardless of size —
+  the same rigor TASK-0331 applied to the `security` job fold.
+  **The independent review found and fixed one real, security-relevant
+  defect: `.check_runs[0]` depended on an array order the REST API does not
+  document.** `filter=latest` deduplicates only _within_ a check suite, and
+  GitHub Actions creates one suite per workflow run — so two different runs
+  reporting the same check name against one commit both come back, and
+  reading index `[0]` made the verdict depend on which one the API happened
+  to return first. Proven live, independently, by both the reviewer and the
+  orchestrator: every recent commit on `main` carries two or three `release`
+  check runs, and (the case that mattered) a red `release` run sits next to
+  a green one on the exact same commit with no documented ordering between
+  them. The fix requires **every** returned check run to be green, not just
+  the first — order-independent, still clears via a re-run (which lands in
+  its own suite's `latest`), and closes a related latent hole (a red result
+  could no longer be laundered by a green run beside it, removing the need
+  for a `(manual)`-suffix-style workaround should `security.yml` ever gain
+  its own dispatch trigger). This is the exact failure class the
+  two-dispatch precedent for `contents: write` jobs (ADR-0011) exists to
+  catch: invisible
+  to a live spot-check the orchestrator itself ran mid-review (`main`'s
+  current tip happened to carry only one `security` check run at the time —
+  the ordering hazard only shows up once a second run exists, e.g. after the
+  first Monday cron), and the review reasoned about the API's actual
+  documented guarantees rather than trusting today's data shape. Two stale
+  doc claims caught in the same pass and corrected (`docs/adr/0015-...md`,
+  `docs/process/release.md`).
+  **Caveat carried into the PR, not resolved by review:** the check-runs
+  query has never executed under a job-scoped `GITHUB_TOKEN` with
+  `contents: write` + `checks: read` on this private repo — verification so
+  far is the live API queried directly plus careful reading, which is the
+  strongest evidence available pre-merge, but the mechanism is fail-closed
+  if the permission scoping turns out to be wrong, so the first real
+  dispatch is the true test. This PR.
+
 - _Session 20 (TASK-0331, CI-minutes: macOS cadence + security-job fold),
   2026-08-05 — continuing session 19's window (5h=39%, 7d=11% at start)._
   Picks up the two structural levers TASK-0330 left on the table that are
