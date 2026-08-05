@@ -36,3 +36,6 @@ coverage/
 *.pem
 *.key
 secrets/
+
+# ---- test data / test images ----
+test-images/

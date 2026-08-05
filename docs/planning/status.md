@@ -11,6 +11,54 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 26 (TASK-0314, real-photo field validation), 2026-08-05 — fresh
+  window._ Closes the last dependency-clear item this repo had been carrying
+  as blocked since sessions 4/5: the owner supplied a real photo corpus by
+  copying it into a new gitignored `test-images/` directory inside the repo
+  itself (chosen for simplicity over a path elsewhere on the owner's
+  machine — `.gitignore` gained a `test-images/` entry so it can never be
+  committed). **The corpus:** 2,021 real JPEGs (5.5 GB) from a single 2009
+  vacation trip, shot across three distinct camera bodies (filenames carry
+  their own EXIF-adjacent evidence of this: Canon EOS 300, IXUS50, IXUS850),
+  plus ~46 unrelated non-image files (mp3/doc/db/ini/avi) mixed into the same
+  subfolders — a deliberately messier shape than the golden-set generator's
+  synthetic fixtures, closer to what a real photo library actually looks
+  like. Only one subfolder existed; the owner had described a second,
+  further ~1k-photo copy as "underway" but confirmed live that what was
+  already present was the complete corpus before this ran.
+  **Both required passes ran clean, read-only, against the real corpus, no
+  `--apply` anywhere:** plain dry-run and `--json` dry-run each exited 0 in
+  ~1.8s, zero warnings, zero `root_errors`, the JSON valid against the
+  documented schema (`schema_version: 1`). Result: **0 duplicate groups** —
+  plausible for one trip's worth of distinct shots, but a bare "found
+  nothing" is weak evidence on its own (a broken hashing path would report
+  the same thing), so it was independently checked rather than trusted: a
+  full `shasum -a 256` over all 2,021 files, entirely outside imgdedup's own
+  code, found 0 matching hashes — confirming the negative result against
+  ground truth from a completely separate implementation, not just replaying
+  the tool's own logic back at itself.
+  **A negative result alone doesn't exercise the grouping/keeper logic, so a
+  positive control followed, in a scratch directory outside the repository
+  and outside `test-images/` (which stayed untouched throughout, satisfying
+  the task's "originals untouched" requirement even though this copy was
+  already once removed from any original):** 8 real photos sampled evenly
+  across the corpus, 4 copied once more into a second directory to create 4
+  known byte-identical pairs (verified with `shasum` before running
+  imgdedup) alongside 4 deliberately-unique singles. `imgdedup --json`
+  against the mixed set reported **exactly** 4 duplicate groups — correct
+  keeper, correct `reclaimable_bytes`, correct per-file sizes — and correctly
+  excluded all 4 singles, matching the `shasum`-derived ground truth exactly.
+  This is the first time the detection pipeline has run against real camera
+  JPEGs with genuine, non-synthetic EXIF/metadata variety across three
+  different camera models rather than the golden-set generator's minimal
+  valid fixtures, and it held up without any surprises. No product code
+  change resulted — nothing this task was designed to catch, caught anything —
+  so per ADR-0011's low-risk-unit exception (no code diff, no write-permission
+  CI surface, same shape as TASK-0327) this unit skips an architect dispatch.
+  Scratch positive-control files deleted after the run; only `.gitignore`
+  (new `test-images/` entry) and the planning docs are part of this diff.
+  This PR.
+
 - _Session 25 (TASK-0219, public-release licensing readiness), 2026-08-05 —
   fresh window._
   **The architect's four rulings landed as a dated
