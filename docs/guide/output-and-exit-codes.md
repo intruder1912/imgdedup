@@ -340,7 +340,12 @@ Scanning does two things in sequence, and the indicator shows both:
 
 1. **Walking the tree** to find files worth examining. There is no total to
    count against yet, so on a terminal it shows a live count of what it has
-   found so far, for example `scanning... 30000 files found`.
+   found so far, for example `scanning... 30000 files found`. On a tree where
+   almost nothing matches (a source checkout, a backup volume of documents),
+   this count can sit still for a long stretch even though the walk is
+   actively working — so the terminal also shows how long the scan has been
+   running, e.g. `scanning... 3 files found (14s elapsed)`, ticking up as
+   proof the tool has not hung.
 2. **Examining each file it found**, reading a few header bytes from each to
    confirm the content really is an image. The total is known exactly here —
    it is what step 1 just finished counting — so the indicator switches to
@@ -391,9 +396,10 @@ force one shared denominator across every phase:
   coarse milestones (phase changes and roughly every 10% of progress), with no
   carriage returns or ANSI control codes, so a captured log stays readable and
   bounded rather than growing one line per file. The live *found-so-far* count
-  from scanning's first step (`scanning... 30000 files found`) is a
-  terminal-only display: a log gets a plain `scanning...` line instead, since a
-  single non-redrawn line could only ever record a stale count. Scanning's
+  from scanning's first step (`scanning... 30000 files found`), and the
+  elapsed-time liveness cue alongside it, are both terminal-only displays: a
+  log gets a plain `scanning...` line instead, since a single non-redrawn
+  line could only ever record a stale count or a stale elapsed time. Scanning's
   second step does appear in the log, at the same coarse milestones as every
   other phase.
 
