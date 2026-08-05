@@ -392,77 +392,29 @@ jobs:
       # keep that path auditable. Not a trade worth making for no measured gain.
       # Revisit only with a measured before/after, and even then prefer caching
       # only the checksum-verified parts of CARGO_HOME (never `registry/src`).
-      - name: Verify the runner's architecture matches this leg's target triple
-        # Guards against a GitHub-hosted runner label silently changing
-        # architecture (as macos-latest already has once) and shipping an
-        # artifact whose filename lies about what it contains.
-        run: |
-          set -euo pipefail
-          host="$(rustc -vV | sed -n 's/^host: //p')"
-          if [ "$host" != "${{ matrix.target }}" ]; then
-            echo "::error::runner host ($host) does not match matrix.target (${{ matrix.target }})"
-            exit 1
-          fi
-
-      - name: Stamp the released version into Cargo.toml
-        # Cargo.toml's `version` is a permanent development placeholder — the
-        # release process never commits a bump back to `main` (ADR-0015). This
-        # rewrite happens only in this ephemeral runner checkout, never pushed
-        # anywhere, so `imgdedup --version` in the shipped binary reports the
-        # real released version without Cargo.toml's in-tree value ever moving.
-        run: |
-          set -euo pipefail
-          v="${{ needs.release.outputs.version }}"
-          test "$(grep -c '^version = ' Cargo.toml)" -eq 1
-          sed -e "s/^version = .*/version = \"$v\"/" Cargo.toml > Cargo.toml.stamped
-          mv Cargo.toml.stamped Cargo.toml
-          grep -qx "version = \"$v\"" Cargo.toml
-
-      - name: cargo build --release
-        # Not --locked: the stamp above makes Cargo.lock's own `imgdedup` entry
-        # stale by design; cargo rewrites just that one entry, leaving every
-        # dependency pin untouched.
-        run: cargo build --release
-
-      - name: Verify the built binary reports the stamped version
-        run: |
-          set -euo pipefail
-          bin="target/release/imgdedup${{ runner.os == 'Windows' && '.exe' || '' }}"
-          got="$("$bin" --version)"
-          want="imgdedup ${{ needs.release.outputs.version }}"
-          if [ "$got" != "$want" ]; then
-            echo "::error::binary reports '$got', expected '$want'"
-            exit 1
-          fi
-
-      - name: Package the archive and checksum
+      - name: Build and package the release artifact
+        # Stamping, `cargo build --release`, the `--version` assertion and
+        # packaging/checksumming all live in scripts/build-release-artifact.sh
+        # (TASK-0334) — the same script scripts/release-preflight.sh calls for
+        # a local rehearsal of this exact leg, so the two cannot drift apart on
+        # the part that is expensive to get wrong twice. What stays inline
+        # here, deliberately never moved into the shared script: the
+        # architecture-mismatch guard (now the script's own first check,
+        # unconditional) and the actual publish below, which needs the
+        # `GITHUB_TOKEN` this script never sees.
         id: package
         run: |
           set -euo pipefail
-          stem="imgdedup-${{ needs.release.outputs.tag }}-${{ matrix.target }}"
-          stage="$RUNNER_TEMP/$stem"
-          mkdir -p "$stage"
-          bin="target/release/imgdedup${{ runner.os == 'Windows' && '.exe' || '' }}"
-          cp "$bin" "$stage/"
-          cp LICENSE README.md "$stage/"
-
-          cd "$RUNNER_TEMP"
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            file="$stem.zip"
-            7z a -tzip "$file" "$stem" >/dev/null
-          else
-            file="$stem.tar.gz"
-            COPYFILE_DISABLE=1 tar -czf "$file" "$stem" # COPYFILE_DISABLE: no macOS ._ AppleDouble entries
-          fi
-
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$file" > "$file.sha256"
-          else
-            shasum -a 256 "$file" > "$file.sha256" # macOS has no sha256sum
-          fi
-
+          scripts/build-release-artifact.sh \
+            "${{ matrix.target }}" \
+            "${{ needs.release.outputs.version }}" \
+            "${{ needs.release.outputs.tag }}" \
+            "${{ matrix.archive }}" \
+            "$RUNNER_TEMP"
           echo "dir=$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
-          echo "file=$file" >> "$GITHUB_OUTPUT"
+          # Read back, not reconstructed: the script itself is the one place
+          # that knows the archive's real filename.
+          echo "file=$(cat "$RUNNER_TEMP/.artifact-filename")" >> "$GITHUB_OUTPUT"
 
       - name: Upload the archive and checksum to the release
         env:
