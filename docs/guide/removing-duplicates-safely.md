@@ -237,8 +237,8 @@ If the symlink's target **is** also reachable directly under the same scanned
 path (for example, a symlinked directory pointing at content also present
 under its real path), this exception does not apply: the file is counted
 once, at its real location, and never appears in a group as a symlink at all.
-When the link crosses from one scanned path into *another* one you also passed,
-it can still be listed twice — see
+This holds even when the link crosses from one scanned path into *another*
+one you also passed — see
 [Symbolic links](scanning-and-scope.md#symbolic-links---follow-symlinks).
 
 ## Next
