@@ -331,9 +331,32 @@ The indicator shows:
   pipeline.
 - Once the candidate count is known, **`x of y` files done and a
   percentage**, where `y` is the number of candidate files confirmed as
-  images, fixed once enumeration and magic-byte confirmation finish. Before
-  that the total is unknown, so the indicator shows a plain counting state
-  (for example `scanning...`) instead of `x of y`.
+  images, fixed once scanning finishes. Before that the candidate total is
+  unknown, so scanning shows its own counting states instead (see below).
+
+### Scanning happens in two steps
+
+Scanning does two things in sequence, and the indicator shows both:
+
+1. **Walking the tree** to find files worth examining. There is no total to
+   count against yet, so on a terminal it shows a live count of what it has
+   found so far, for example `scanning... 30000 files found`.
+2. **Examining each file it found**, reading a few header bytes from each to
+   confirm the content really is an image. The total is known exactly here —
+   it is what step 1 just finished counting — so the indicator switches to
+   `scanning: 12345 of 30000 (41%)`. Every file counts, whether it turns out
+   to be an image or not, so the number keeps moving even on a folder full of
+   misnamed files.
+
+The count you watched grow in step 1 becomes the number counted against in
+step 2. Step 2 is usually the longer of the two.
+
+Note that `30000` there is how many files were **examined**, not how many
+turned out to be images. The candidate total `y` used by the later phases only
+counts the confirmed images, so it can be smaller — a folder of 30 000 files
+where none is really an image shows `scanning: 30000 of 30000 (100%)` and then
+`done: 0 of 0 (100%)`. If the walk found nothing at all, step 2 is skipped
+rather than shown as a pointless `0 of 0`.
 
 ### What the denominator means per phase
 
@@ -341,9 +364,10 @@ Not every phase works on all `y` candidates — only files that turn out to
 collide with another file ever reach verifying — so the indicator does not
 force one shared denominator across every phase:
 
-- **Scanning** runs before the total is known, so it shows a plain counting
-  state with no `x of y`. **Hashing** is the first phase with a denominator and
-  reports `x of y` against the full candidate total `y`, as above.
+- **Scanning** runs before the candidate total is known: it counts up while
+  walking, then counts against the number of files it found while examining
+  them (above). **Hashing** is the first phase measured against the candidate
+  total and reports `x of y` against the full `y`, as above.
 - **Verifying** works on a smaller set (only the files involved in a
   collision), so it reports its own subset progress while keeping the run's
   candidate total visible in the same line, for example
@@ -366,7 +390,12 @@ force one shared denominator across every phase:
   Instead `imgdedup` prints occasional **plain, newline-terminated lines** at
   coarse milestones (phase changes and roughly every 10% of progress), with no
   carriage returns or ANSI control codes, so a captured log stays readable and
-  bounded rather than growing one line per file.
+  bounded rather than growing one line per file. The live *found-so-far* count
+  from scanning's first step (`scanning... 30000 files found`) is a
+  terminal-only display: a log gets a plain `scanning...` line instead, since a
+  single non-redrawn line could only ever record a stale count. Scanning's
+  second step does appear in the log, at the same coarse milestones as every
+  other phase.
 
 ### `--no-progress`
 
