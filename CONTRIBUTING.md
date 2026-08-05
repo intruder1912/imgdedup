@@ -49,9 +49,11 @@ This runs Markdown lint, spell check, link check, shell script lint
 install it. CI runs the same checks and is the enforcement boundary.
 
 **No real images are needed to build or test this project.** The test suite
-(`tests/golden_set.rs` and friends) generates minimal, valid images per
-supported format at test time and builds its own fixture trees — nothing is
-downloaded and nothing real-world is checked into the repository. A handful of
+(`tests/golden_set.rs` and friends) synthesizes its own fixtures at test time:
+`tests/support/images.rs` generates, deterministically, the smallest byte
+sequences the pipeline accepts as images for every supported format signature,
+and `tests/support/tree.rs` builds the fixture trees around them — nothing is
+downloaded and no real-world image is checked into the repository. A handful of
 larger scale/benchmark tests (`tests/scale.rs`) are `#[ignore]`d by default and
 only run via `make scale`; a plain `cargo test` or `make validate` is fast and
 fully self-contained.

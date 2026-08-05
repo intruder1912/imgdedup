@@ -21,21 +21,24 @@ docs pass → AI automation, batched within Claude usage limits.
   supported" and described the language-level dependency audit as a Phase-2
   future item — the project is in Phase 3 with `v0.5.1` released and
   `cargo-deny` (RUSTSEC/license/bans/sources, weekly-scheduled) live since
-  TASK-0208. Fixed: a "latest release only" supported-versions policy, and an
+  TASK-0208. Fixed: a "latest release only" supported-versions policy, an
   accurate description of the existing `cargo-deny`/Dependabot/gitleaks
-  security surface, including the `contents: write`-is-manual-dispatch-only
-  fact (relevant to the fork-PR-safety question raised in conversation).
+  security surface (including the `contents: write`-is-manual-dispatch-only
+  fact, relevant to the fork-PR-safety question raised in conversation), and a
+  static-analysis bullet recording clippy-in-place-of-CodeQL (ADR-0007), which
+  the dropped Phase-2 sentence had promised as future work.
   `CONTRIBUTING.md`'s "Local validation" section still read "until the product
   stack is chosen (Phase 2)... documentation quality... (once code exists) the
   language test suite" — also predates the Rust crate existing. Fixed to
   describe what `make validate` actually runs today (mdlint/spellcheck/
   linkcheck/shellcheck/actionlint/fmt/clippy/full test suite), plus a new
   paragraph stating explicitly that no real images are needed to build or test
-  the project — the test suite is 100% synthetic (`tests/golden_set.rs`
-  generates minimal valid images per format at test time; nothing real-world
-  is checked into the repo), directly answering a contributor-privacy question
-  raised in the same conversation (verified live: zero image binaries tracked
-  in git, zero references to the owner's local `test-images/` corpus anywhere
+  the project — the test suite is 100% synthetic (`tests/support/images.rs`
+  generates the smallest byte sequences the pipeline accepts per format
+  signature; nothing real-world is checked into the repo), directly answering
+  a contributor-privacy question raised in the same conversation (verified
+  live: zero image binaries tracked in git, zero references to the owner's
+  local `test-images/` corpus anywhere
   in code/CI/Makefile). Docs-only, no product code, no write-permission/secret
   CI surface — same shape as TASK-0217's docs-consistency precedent — but not
   claimed under ADR-0011's low-risk skip exception, since that exception is
