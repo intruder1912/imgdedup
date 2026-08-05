@@ -98,14 +98,14 @@ pub struct Cli {
     pub no_progress: bool,
 
     // ── Diagnostics (ADR-0017, TASK-0338) ──────────────────────────────────
-    /// Print per-stage timing lines to stderr (diagnostic; not a product
-    /// capability, ADR-0017). Installs a minimal `tracing-subscriber` `fmt`
-    /// consumer over this run's internal instrumentation spans, one line per
-    /// pipeline stage at stage close. Implies `--no-progress`: a stage-close
-    /// line written while the live progress indicator is mid-redraw would
-    /// corrupt it, so timings and the progress indicator are mutually
-    /// exclusive and `--timings` always wins (no error, no second flag
-    /// needed). Off by default; never changes stdout.
+    /// Print per-stage timing lines to stderr (diagnostic).
+    ///
+    /// Writes one line per pipeline stage to stderr as that stage finishes,
+    /// with the time it took. Implies `--no-progress`: timing lines and the
+    /// live progress indicator cannot share stderr, so `--timings` wins, and
+    /// passing both is not an error. Off by default; stdout is never
+    /// changed, so `--timings --json` is the way to measure a scripted run.
+    /// The output is diagnostic, not a stable interface (ADR-0017).
     #[arg(long, action = ArgAction::SetTrue)]
     pub timings: bool,
 }

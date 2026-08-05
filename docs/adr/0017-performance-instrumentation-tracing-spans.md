@@ -256,8 +256,14 @@ Configuration, decided concretely:
 - `with_max_level(INFO)`, `with_target(false)`, **`with_ansi` off** (the
   `ansi` feature is not even compiled in — see below), timestamps kept (they
   make interleaving with the apply-time `removed:`/`warning:` lines analyzable).
-- Output is **pure ASCII**, matching `progress.rs`'s deliberate ASCII-only rule
-  for the same reason (redirected logs read under `LANG=C`).
+- No ANSI escape/control-code machinery (the `ansi` feature is not compiled
+  in), unlike `progress.rs`'s stricter *pure*-ASCII rule: `tracing-subscriber`'s
+  own `Duration` formatting renders the microsecond unit as `µ` (U+00B5) —
+  confirmed against a real binary (`time.busy=207µs`) — so this output is
+  UTF-8, not ASCII-only. A single non-ASCII unit glyph inside a numeric field
+  does not carry the injection/corruption risk that rule exists to prevent
+  (§6: only untrusted path/filename bytes do), so this is accepted rather than
+  worked around.
 - Installed with **`try_init()`**, and a failure to install is **non-fatal** —
   instrumentation must never be the reason the tool fails (the AC-24 principle
   again).
