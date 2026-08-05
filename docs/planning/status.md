@@ -11,6 +11,111 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 31 (TASK-0338, performance instrumentation — implementation), 2026-08-05
+  — fresh window._ Finishes what session 30 deliberately stopped at (the design
+  step, [ADR-0017](../adr/0017-performance-instrumentation-tracing-spans.md)):
+  the TDD implementation, its architect review, the real-corpus measurement the
+  whole task exists to produce, and the product-owner docs pass.
+  **Housekeeping first:** 34 local branches, each individually verified via
+  `gh pr list --head <branch>` to correspond to an already-merged (or, in one
+  case, closed-without-merging) PR, force-deleted with explicit confirmation;
+  one stale remote branch (`docs/sync-planning-task-0301`, PR #15, closed not
+  merged, content already superseded in `main`) removed too. Only `main` and
+  `chore/instrument-with-tracing` remain, locally and on `origin`.
+  **Implementer (TDD), on `chore/instrument-with-tracing`:** all 11 spans from
+  ADR-0017's table, the `--timings` flag, the progress-off interaction, and the
+  security rule (no span field via `%`/Display) — matching the ADR exactly, per
+  independent verification below. One real deviation from the ADR's illustrative
+  code, flagged and reasoned: `apply::apply()` gained a `mode: ActionMode`
+  parameter (used only to record the `apply` span's `mode` field; removal
+  behavior is unchanged and still driven entirely by the injected `Remover`) —
+  the ADR's own text hadn't threaded `mode` into that call, so a real signature
+  change was needed to record the field the ADR's table asks for. Also replaced
+  a per-test `tracing::subscriber::with_default` helper with a process-global
+  one (`src/trace_test_support.rs`, `#[cfg(test)]`-only): a genuine
+  `tracing-core` per-callsite `Interest`-cache race under `cargo test`'s default
+  parallel runner, reproduced directly (a nested span intermittently produced no
+  close line under default parallelism, never under `--test-threads=1`) —
+  confirmed by the architect review below against `tracing-core` source, not
+  just re-run stability.
+  **Independent architect review (one dispatch, converged on the branch): one
+  real defect found and fixed, everything else confirmed by direct measurement
+  rather than reading the diff — continues the run noted in
+  [[imgdedup-architect-review-value]].** `FmtSpan::CLOSE` fires when a span's
+  **value** (not its guard) drops; `group_by_size`/`hash`/`verify`/`sort_canonical`
+  (engine) and `render` (main) had created that value in function scope while
+  only entering/exiting the guard per-stage, so their close lines were deferred
+  to end-of-function and printed in **reverse** pipeline order with each
+  other's wall time bleeding into `time.idle` — reproduced live pre-fix
+  (`sort_canonical`, `verify`, `hash`, `group_by_size`, in that order, all
+  within microseconds of the engine returning). Fixed by scoping each stage's
+  span value to its own block; two new regression tests (CLI-level and
+  engine-unit-level), each independently verified to fail against the pre-fix
+  code, not just pass post-fix. Also independently re-verified rather than
+  trusted: all 11 spans at the right sites with the right fields (via an
+  end-to-end run exercising all 11 at once); zero spans inside any rayon
+  closure and zero per-file/entry/root/group spans (exhaustive grep); the root
+  `run` guard genuinely lives inside `run()` (last-stderr-line test, confirmed
+  across five invocation modes); the security rule holds crate-wide (every
+  production span field is a count, size, or enum — never a path); `--timings`
+  forces progress off with no bypass (`args.no_progress` has exactly one
+  reader in the whole tree); stdout byte-identical with/without `--timings` on
+  a 4,000-file fixture and on `--json` (866 KB, `cmp`-verified); `cargo deny
+  check` clean, no `deny.toml` edit, `Cargo.lock` 123→130 exactly as predicted;
+  cost when unused measured directly (3.563 s vs 3.564 s over 4,000 files);
+  binary size +225 KB (ADR estimated ~228 KB); stderr line count is O(1) per
+  run regardless of file count (9 lines on both a 6-file and a 4,000-file
+  tree). Should-fix nits noted, none blocking: `hash`'s `files_hashed` counts
+  attempts while `bytes_hashed` only accumulates on success (asymmetric, not
+  wrong — worth a comment); `apply(mode, remover)` can in principle be passed
+  an inconsistent pair (accepted, since deriving the label from `Remover`
+  instead would make it unrepresentable); the crate-wide `%`-vs-`?` security
+  guard is currently a manual grep, not a CI-enforced one (a future task, not
+  this one, if ever wanted).
+  **The real-corpus run this whole task exists to produce, done directly
+  (not delegated) against the same 2,021-file / 5.72 GB real photo corpus
+  sessions 26/29 used (`test-images/`, gitignored, still present on this
+  machine):** 3 runs, warm cache, default scope. **`hash` dominates at ~86% of
+  wall time** (401–417 ms of ~480 ms total); `sniff` ~11% (48–57 ms);
+  `enumerate` ~2% (8–11 ms); `verify` ~0 (0 duplicate groups in this corpus, so
+  nothing to verify). **This closes TASK-0321's open question
+  (["is `enumerate` now the dominant serial stage?"](../adr/0010-concurrency-and-memory-model.md#consequence-note--the-scan-stage-is-no-longer-serial-2026-08-03-task-0321)):
+  no** — recorded as a new consequence note on ADR-0010, with the honest
+  caveat that this is one corpus shape (avg. 2.76 MB/file, every file clearing
+  `RAYON_HASH_THRESHOLD`) and a tiny-file-heavy corpus could shift the
+  `enumerate`/`hash` ratio; not claimed to generalize.
+  **Product-owner pass:** concurs with ADR-0017's "no PRD-0001 FR/AC" ruling
+  (checked the reasoning rather than rubber-stamping it: `--timings` emits
+  nothing on stdout and changes no grouping/removal decision). Wrote a new
+  `--timings` section in
+  [`docs/guide/output-and-exit-codes.md`](../guide/output-and-exit-codes.md)
+  (how to read the nested stage lines, that it replaces progress, combining
+  with `--json`, diagnostic-not-benchmark caveat) plus a README usage mention
+  and a guide-index pointer. Two findings routed back rather than fixed
+  unilaterally (product-owner has no shell/write access to `.rs` files by
+  design): the `--timings` `--help` text was one ~8-line paragraph — the
+  longest entry in `--help` for the least important flag — and used internal
+  jargon (backtick-quoted crate names, an ADR citation) instead of user-facing
+  wording; rewritten to the project's two-tier summary/detail convention
+  (`--keep`'s precedent), verified the one existing `--help` test only checks
+  for the substring `"--timings"` so this was a safe non-behavioral change.
+  Also caught: ADR-0017's "output is pure ASCII" claim is wrong —
+  `tracing-subscriber`'s own `Duration` formatting renders the microsecond unit
+  as `µ` (U+00B5), confirmed in a real capture (`time.busy=207µs`); corrected
+  in the ADR with the reasoning for why this is accepted rather than worked
+  around (a numeric-field unit glyph carries none of the injection risk
+  `progress.rs`'s stricter rule exists to prevent). One item deliberately
+  deferred, not fixed, as disproportionate inside a chore unit: AC-23's
+  literal wording names only `--no-progress` as the way progress is
+  suppressed, and a future reader could wonder whether `--timings` (a second,
+  incidental way) is in scope — closed with a same-day dated PRD-0001
+  amendment (no behavior change; AC-24 already covered it by phrasing) rather
+  than an in-place edit, matching this document's own convention.
+  `make validate` (mdlint, spell, links, shellcheck, actionlint, fmt, clippy
+  `-D warnings`, full test suite) green throughout — 301 unit + 24 acceptance +
+  45 CLI-integration + 7 golden-set tests, `scale.rs`'s 4 correctly ignored.
+  Next: PR. This PR.
+
 - _Session 30 (TASK-0338, performance instrumentation — design step), 2026-08-05
   — same window as sessions 26–29._
   **The design landed as new
