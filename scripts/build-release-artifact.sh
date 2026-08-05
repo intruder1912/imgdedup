@@ -16,7 +16,7 @@
 # Usage: build-release-artifact.sh <target> <version> <tag> <archive> <out-dir>
 #   target   Rust target triple, e.g. x86_64-unknown-linux-gnu. Must match the
 #            host's own triple (rustc -vV); this script never cross-compiles.
-#   version  SemVer to stamp into Cargo.toml and assert in `--version` output,
+#   version  SemVer to stamp into Cargo.toml and assert in `-V` output,
 #            without a leading 'v' (e.g. 1.2.3).
 #   tag      Release tag used only in the archive's filename stem, e.g.
 #            v1.2.3 or a preflight/<sha> placeholder — never parsed or
@@ -98,10 +98,28 @@ if [ ! -x "$bin" ]; then
   exit 1
 fi
 
-got="$("$bin" --version)"
+# `-V` is the stable, one-line, machine-readable form: exactly
+# "imgdedup <version>" with no trailing content. This is the assertion that
+# catches a version-stamping failure before a mislabeled binary is published
+# (ADR-0015); `--version` (below) is the separate GNU-style multi-line
+# license/copyright block (ADR-0014's TASK-0219 amendment), which cannot be
+# compared by exact equality against a one-liner.
+got="$("$bin" -V)"
 want="imgdedup $version"
 if [ "$got" != "$want" ]; then
-  echo "::error::binary reports '$got', expected '$want'" >&2
+  echo "::error::binary reports '$got' for -V, expected '$want'" >&2
+  exit 1
+fi
+
+# `--version`'s first line must still be exactly the same one-liner — this
+# verifies the long-form block is actually wired to the stamped version too,
+# without piping through `head` (a SIGPIPE there is a live footgun under
+# `set -o pipefail`): capture the full output into a variable and slice out
+# the first line via bash parameter expansion instead.
+long_version_output="$("$bin" --version)"
+long_version_first_line="${long_version_output%%$'\n'*}"
+if [ "$long_version_first_line" != "$want" ]; then
+  echo "::error::binary's --version first line is '$long_version_first_line', expected '$want'" >&2
   exit 1
 fi
 

@@ -1,13 +1,42 @@
 use clap::{ArgAction, Parser, ValueEnum};
 use std::path::PathBuf;
 
+/// The GNU-conventional license/copyright block printed by `imgdedup
+/// --version` (ADR-0014's TASK-0219 amendment). `-V` keeps printing exactly
+/// `imgdedup <version>` — see [`Cli`]'s `long_version`/`version` wiring.
+///
+/// clap prepends the binary name itself (`imgdedup `) when it renders
+/// `long_version`, so this constant deliberately starts with the bare
+/// version number, not `"imgdedup "` — verified by direct experiment against
+/// clap 4, not assumed off the docs (a leading `"imgdedup "` here would
+/// double-print the binary name).
+///
+/// Wording is pinned by the ADR, not left to taste: ASCII `(C)` (not `©`, for
+/// legacy Windows console code pages), the SPDX identifier `GPL-3.0-only`
+/// rather than GNU's bare `GPLv3`/`+`-suffix convention, every line ≤ 80
+/// columns (hence `gnu.org` rather than `www.gnu.org`), no trailing period on
+/// the three metadata lines (`Copyright`/`License`/`Source`, so a URL is
+/// never selected with a stray `.`), and the two warranty sentences verbatim
+/// from GNU's own convention. The `Source:` URL comes from
+/// `CARGO_PKG_REPOSITORY` (Cargo metadata) so it cannot drift from
+/// `Cargo.toml`'s `repository` field.
+const LONG_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    "\nCopyright (C) 2026 the imgdedup authors\n",
+    "License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>\n",
+    "This is free software: you are free to change and redistribute it.\n",
+    "There is NO WARRANTY, to the extent permitted by law.\n",
+    "Source: ",
+    env!("CARGO_PKG_REPOSITORY"),
+);
+
 /// Find and remove duplicate images.
 ///
 /// By default runs as a dry run: prints each duplicate group with its keeper
 /// and the files that would be removed. Nothing on disk changes unless
 /// `--apply` is passed.
 #[derive(Debug, Parser)]
-#[command(name = "imgdedup", version, about, long_about = None)]
+#[command(name = "imgdedup", version, long_version = LONG_VERSION, about, long_about = None)]
 pub struct Cli {
     /// One or more paths to scan for duplicate images.
     #[arg(required = true, value_name = "PATH")]
@@ -354,5 +383,85 @@ mod tests {
     fn unknown_flag_is_a_parse_error() {
         let err = try_parse(&["imgdedup", ".", "--unknown-flag"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    }
+
+    // ── --version / -V (ADR-0014 TASK-0219 amendment) ──────────────────────
+    //
+    // clap prepends the binary name itself when rendering `long_version` /
+    // `version`, verified by direct experiment (a scratch clap 4.6.3 crate)
+    // rather than assumed off the docs: `render_long_version()` and
+    // `render_version()` both come back already prefixed with `"imgdedup "`.
+    // The exact block below is pinned by literal string, not reconstructed
+    // from the constant under test, and the `Source:` line's repo URL is a
+    // literal here (not `env!("CARGO_PKG_REPOSITORY")`) precisely so a
+    // `Cargo.toml` `repository` field change is *caught* by this test rather
+    // than silently mirrored by it.
+
+    /// The exact 6-line GNU-style block, version interpolated.
+    fn expected_long_version_block() -> String {
+        format!(
+            "imgdedup {}\n\
+             Copyright (C) 2026 the imgdedup authors\n\
+             License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>\n\
+             This is free software: you are free to change and redistribute it.\n\
+             There is NO WARRANTY, to the extent permitted by law.\n\
+             Source: https://github.com/intruder1912/imgdedup\n",
+            env!("CARGO_PKG_VERSION")
+        )
+    }
+
+    #[test]
+    fn long_version_is_the_exact_gnu_style_block() {
+        use clap::CommandFactory;
+        let rendered = Cli::command().render_long_version();
+        assert_eq!(rendered, expected_long_version_block());
+    }
+
+    #[test]
+    fn long_version_is_ascii() {
+        use clap::CommandFactory;
+        let rendered = Cli::command().render_long_version();
+        assert!(
+            rendered.is_ascii(),
+            "the --version block must stay ASCII (renders on legacy Windows \
+             console code pages); got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn long_version_lines_are_at_most_80_columns() {
+        use clap::CommandFactory;
+        let rendered = Cli::command().render_long_version();
+        for line in rendered.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "line exceeds 80 columns ({} chars): {line:?}",
+                line.chars().count()
+            );
+        }
+    }
+
+    #[test]
+    fn long_version_first_line_matches_short_version() {
+        // Drift guard: the first line of the long block must be exactly what
+        // `-V` prints (minus its own trailing newline), so the two can never
+        // silently diverge on the version number itself.
+        use clap::CommandFactory;
+        let long = Cli::command().render_long_version();
+        let short = Cli::command().render_version();
+        let first_line = long.lines().next().unwrap();
+        assert_eq!(format!("{first_line}\n"), short);
+    }
+
+    #[test]
+    fn short_version_is_exactly_imgdedup_and_version() {
+        // Regression guard for an existing contract, not new behavior:
+        // scripts/build-release-artifact.sh asserts this exact one-liner.
+        use clap::CommandFactory;
+        let rendered = Cli::command().render_version();
+        assert_eq!(
+            rendered,
+            format!("imgdedup {}\n", env!("CARGO_PKG_VERSION"))
+        );
     }
 }
