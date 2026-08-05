@@ -16,6 +16,21 @@ on:
   # `workflow_run.event` is `workflow_dispatch`, not `push`, which
   # `release.yml`'s trigger condition requires — so the release job is skipped
   # (no runner, no billing) rather than merely failing later.
+  #
+  # Two further properties of this trigger, both handled below rather than left
+  # implicit:
+  #
+  #  1. A dispatched run's check runs land on the *branch head SHA*, i.e. the
+  #     same SHA an open PR from that branch is gated on. The `checks` and
+  #     `ci-gate` jobs therefore carry a ` (manual)` suffix on this event so a
+  #     manual run can neither satisfy nor block a required context (this
+  #     workflow's PR-title lint cannot run without a PR context).
+  #  2. `concurrency` is keyed on the ref, so dispatching this workflow *on
+  #     `main`* while a merge's own CI run is still in flight would cancel it,
+  #     and `release.yml` requires `conclusion == 'success'` — that merge would
+  #     publish nothing until the release workflow is dispatched manually. Run
+  #     this on the branch under test, which is what it is for; dispatching on
+  #     `main` reproduces nothing that the push run is not already running.
   workflow_dispatch:
 
 # Minimal default permissions; jobs widen only if needed.
@@ -60,7 +75,17 @@ jobs:
   # owner can still merge, but the swap belongs with this PR, not after it.
   # Same manual step TASK-0206 needed for its `linkcheck` rename.
   checks:
-    name: checks
+    # Suffixed on a manual run — see the `workflow_dispatch` trigger's note at
+    # the top of this file. A dispatched run reports its check runs against the
+    # branch head SHA, which is the same SHA an open PR from that branch is
+    # gated on, so an unsuffixed name would collide with the *required*
+    # `checks` context. That collision is unwanted in either direction GitHub
+    # might resolve it: this job's PR-title lint cannot run without a PR
+    # context (it is skipped), so a manual run must never be able to report the
+    # context that gate hides behind — nor to block a PR that is otherwise
+    # green. A suffixed name is inert to branch protection and reads clearly in
+    # the Actions UI.
+    name: checks${{ github.event_name == 'workflow_dispatch' && ' (manual)' || '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -313,7 +338,10 @@ jobs:
           IMGDEDUP_REQUIRE_TRASH_CHECK: ${{ runner.os != 'macOS' && '1' || '' }}
 
   ci-gate:
-    name: ci-gate
+    # Suffixed on a manual run for the same reason as `checks` above: this is
+    # the aggregating *required* context, and a dispatched run must not be able
+    # to report it for a PR head SHA.
+    name: ci-gate${{ github.event_name == 'workflow_dispatch' && ' (manual)' || '' }}
     needs: [checks, rust]
     if: always()
     runs-on: ubuntu-latest

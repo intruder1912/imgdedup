@@ -4,12 +4,29 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Weekly audit on `main`, added with TASK-0331(d) and load-bearing for it.
+  # Path-filtering cargo-deny (see the step below) makes the dependency audit
+  # *event*-driven, but the thing it checks for is *time*-driven: RUSTSEC
+  # publishes advisories against dependency sets nobody has touched, and before
+  # TASK-0331(d) any unrelated PR ran the audit and would have surfaced one
+  # within a day. Without this trigger a new advisory against an unchanged
+  # `Cargo.lock` would go unreported until something happened to edit a
+  # dependency file — which can be weeks — quietly weakening ADR-0005's
+  # "caught early and continuously" for a saving. One billed minute a week buys
+  # it back. Dependabot is not a substitute: it opens a PR only when a newer
+  # *version* exists, and an advisory need not come with one.
+  schedule:
+    - cron: "23 6 * * 1" # Mondays, 06:23 UTC
 
 permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.workflow }}-${{ github.ref }}
+  # Keyed on the event as well as the ref: the scheduled run above is the only
+  # audit that is not tied to a change, so a push to `main` landing inside its
+  # (~1 minute) window must not cancel it. Runs of the same kind for the same
+  # ref still supersede each other, which is what this is for.
+  group: security-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -105,8 +122,15 @@ jobs:
       # changed. If the filter step itself failed, its output is empty, and an
       # `== 'true'` test alone would silently drop an ADR-0005 gate on the run
       # least able to tell whether it was needed — so the audit runs.
+      #
+      # The `schedule` clause is not redundant with that. On a scheduled event
+      # dorny/paths-filter has no PR base and no `before` SHA to diff against,
+      # so it falls back to "changes in the last commit" — it *succeeds* and
+      # reports `deps: false` on essentially every scheduled run, which would
+      # turn the weekly audit into a weekly no-op. The whole point of that
+      # trigger is to run irrespective of what changed.
       - name: Audit dependencies (advisories, licenses, bans, sources)
-        if: ${{ !cancelled() && (steps.filter.outcome != 'success' || steps.filter.outputs.deps == 'true') }}
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || steps.filter.outcome != 'success' || steps.filter.outputs.deps == 'true') }}
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check

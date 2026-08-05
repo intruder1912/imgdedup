@@ -1118,23 +1118,31 @@ validation (TASK-0314), AI automation = skill + command + operator agent
   forever, on this PR and every later one. `enforce_admins` is `false`, so the
   owner can still merge through it, but the swap belongs at merge time.
   Verified live via the API on 2026-08-05, the current list is `secret-scan`,
-  `ci-gate`, `cargo-deny`, `checks` (`strict: true`). The replacement — three
-  names, since `security` absorbs both `secret-scan` and `cargo-deny`:
+  `ci-gate`, `cargo-deny`, `checks` (`strict: true`), each pinned to app
+  `15368` (GitHub Actions). The replacement — three names, since `security`
+  absorbs both `secret-scan` and `cargo-deny`:
 
   ```sh
   gh api -X PATCH \
     /repos/intruder1912/imgdedup/branches/main/protection/required_status_checks \
-    -F strict=true \
-    -f 'contexts[]=checks' \
-    -f 'contexts[]=ci-gate' \
-    -f 'contexts[]=security'
+    --input - <<< '{"strict":true,"checks":[{"context":"checks","app_id":15368},{"context":"ci-gate","app_id":15368},{"context":"security","app_id":15368}]}'
   ```
+
+  This uses the `checks` form rather than the older `contexts[]` one the
+  TASK-0330 entry below used, on purpose: per the REST docs, `contexts` is
+  deprecated and binds each name to "the app that recently set it", which for
+  the brand-new `security` context is _no app_ — it would land unpinned, i.e.
+  reportable by any integration holding `checks: write`, which is precisely
+  the wrong property for the check that _is_ the ADR-0005 gate. Naming the app
+  id explicitly keeps all three pinned to GitHub Actions, matching what is live
+  today.
 
   Read back with `gh api
   /repos/intruder1912/imgdedup/branches/main/protection/required_status_checks
-  --jq '{strict, contexts}'` and resolve this entry once it confirms the new
-  list. Same shape as the manual renames TASK-0330 (`checks`) and TASK-0206
-  (`linkcheck`) each needed; the architect does not change repository settings.
+  --jq '{strict, checks}'` (`checks`, not `contexts` — only that view shows the
+  `app_id` pinning) and resolve this entry once it confirms the new list. Same
+  shape as the manual renames TASK-0330 (`checks`) and TASK-0206 (`linkcheck`)
+  each needed; the architect does not change repository settings.
   Note the macOS half of TASK-0331 needs **no** protection change: `rust`
   varies its matrix width by event, `ci-gate` remains the single aggregating
   required check, and none of the per-leg `rust (…)` contexts is required.
