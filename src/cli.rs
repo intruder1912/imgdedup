@@ -96,6 +96,18 @@ pub struct Cli {
     /// written to any stream, and stdout is unaffected either way (AC-23).
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_progress: bool,
+
+    // ── Diagnostics (ADR-0017, TASK-0338) ──────────────────────────────────
+    /// Print per-stage timing lines to stderr (diagnostic; not a product
+    /// capability, ADR-0017). Installs a minimal `tracing-subscriber` `fmt`
+    /// consumer over this run's internal instrumentation spans, one line per
+    /// pipeline stage at stage close. Implies `--no-progress`: a stage-close
+    /// line written while the live progress indicator is mid-redraw would
+    /// corrupt it, so timings and the progress indicator are mutually
+    /// exclusive and `--timings` always wins (no error, no second flag
+    /// needed). Off by default; never changes stdout.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub timings: bool,
 }
 
 impl Cli {
@@ -375,6 +387,20 @@ mod tests {
     fn no_progress_parses() {
         let cli = try_parse(&["imgdedup", ".", "--no-progress"]).unwrap();
         assert!(cli.no_progress);
+    }
+
+    // ── --timings (ADR-0017, TASK-0338) ───────────────────────────────────
+
+    #[test]
+    fn timings_defaults_false() {
+        let cli = try_parse(&["imgdedup", "."]).unwrap();
+        assert!(!cli.timings);
+    }
+
+    #[test]
+    fn timings_parses() {
+        let cli = try_parse(&["imgdedup", ".", "--timings"]).unwrap();
+        assert!(cli.timings);
     }
 
     // ── Unknown flag ──────────────────────────────────────────────────────
