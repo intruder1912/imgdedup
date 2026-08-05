@@ -11,6 +11,68 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 20 (TASK-0331, CI-minutes: macOS cadence + security-job fold),
+  2026-08-05 — continuing session 19's window (5h=39%, 7d=11% at start)._
+  Picks up the two structural levers TASK-0330 left on the table that are
+  engineering calls rather than policy calls: **(a)** the `rust` job's macOS
+  leg (390 of ~1790 billed min/4 days, 22% — the single largest line item,
+  driven entirely by GitHub's 10x macOS multiplier on a leg that already
+  finishes inside the one-minute floor) ran on every PR push; **(d)**
+  `secret-scan` and `cargo-deny` were separate jobs, each paying its own
+  floor for 14s/65s of real work. Two other TASK-0331 items — (b) release
+  cadence and (c) branch protection `strict: true` — are policy calls, not
+  engineering ones, and were **not** attempted here: split out as new
+  **TASK-0333** with their measured numbers carried forward. (e), `ci-gate`'s
+  own floor cost, is closed as structurally unavoidable.
+  **(a) required an owner call first, obtained before any code was written:**
+  asked directly how much per-PR macOS signal was worth keeping; ruling
+  (2026-08-05): **macOS moves to `push: main` only**, ubuntu/windows
+  unchanged on every PR (est. −250 to −300 billed min/4 days). Implemented by
+  varying the `rust` job's **matrix width** by event
+  (`fromJSON(github.event_name == 'pull_request' && … || …)`) rather than
+  splitting out a separate macOS job with a job-level `if:` — deliberately,
+  so `rust` stays exactly one job with one aggregated result and `ci-gate`'s
+  `needs.rust.result` check gains no new skip case to reason about (a
+  separate job would report `skipped` on every PR, the same `needs:`/`if:`
+  sharp edge TASK-0330's `checks` job already had to name). A
+  `workflow_dispatch` trigger was added as the pre-merge escape hatch for a
+  macOS-only failure, checked safe against `release.yml`'s `push`-only
+  trigger condition before being added.
+  **(d):** `secret-scan` + `cargo-deny` folded into one `security` job.
+  ADR-0005 constraints held explicitly: secret scanning stays unconditional,
+  never path-filtered (a secret can land in any file); cargo-deny is
+  path-filtered at the **step** level inside an always-running job, never a
+  job-level `if:`, so this required check always reports a real
+  success/failure rather than "skipped" on most PRs. Est. ~167 → ~85 billed
+  min/4 days.
+  **Independent architect review (one dispatch, converged on the branch):
+  three real defects found, all fixed, none visible from the YAML alone.**
+  (1) Path-filtering cargo-deny made the audit _event_-driven while RUSTSEC
+  advisories are _time_-driven: a new advisory against an untouched
+  `Cargo.lock` would have gone unreported until something happened to touch
+  a dependency file — silently weakening ADR-0005's "caught early and
+  continuously" for the CI-minutes saving. Fixed with a weekly `schedule:`
+  trigger and an explicit `github.event_name == 'schedule'` clause in the
+  cargo-deny condition (paths-filter has no diff base on a scheduled event
+  and would otherwise report `deps: false`, turning the weekly audit into a
+  no-op); concurrency keyed on event name too, so a `push: main` landing in
+  the schedule's ~1-minute window cannot cancel the one audit not tied to a
+  change. (2) A dispatched `workflow_dispatch` run's check runs land on the
+  branch head SHA — the same SHA an open PR from that branch is gated on —
+  so the unsuffixed `checks`/`ci-gate` names would have collided with the
+  required contexts (and the PR-title lint, which needs a PR context, can't
+  run on a dispatch at all). Fixed with a `(manual)` name suffix on that
+  event, making dispatched runs inert to branch protection. (3) The
+  branch-protection rename command drafted for the owner used the REST API's
+  deprecated `contexts[]` form, which binds each name to "the app that
+  recently set it" — for the brand-new `security` context, no app, so it
+  would have landed **unpinned** and reportable by any integration holding
+  `checks: write`, the wrong property for the check that is the ADR-0005
+  gate itself. Fixed with the app-pinned `checks` form, explicit
+  `app_id: 15368` (GitHub Actions) on all three replacement contexts.
+  **Requires the same manual owner step as TASK-0330/TASK-0206** before/at
+  merge — exact command in "Blockers / waiting on owner" below. This PR.
+
 - _Session 19 (TASK-0328, animate scanning's determinate sniff sub-phase),
   2026-08-05 — fresh window (5h=0%, 7d=7% at start)._ Closes the residual
   TASK-0317 (session 11b) left open: TASK-0317 animated only the tree-walk
