@@ -23,7 +23,10 @@
 #            validated as SemVer here.
 #   archive  tar.gz or zip.
 #   out-dir  Directory the .{tar.gz,zip} and its .sha256 are written into;
-#            created if missing.
+#            created if missing. Also gets a .artifact-filename manifest file
+#            containing exactly the archive's own filename (no directory, no
+#            trailing newline captured by callers via $(cat ...)), so a
+#            caller that needs the exact name never has to reconstruct it.
 
 set -euo pipefail
 
@@ -52,6 +55,13 @@ esac
 # wrong directory.
 mkdir -p "$out_dir"
 out_dir="$(cd "$out_dir" && pwd)"
+
+# Forced, not inherited: a caller's ambient CARGO_TARGET_DIR/RUSTFLAGS/etc.
+# (plausible when scripts/release-preflight.sh runs the macOS leg natively in
+# a developer's own shell — release.yml's runners never set these, so this is
+# a no-op there) would otherwise change what gets built, or move the binary
+# release.yml (and $bin below) expects to find at target/release/.
+export CARGO_TARGET_DIR=target
 
 # Guards against a mismatched toolchain/runner silently producing a binary
 # whose filename claims an architecture it doesn't contain — the same check
@@ -83,6 +93,10 @@ case "$target" in
 *windows*) bin_suffix=".exe" ;;
 esac
 bin="target/release/imgdedup${bin_suffix}"
+if [ ! -x "$bin" ]; then
+  echo "::error::expected binary not found at $bin after 'cargo build --release'" >&2
+  exit 1
+fi
 
 got="$("$bin" --version)"
 want="imgdedup $version"
@@ -92,7 +106,12 @@ if [ "$got" != "$want" ]; then
 fi
 
 stem="imgdedup-${tag}-${target}"
-stage="$(mktemp -d)"
+# Staged inside out-dir itself, not a system tmp dir: keeps the final `mv`
+# below on one filesystem (a cross-volume mktemp-to-out-dir move is a real
+# risk on the Windows leg, where out-dir is $RUNNER_TEMP on a different drive
+# than a Git-Bash /tmp) and matches the pre-extraction behavior, which staged
+# directly in $RUNNER_TEMP.
+stage="$out_dir/.stage-$$"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/$stem"
 cp "$bin" "$stage/$stem/"
@@ -116,5 +135,11 @@ cp LICENSE README.md "$stage/$stem/"
 
   mv "$file" "$file.sha256" "$out_dir/"
 )
+
+# Written, not reconstructed: a caller that needs the exact filename (e.g.
+# release.yml's `gh release upload`) should read this rather than rebuild
+# "imgdedup-$tag-$target.$archive" itself — this is the one value a second
+# hand-written copy of could someday drift from what was actually produced.
+echo "$stem.$archive" >"$out_dir/.artifact-filename"
 
 echo "built: $out_dir/$stem.$archive (+ .sha256)"

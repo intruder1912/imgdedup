@@ -182,15 +182,19 @@ tag.
 
 ### Local pre-flight rehearsal
 
-Before dispatching a real release, `scripts/release-preflight.sh` rehearses the
-build/package/verify mechanics on this machine, without creating a tag,
-touching `main`, or uploading anything:
+Before dispatching a real release, `scripts/release-preflight.sh` (or `make
+release-preflight`) rehearses the build/package/verify mechanics on this
+machine, without creating a tag, touching `main`, or uploading anything:
 
 ```sh
-scripts/release-preflight.sh              # rehearse HEAD with a placeholder version
-scripts/release-preflight.sh --ref v0.5.1 --version 0.5.1   # rehearse a specific ref/version
+make release-preflight                    # or: scripts/release-preflight.sh
+scripts/release-preflight.sh --ref v0.5.1 --version 0.5.1 --tag v0.5.1  # rehearse a specific released ref
 scripts/release-preflight.sh --keep       # keep the worktree on exit, for inspecting a failure
 ```
+
+`--ref` builds from that ref's **committed** state — uncommitted working-tree
+changes are never rehearsed, matching what a real release actually publishes
+(`release.yml` checks out a tag, never a working tree).
 
 It builds two of the four legs — a glibc Linux target inside a rootless
 [podman](https://podman.io/) container, and `aarch64-apple-darwin` natively

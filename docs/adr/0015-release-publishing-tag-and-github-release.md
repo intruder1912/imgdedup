@@ -577,7 +577,12 @@ actually built (`rustc -vV`'s own `host:` line, the same mechanism `build-
 release-artifact.sh`'s architecture guard already used) and says so plainly on
 stderr rather than silently mislabeling the rehearsal as the CI leg it isn't.
 The build/package/verify mechanics are still exercised for real either way —
-only the specific target triple is host-dependent.
+only the specific target triple is host-dependent. One honest note on the
+architecture guard itself: on the podman leg the container detects its own
+host and passes that value *as* the requested target, so `build-release-
+artifact.sh`'s host-vs-target check can never actually fire there — it stays
+live (and load-bearing) on the macOS leg and in `release.yml` itself, where
+target is fixed by the matrix rather than self-reported.
 
 **Consequences.** A release build can now be exercised on this machine before
 dispatching the real workflow, at zero cost to the credentialed path (the

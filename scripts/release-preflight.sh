@@ -45,16 +45,34 @@ set -euo pipefail
 
 ref="HEAD"
 version=""
+tag=""
 keep=0
+
+require_value() {
+  # $1: flag name (for the error message), $#: remaining args including the
+  # flag itself. Without this, `--ref` as the last argument fails on `set -u`
+  # with an opaque "$2: unbound variable" instead of naming the actual mistake.
+  if [ "$#" -lt 2 ]; then
+    echo "error: $1 requires a value" >&2
+    exit 2
+  fi
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
   --ref)
+    require_value "$@"
     ref="$2"
     shift 2
     ;;
   --version)
+    require_value "$@"
     version="$2"
+    shift 2
+    ;;
+  --tag)
+    require_value "$@"
+    tag="$2"
     shift 2
     ;;
   --keep)
@@ -63,16 +81,22 @@ while [ "$#" -gt 0 ]; do
     ;;
   -h | --help)
     cat <<'EOF'
-usage: scripts/release-preflight.sh [--ref <git-ref>] [--version <semver>] [--keep]
+usage: scripts/release-preflight.sh [--ref <git-ref>] [--version <semver>] [--tag <tag>] [--keep]
 
-Rehearses release.yml's assets job locally: x86_64-unknown-linux-gnu in a
-podman container, aarch64-apple-darwin natively (Apple Silicon macOS only).
-Builds in a disposable git worktree; never touches the real working tree,
-creates no tag, uploads nothing. See the file header for details.
+Rehearses release.yml's assets job locally: a glibc Linux target in a podman
+container (podman's own native platform — x86_64-unknown-linux-gnu only on an
+x86_64 host; see the file header re: qemu emulation) and aarch64-apple-darwin
+natively (Apple Silicon macOS only). Builds in a disposable git worktree from a
+committed ref; never touches the real working tree, creates no tag, uploads
+nothing. See the file header for details.
 
-  --ref <git-ref>      Ref to build from (default: HEAD).
+  --ref <git-ref>      Ref to build from (default: HEAD). Committed state only —
+                       uncommitted working-tree changes are not rehearsed.
   --version <semver>   Version to stamp/assert (default: a preflight placeholder).
-  --keep                Keep the worktree on exit instead of removing it.
+  --tag <tag>          Value used only in the archive's filename stem (default:
+                       preflight-<sha>). Pass a real vX.Y.Z-shaped tag to
+                       rehearse the exact filename a real release would produce.
+  --keep               Keep the worktree on exit instead of removing it.
 EOF
     exit 0
     ;;
@@ -86,16 +110,22 @@ done
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
-resolved_sha="$(git rev-parse "$ref")"
+# ^{commit}: today's v* tags are lightweight, so this is a no-op on them, but
+# a hand-created annotated tag resolves to a *tag object* SHA without it —
+# harmless here (only used for the worktree checkout and the placeholder
+# version/tag strings below), but worth being exact about.
+resolved_sha="$(git rev-parse "$ref^{commit}")"
 short_sha="${resolved_sha:0:12}"
 : "${version:=0.0.0-preflight+$short_sha}"
-tag="preflight-$short_sha"
+: "${tag:=preflight-$short_sha}"
 
 # Under target/, not a system tmp dir: podman's default macOS machine only
 # shares a fixed set of host paths (home directory tree, /tmp, /var/folders),
 # and this keeps the rehearsal inside a path already known to be shared and
-# already gitignored.
-worktree_dir="$repo_root/target/release-preflight-worktree"
+# already gitignored. Suffixed with $$ so two concurrent runs on this machine
+# don't `rm -rf` each other's worktree out from under themselves — only this
+# tool's own throwaway output is ever at risk, never a developer's real work.
+worktree_dir="$repo_root/target/release-preflight-worktree-$$"
 out_root="$repo_root/target/release-preflight"
 
 cleanup() {
@@ -105,22 +135,39 @@ cleanup() {
   fi
   git -C "$repo_root" worktree remove --force "$worktree_dir" >/dev/null 2>&1 || rm -rf "$worktree_dir"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
-git worktree remove --force "$worktree_dir" >/dev/null 2>&1 || true
-rm -rf "$worktree_dir"
+# Cleared, not appended to: a stale artifact from a previous --version/--tag
+# would otherwise sit alongside this run's and both get listed as "artifacts"
+# at the end, undermining the whole point of a tool built around not
+# mislabeling what it produced. Only ever this tool's own output directory.
+rm -rf "$out_root"
+
 git worktree add --detach "$worktree_dir" "$resolved_sha" >/dev/null
 
 echo "== rehearsing release build: ref=$ref ($resolved_sha) version=$version tag=$tag =="
 
 echo
 echo "-- glibc Linux (podman, native platform — see file header re: x86_64 emulation) --"
+# Build context is this repo's real working tree (the Containerfile itself
+# never varies by --ref), but everything it compiles comes from the mounted
+# worktree at --ref below — the two are deliberately different checkouts.
 podman build \
   --quiet \
   -t imgdedup-release-preflight \
   -f "$repo_root/scripts/release-preflight/Containerfile" \
   "$repo_root/scripts/release-preflight" >/dev/null
+# version/tag reach the container as environment variables, not interpolated
+# into the bash -c string: a --version or --tag containing a quote or a
+# command substitution would otherwise be evaluated by the inner shell
+# (verified: `1.0.0"; echo pwned; :"` broke out of the string entirely). Only
+# this tool's own local invocation is exposed either way — nothing here
+# reaches release.yml or any credentialed context — but this is exactly the
+# unquoted-interpolation shape the rest of this repo's workflows avoid on
+# purpose, so the fix applies here too.
 podman run --rm \
+  -e PREFLIGHT_VERSION="$version" \
+  -e PREFLIGHT_TAG="$tag" \
   -v "$worktree_dir:/work" \
   -w /work \
   imgdedup-release-preflight \
@@ -133,7 +180,7 @@ podman run --rm \
       echo "note: this container native-built $linux_target, not release.yml'\''s x86_64-unknown-linux-gnu leg — the mechanics (stamp/build/verify/package) are still exercised for real, but this is not that specific leg. See this script'\''s header." >&2
     fi
     scripts/build-release-artifact.sh \
-      "$linux_target" "'"$version"'" "'"$tag"'" tar.gz "/work/out-linux"
+      "$linux_target" "$PREFLIGHT_VERSION" "$PREFLIGHT_TAG" tar.gz "/work/out-linux"
   '
 linux_target="$(cat "$worktree_dir/out-linux-target")"
 mkdir -p "$out_root/$linux_target"

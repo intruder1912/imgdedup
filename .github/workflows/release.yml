@@ -412,7 +412,9 @@ jobs:
             "${{ matrix.archive }}" \
             "$RUNNER_TEMP"
           echo "dir=$RUNNER_TEMP" >> "$GITHUB_OUTPUT"
-          echo "file=imgdedup-${{ needs.release.outputs.tag }}-${{ matrix.target }}.${{ matrix.archive }}" >> "$GITHUB_OUTPUT"
+          # Read back, not reconstructed: the script itself is the one place
+          # that knows the archive's real filename.
+          echo "file=$(cat "$RUNNER_TEMP/.artifact-filename")" >> "$GITHUB_OUTPUT"
 
       - name: Upload the archive and checksum to the release
         env:
