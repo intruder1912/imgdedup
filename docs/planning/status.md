@@ -34,10 +34,12 @@ docs pass → AI automation, batched within Claude usage limits.
   URL, the two recognizable warranty sentences, and a `Source:` line), added
   via clap's `long_version` so that **`-V` keeps printing exactly
   `imgdedup <version>`**. That split is not cosmetic: the one-line form is
-  load-bearing — `scripts/build-release-artifact.sh` asserts version-stamp
-  correctness by _exact equality_ on it (the check that stops a mislabeled
-  binary from being published, ADR-0015) and the Claude plugin's preflight
-  shells out to the same command. clap 4's `version`/`long_version` split was
+  load-bearing for `scripts/build-release-artifact.sh`, which asserts
+  version-stamp correctness by _exact equality_ on it (the check that stops a
+  mislabeled binary from being published, ADR-0015). The only other in-repo
+  caller — the Claude plugin's preflight — runs `--version` and checks only
+  that it succeeds, so the block reaches it harmlessly and no plugin change is
+  needed. clap 4's `version`/`long_version` split was
   verified by direct experiment rather than read off the docs, including that
   clap prepends the binary name itself. Wording decided rather than left to
   taste: ASCII `(C)` not `©` (legacy Windows console code pages — the class of
@@ -86,7 +88,7 @@ docs pass → AI automation, batched within Claude usage limits.
   plus two `tests/cli_integration.rs` tests exercising the real binary via
   `assert_cmd` for both flags. `scripts/build-release-artifact.sh`'s
   exact-equality version-stamp assertion moved from `--version` to `-V`
-  (the one-line form the script and the Claude plugin's preflight depend on),
+  (the one-line form that assertion depends on),
   with a second check that `--version`'s first line matches the same stamped
   value — sliced from a captured variable via bash parameter expansion rather
   than piped through `head`, avoiding a `set -o pipefail` SIGPIPE footgun
@@ -101,8 +103,45 @@ docs pass → AI automation, batched within Claude usage limits.
   ADR amendment rather than restating its legal reasoning inline. Explicitly
   left out of both passes, per the ADR's own rejections: per-file SPDX
   headers, a `NOTICE` file, a §6(b) written offer, a `--license` flag, and any
-  build.rs/vergen commit stamp. Next: architect review of the branch diff vs
-  `main`, then PR. This PR.
+  build.rs/vergen commit stamp.
+  **Architect review of the branch diff vs `main` (2026-08-05), independent of
+  the instance that designed it — reproduced rather than read.** Verified:
+  `--version`/`-V` byte-for-byte against the running binary (stdout only,
+  stderr empty, exit 0, ASCII-only, longest line 79 columns), and stable under
+  a renamed executable (clap uses `#[command(name)]`, not `argv[0]`); the five
+  unit tests and two integration tests were **mutation-tested** — a year
+  change, a non-ASCII `©`, an over-80-column URL and a `Cargo.toml`
+  `repository` change each turned the intended test red and nothing else; the
+  new shell assertion block was harness-run against three fake binaries (good,
+  `-V`-skewed, `--version`-skewed) and the `${var%%$'\n'*}` slice re-verified
+  under **bash 3.2** as well as 5.x, since `#!/usr/bin/env bash` can resolve to
+  3.2 on a macOS runner; `shellcheck` clean; `make validate` green. Removing
+  the `head` pipe _eliminates_ the `pipefail` exposure rather than moving it —
+  the new code has no pipeline at all. `make release-preflight` was judged
+  unnecessary: the changed lines are two assertions, exercised directly by the
+  harness above, and the rest of the script is untouched. Four findings, all
+  fixed in place by the reviewer, none in product code: (a) the ADR/backlog/
+  status all claimed the Claude plugin's preflight depends on the one-line
+  form — it actually runs `--version` and parses nothing, so the rationale was
+  resting on a wrong fact (the `-V` rationale stands on
+  `build-release-artifact.sh` alone); (b) ruling 3's load-bearing "GitHub
+  attaches a source archive" claim was asserted, not checked — now verified
+  over the API (15/15 releases carry `tarball_url`/`zipball_url`; the `v0.5.1`
+  tarball inspected, 150 entries, complete tree; `.gitattributes` carries no
+  `export-ignore`, the one setting that could silently falsify it) and
+  recorded; (c) ruling 3 didn't mention that the tag's `Cargo.toml` holds the
+  `0.1.0` placeholder while the released binary is stamped — noted, with why
+  §6(d) still holds (§1's "scripts to control compilation" are in the archive);
+  (d) ruling 4's `%an`/`%ae` evidence doesn't see the 78 `Co-authored-by:
+  Claude` trailers — the only thing in this history that reads like
+  co-authorship — so why they create no second copyright holder is now
+  recorded. Plus one stale usage line in `scripts/release-preflight.sh`
+  (`--version` → `-V`). Deliberately **not** touched: the
+  "`--version` assertion" phrase in `release.yml`'s comment (still true, and
+  not worth extending this unit's diff into the repo's only `contents: write`
+  workflow for a comment). No blocking findings; the single architect dispatch
+  is the right depth here — nothing in the unit holds a write permission or a
+  secret. Next: PR. This PR.
 
 - _Session 24 (TASK-0332, scanning's walk liveness cue), 2026-08-05 —
   continuing session 23's window (5h=49% at start; owner explicitly

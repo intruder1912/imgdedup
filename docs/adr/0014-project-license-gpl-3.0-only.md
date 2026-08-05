@@ -285,12 +285,17 @@ surface to carry a string that belongs on the surface everybody already tries.
 
 **Why the split rather than the same block on both.** GNU tools print the same
 text for both only because they have no short version flag at all. Here, the
-one-line form is load-bearing: `scripts/build-release-artifact.sh` asserts the
-built binary's version output equals `imgdedup <version>` *exactly* — the
-check that catches a version-stamping failure before a mislabeled binary is
-published (ADR-0015) — and the Claude plugin's preflight
-(`claude-plugin/skills/using-imgdedup/SKILL.md`) shells out to the same
-command. Keeping a stable machine-readable one-liner **and** a
+one-line form is load-bearing for exactly one consumer:
+`scripts/build-release-artifact.sh` asserts the built binary's version output
+equals `imgdedup <version>` *exactly* — the check that catches a
+version-stamping failure before a mislabeled binary is published (ADR-0015).
+That assertion moves to `-V`. The only other in-repo caller, the Claude
+plugin's preflight (`claude-plugin/skills/using-imgdedup/SKILL.md` and
+`claude-plugin/agents/imgdedup-operator.md`), runs `imgdedup --version` and
+checks only that it *succeeds* — checked, not assumed: it parses nothing, so
+the long block reaches it harmlessly (it now reads six lines of context
+instead of one, which is if anything an improvement, and no plugin change is
+needed). Keeping a stable machine-readable one-liner **and** a
 human-conventional long form costs one constant.
 
 **Wording, decided rather than left to taste:**
@@ -355,6 +360,33 @@ access to the Corresponding Source from the same place. §6(d)'s one
 human-supplied requirement is the rest of that sentence: *"maintain clear
 directions next to the object code saying where to find the Corresponding
 Source."*
+
+**The archive half of that claim is verified, not assumed** (2026-08-05, over
+the API — the repository is private, so anonymous reachability is the one part
+that can only be confirmed after the flip and stays on TASK-0336):
+
+- every one of the 15 published releases (`v0.1.0`…`v0.5.1`) carries a
+  populated `tarball_url`/`zipball_url` alongside its eight binary assets, so
+  the source archive really is offered from the same page as the object code;
+- the `v0.5.1` tarball was downloaded and inspected: 150 entries, the complete
+  tag tree including `src/`, `Cargo.toml`, `Cargo.lock`, `LICENSE`,
+  `scripts/` and `.github/workflows/`;
+- `.gitattributes` carries **no `export-ignore`** — the one repository-side
+  setting that could silently strip files out of GitHub's generated archive
+  and quietly falsify this ruling. Adding one is therefore a licensing change,
+  not a formatting change.
+
+**The stamping wrinkle, stated so nobody has to rediscover it.** The tag's
+`Cargo.toml` says `version = "0.1.0"` (the permanent development placeholder —
+ADR-0015 never commits a bump back), while the binary published for that tag
+reports the real version, stamped at build time. A plain `cargo build` from
+the source archive therefore yields a binary that prints a different version
+string. This does **not** weaken §6(d): §1 defines Corresponding Source as the
+source *plus the scripts to control compilation*, and those scripts —
+`scripts/build-release-artifact.sh` and `.github/workflows/release.yml`, which
+perform the stamp from the release version — are inside the archive too. The
+recipient receives everything needed to regenerate the object code, including
+the step that makes it call itself `0.5.1`.
 
 **Ruling: those directions ship now, in the two places that travel with the
 object code** — not deferred to the flip:
@@ -434,6 +466,16 @@ identities, of which two are the owner under the same GitHub no-reply address
 version bumps carrying no copyrightable authorship of this project's code.
 **There has never been an outside contribution.** Every argument in the
 decision above therefore applies verbatim; nothing is re-litigated here.
+
+**The one thing `%an`/`%ae` does not see, checked separately:** 78 commits
+carry `Co-authored-by: Claude <model> <noreply@anthropic.com>` trailers (plus
+8 naming dependabot). These are a GitHub *attribution* convention, not a
+copyright grant, and they do not add a second copyright holder: the machine is
+not an author for copyright purposes, and Anthropic's commercial terms assign
+whatever rights it may hold in an output to the user who prompted it. The
+trailers are the only thing in this history that superficially reads as
+co-authorship, so the fact that they are *not* is recorded here rather than
+left for a future reader to re-derive.
 
 - **No CLA.** It requires infrastructure, asks contributors for rights beyond
   inbound=outbound, and deters exactly the drive-by contributions a small CLI
