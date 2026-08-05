@@ -213,21 +213,26 @@ fn run(args: cli::Cli) -> i32 {
         // below never prints, and without this the user would have no record of
         // what was destroyed.
         let verb = mode.past_tense();
-        let outcome = apply::apply(&dedup.groups, remover.as_ref(), &mut |event| match event {
-            apply::Event::Removed(path) => {
-                eprintln!(
-                    "{verb}: {}",
-                    safe_text::escape_control_chars(&path.display().to_string())
-                )
-            }
-            apply::Event::Skipped(path, reason) => {
-                eprintln!(
-                    "warning: {}: {}",
-                    safe_text::escape_control_chars(&path.display().to_string()),
-                    safe_text::escape_control_chars(&reason.to_string())
-                )
-            }
-        });
+        let outcome = apply::apply(
+            &dedup.groups,
+            mode,
+            remover.as_ref(),
+            &mut |event| match event {
+                apply::Event::Removed(path) => {
+                    eprintln!(
+                        "{verb}: {}",
+                        safe_text::escape_control_chars(&path.display().to_string())
+                    )
+                }
+                apply::Event::Skipped(path, reason) => {
+                    eprintln!(
+                        "warning: {}: {}",
+                        safe_text::escape_control_chars(&path.display().to_string()),
+                        safe_text::escape_control_chars(&reason.to_string())
+                    )
+                }
+            },
+        );
         (mode, outcome)
     } else {
         (apply::ActionMode::DryRun, apply::ApplyOutcome::default())

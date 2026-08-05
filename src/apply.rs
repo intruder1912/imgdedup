@@ -331,11 +331,33 @@ pub enum Event<'a> {
 /// The keeper is never passed to the remover, so a group can never be emptied
 /// (NFR-1). Groups are walked in the canonical order the engine produced, so an
 /// apply visits files in the same order the dry run reported them.
+///
+/// `mode` is only used to record the `apply` tracing span's `mode` field
+/// (ADR-0017, TASK-0338) — it never changes behavior here; the actual
+/// mechanism is entirely determined by `remover`. Callers always pass the
+/// same `mode`/`remover` pair they already compute together (never
+/// [`ActionMode::DryRun`], which never reaches this function at all).
 pub fn apply(
     groups: &[DuplicateGroup],
+    mode: ActionMode,
     remover: &dyn Remover,
     on_event: &mut dyn FnMut(Event<'_>),
 ) -> ApplyOutcome {
+    // ADR-0017 (TASK-0338): this stage's own span. `mode` and `groups` are
+    // known up front; `removed`/`skipped` are only known once every group
+    // has been walked, so they are `Empty` and recorded just before
+    // returning. `mode` is a fixed, small enum string (never a path), and
+    // `mode.as_str()` is recorded via ordinary string `Value`, not `%`
+    // (Display) formatting of anything user-controlled (ADR-0017 §6).
+    let apply_span = tracing::info_span!(
+        "apply",
+        mode = mode.as_str(),
+        groups = groups.len(),
+        removed = tracing::field::Empty,
+        skipped = tracing::field::Empty,
+    );
+    let _apply_guard = apply_span.enter();
+
     let mut outcome = ApplyOutcome::default();
 
     for group in groups {
@@ -384,6 +406,9 @@ pub fn apply(
             }
         }
     }
+
+    apply_span.record("removed", outcome.removed.len());
+    apply_span.record("skipped", outcome.skipped.len());
 
     outcome
 }
@@ -465,7 +490,12 @@ mod tests {
         let dup2 = write(&dir, "dup2.jpg", b"DUPE");
 
         let mock = MockRemover::new();
-        let out = apply(&[group(&keeper, &[&dup1, &dup2])], &mock, &mut |_| {});
+        let out = apply(
+            &[group(&keeper, &[&dup1, &dup2])],
+            ActionMode::Trash,
+            &mock,
+            &mut |_| {},
+        );
 
         assert_eq!(out.removed, vec![dup1.clone(), dup2.clone()]);
         assert!(
@@ -491,7 +521,7 @@ mod tests {
         fs::remove_file(&dup).unwrap();
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock, &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &mock, &mut |_| {});
 
         assert!(out.removed.is_empty());
         assert_eq!(out.skipped.len(), 1);
@@ -510,7 +540,7 @@ mod tests {
         write(&dir, "dup.jpg", b"CHANGED!");
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock, &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &mock, &mut |_| {});
 
         assert!(out.removed.is_empty());
         assert_eq!(out.skipped[0].reason, SkipReason::ContentChanged);
@@ -529,7 +559,7 @@ mod tests {
         fs::remove_file(&keeper).unwrap();
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock, &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &mock, &mut |_| {});
 
         assert_eq!(out.skipped[0].reason, SkipReason::KeeperUnusable);
         assert!(dup.exists(), "the last copy must survive");
@@ -549,6 +579,7 @@ mod tests {
         let mock = MockRemover::failing_on(vec![stubborn.clone()]);
         let out = apply(
             &[group(&keeper, &[&stubborn, &ordinary])],
+            ActionMode::Trash,
             &mock,
             &mut |_| {},
         );
@@ -575,11 +606,11 @@ mod tests {
         let dup = write(&dir, "dup.jpg", b"DUPE");
         let groups = vec![group(&keeper, &[&dup])];
 
-        let first = apply(&groups, &MockRemover::new(), &mut |_| {});
+        let first = apply(&groups, ActionMode::Trash, &MockRemover::new(), &mut |_| {});
         assert_eq!(first.removed.len(), 1);
 
         let mock = MockRemover::new();
-        let second = apply(&groups, &mock, &mut |_| {});
+        let second = apply(&groups, ActionMode::Trash, &mock, &mut |_| {});
 
         assert!(second.removed.is_empty(), "nothing left to remove");
         assert_eq!(second.skipped[0].reason, SkipReason::Vanished);
@@ -593,7 +624,12 @@ mod tests {
         let keeper = write(&dir, "keep.jpg", b"ALONE");
 
         let mock = MockRemover::new();
-        let out = apply(&[group(&keeper, &[])], &mock, &mut |_| {});
+        let out = apply(
+            &[group(&keeper, &[])],
+            ActionMode::Trash,
+            &mock,
+            &mut |_| {},
+        );
 
         assert_eq!(out, ApplyOutcome::default());
         assert!(mock.calls().is_empty());
@@ -613,7 +649,7 @@ mod tests {
         write(&dir, "changed.jpg", b"NOT THE SAME");
         fs::remove_file(&gone).unwrap();
 
-        let out = apply(&[g], &MockRemover::new(), &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &MockRemover::new(), &mut |_| {});
 
         assert_eq!(out.removed.len() + out.skipped.len(), 3);
         assert_eq!(out.removed, vec![ok]);
@@ -648,7 +684,7 @@ mod tests {
         let g = group(&keeper, &[&changed, &ok]);
         write(&dir, "changed.jpg", b"TAMPERED");
 
-        let out = apply(&[g], &DeleteRemover, &mut |_| {});
+        let out = apply(&[g], ActionMode::Delete, &DeleteRemover, &mut |_| {});
 
         assert_eq!(out.removed, vec![ok.clone()], "the valid duplicate goes");
         assert!(!ok.exists(), "and it is really gone");
@@ -676,7 +712,7 @@ mod tests {
         symlink(&keeper, &dup).expect("symlink creatable");
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock, &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &mock, &mut |_| {});
 
         assert_eq!(
             out.skipped[0].reason,
@@ -700,7 +736,7 @@ mod tests {
         g.removable.push(rec(&keeper));
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock, &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &mock, &mut |_| {});
 
         assert_eq!(out.removed, vec![dup], "the genuine duplicate still goes");
         assert_eq!(
@@ -728,10 +764,15 @@ mod tests {
         fs::remove_file(&gone).unwrap();
 
         let mut seen: Vec<String> = Vec::new();
-        let out = apply(&[g], &MockRemover::new(), &mut |event| match event {
-            Event::Removed(p) => seen.push(format!("removed {}", p.display())),
-            Event::Skipped(p, r) => seen.push(format!("skipped {} ({r})", p.display())),
-        });
+        let out = apply(
+            &[g],
+            ActionMode::Trash,
+            &MockRemover::new(),
+            &mut |event| match event {
+                Event::Removed(p) => seen.push(format!("removed {}", p.display())),
+                Event::Skipped(p, r) => seen.push(format!("skipped {} ({r})", p.display())),
+            },
+        );
 
         assert_eq!(seen.len(), 2, "one event per candidate; got {seen:?}");
         assert!(seen[0].starts_with("skipped"), "in iteration order");
@@ -754,10 +795,41 @@ mod tests {
         fs::hard_link(&keeper, &dup).expect("hard link creatable");
 
         let mock = MockRemover::new();
-        let out = apply(&[g], &mock, &mut |_| {});
+        let out = apply(&[g], ActionMode::Trash, &mock, &mut |_| {});
 
         assert_eq!(out.skipped[0].reason, SkipReason::SameFileAsKeeper);
         assert!(mock.calls().is_empty());
         assert!(dup.exists() && keeper.exists());
+    }
+
+    // ── ADR-0017 / TASK-0338: `apply` span ────────────────────────────────
+
+    #[test]
+    fn apply_emits_an_apply_span_with_expected_fields() {
+        use crate::trace_test_support::capture;
+
+        let dir = tempfile::tempdir().unwrap();
+        let keeper = write(&dir, "keep.jpg", b"DUPE");
+        let dup1 = write(&dir, "dup1.jpg", b"DUPE");
+        let dup2 = write(&dir, "dup2.jpg", b"DUPE");
+
+        let mock = MockRemover::new();
+        let out = capture(|| {
+            let _ = apply(
+                &[group(&keeper, &[&dup1, &dup2])],
+                ActionMode::Trash,
+                &mock,
+                &mut |_| {},
+            );
+        });
+
+        assert!(
+            out.contains("apply"),
+            "expected an `apply` span; got:\n{out}"
+        );
+        assert!(out.contains("mode=\"trash\""), "got:\n{out}");
+        assert!(out.contains("groups=1"), "got:\n{out}");
+        assert!(out.contains("removed=2"), "got:\n{out}");
+        assert!(out.contains("skipped=0"), "got:\n{out}");
     }
 }
