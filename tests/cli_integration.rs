@@ -1323,4 +1323,78 @@ fn timings_alone_behaves_like_timings_plus_no_progress() {
         timings_alone.stdout, timings_and_no_progress.stdout,
         "stdout must be identical"
     );
+    // Both invocations must equally have suppressed progress — asserting only
+    // on stdout would pass even if `--timings` alone had left the live
+    // indicator running (architect review, TASK-0338).
+    for out in [&timings_alone, &timings_and_no_progress] {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        for marker in PROGRESS_MARKERS.iter().copied().chain(["\r"]) {
+            assert!(
+                !stderr.contains(marker),
+                "both invocations must suppress progress; found {marker:?} \
+                 in:\n{stderr}"
+            );
+        }
+    }
+}
+
+/// Every stage's close line must be written **at that stage's end**, in
+/// pipeline order (ADR-0017 §3, "one line per stage, at stage end").
+///
+/// This is a real regression guard, not a restatement of the test above
+/// (architect review, TASK-0338): `FmtSpan::CLOSE` fires when the last `Span`
+/// *handle* drops, not when its guard exits, so holding a stage's span in a
+/// function-scope local — while still entering and exiting it around the
+/// stage — silently defers its line to the end of the enclosing function. In
+/// the reviewed implementation that printed the engine's four sub-stage lines
+/// in reverse order at the end of `dedup_core_with_sink`
+/// (`sort_canonical` → `verify` → `hash` → `group_by_size`), all sharing one
+/// end-of-engine timestamp and reporting a meaningless `time.idle`
+/// (`group_by_size ... time.busy=73.6µs time.idle=589ms` on a 4 000-file
+/// run), against ADR-0017's stated reading contract that `time.idle ≈ 0`.
+/// Ordering is the cheapest end-to-end proof that each handle's lifetime
+/// really equals its stage's.
+#[test]
+fn timings_stage_close_lines_are_written_in_pipeline_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd()
+        .arg(dir.path())
+        .arg("--timings")
+        .output()
+        .expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // Each line looks like
+    // `<ts>  INFO run{..}:dedup{..}:hash{..}: close time.busy=.. time.idle=..`
+    // — the innermost span name is the last `name{` before `}: close`.
+    let names: Vec<&str> = stderr
+        .lines()
+        .filter_map(|line| {
+            let head = line.split("}: close").next()?;
+            let innermost = head.rsplit(':').next()?;
+            let before_fields = innermost.split('{').next()?;
+            before_fields.split_whitespace().next_back()
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        vec![
+            "enumerate",
+            "sniff",
+            "group_by_size",
+            "hash",
+            "verify",
+            "sort_canonical",
+            "dedup",
+            "render",
+            "run",
+        ],
+        "stage close lines must appear in pipeline order, each at its own \
+         stage's end (innermost first, parents after their children); got \
+         stderr:\n{stderr}"
+    );
 }

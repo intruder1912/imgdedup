@@ -32,13 +32,29 @@
 //! in the spans themselves.
 //!
 //! Installing **one** subscriber globally, once, for the whole test binary's
-//! lifetime (via [`std::sync::Once`]) removes the race at its root: there is
-//! never a window where some other thread's ambient dispatcher is "no
-//! subscriber", so every callsite's first registration — no matter which
-//! thread reaches it first — sees the same subscriber and gets cached
-//! `Interest::always()` (our subscriber accepts every `INFO`-level span,
-//! matching `--timings`'s real config) from then on, for the rest of the
-//! process. Per-test isolation is recovered by keying the (shared, global)
+//! lifetime (via [`std::sync::Once`]) removes the race at its root, in two
+//! steps (verified against `tracing-core`'s source during the architect
+//! review, because "it ran clean N times" is not an argument):
+//!
+//! 1. *Callsites already registered before the install are repaired.*
+//!    `set_global_default` builds a `Dispatch`, and `Dispatch::new` calls
+//!    `callsite::register_dispatch`, which **rebuilds the interest cache for
+//!    every callsite registered so far** with the new subscriber in the
+//!    dispatcher set. Anything another thread had already cached as
+//!    `Interest::never()` therefore flips back to `always`.
+//! 2. *Callsites registered after the install can never go wrong.* A
+//!    first-time registration computes its interest from
+//!    `dispatcher::get_default()` on the registering thread; once a global
+//!    default exists, that is our subscriber on **every** thread, so the
+//!    cached value is `Interest::always()` (our subscriber accepts every
+//!    `INFO`-level span, matching `--timings`'s real config) no matter who
+//!    gets there first.
+//!
+//! The only window left is the sub-microsecond one *inside* the very first
+//! `capture` call, between that interest-cache rebuild and the global
+//! default becoming visible. It is accepted deliberately: a callsite losing
+//! that race makes a `capture`-based test **fail loudly** (its expected span
+//! line is simply absent), never pass for the wrong reason. Per-test isolation is recovered by keying the (shared, global)
 //! output buffer by [`std::thread::current().id()`], since `cargo test`
 //! never interleaves two test functions on the same OS thread — combined
 //! with clearing any stale content left by a *previous* test that happened

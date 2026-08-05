@@ -416,13 +416,27 @@ where
     // size pre-grouping stage. All three fields are known only once the
     // cohorts are built, so they are declared `Empty` and recorded at the
     // end of this block.
-    let group_by_size_span = tracing::info_span!(
-        "group_by_size",
-        files = tracing::field::Empty,
-        cohorts = tracing::field::Empty,
-        size_singletons = tracing::field::Empty,
-    );
+    //
+    // **The span value itself — not just its guard — is created inside this
+    // block, deliberately** (architect review, TASK-0338). `FmtSpan::CLOSE`
+    // fires when the span *closes*, i.e. when the last `Span` handle is
+    // dropped, not when the guard exits. A span declared at function scope
+    // therefore prints its line at the end of `dedup_core_with_sink`, not at
+    // the end of its own stage: measured, that put the stage lines on stderr
+    // in reverse order (`sort_canonical` before `verify` before `hash`), gave
+    // them all the same end-of-engine timestamp, and reported a nonsense
+    // `time.idle` (`group_by_size ... time.busy=73.6µs time.idle=589ms` on a
+    // 4 000-file run) against ADR-0017's stated reading contract that
+    // `time.idle ≈ 0`. Keeping the handle's lifetime equal to the stage's
+    // restores "one line per stage, at stage end" (ADR-0017 §3) — which is
+    // also what makes a long run readable while it is still going.
     let cohorts = {
+        let group_by_size_span = tracing::info_span!(
+            "group_by_size",
+            files = tracing::field::Empty,
+            cohorts = tracing::field::Empty,
+            size_singletons = tracing::field::Empty,
+        );
         let _group_by_size_guard = group_by_size_span.enter();
         let total_files = files.len();
         let cohorts = if size_prefilter {
@@ -453,14 +467,16 @@ where
     // unlike `progress::Phase::Hashing`, which is skipped entirely in that
     // case. This span wraps the whole loop over every cohort's rayon
     // parallel section, never a per-file or per-cohort span (no span is ever
-    // created inside a rayon closure).
-    let hash_span = tracing::info_span!(
-        "hash",
-        files_hashed = tracing::field::Empty,
-        bytes_hashed = tracing::field::Empty,
-        errors = tracing::field::Empty,
-    );
+    // created inside a rayon closure). Span *and* guard are block-scoped so
+    // the close line lands at the end of hashing — see the note on
+    // `group_by_size` above.
     {
+        let hash_span = tracing::info_span!(
+            "hash",
+            files_hashed = tracing::field::Empty,
+            bytes_hashed = tracing::field::Empty,
+            errors = tracing::field::Empty,
+        );
         let _hash_guard = hash_span.enter();
         let mut files_hashed: u64 = 0;
         let mut bytes_hashed: u64 = 0;
@@ -527,48 +543,54 @@ where
     // ADR-0017 (TASK-0338): `verify` is the other "zero-workload" span — it
     // fires even when nothing enters byte-verification, with `groups` and
     // `files_verified` at zero, so a reader can tell "this stage cost
-    // nothing" apart from "this stage was never instrumented".
-    let verify_span = tracing::info_span!(
-        "verify",
-        groups = tracing::field::Empty,
-        files_verified = tracing::field::Empty,
-    );
-    let _verify_guard = verify_span.enter();
+    // nothing" apart from "this stage was never instrumented". Span *and*
+    // guard are block-scoped so the close line lands at the end of
+    // verification — see the note on `group_by_size` above.
+    {
+        let verify_span = tracing::info_span!(
+            "verify",
+            groups = tracing::field::Empty,
+            files_verified = tracing::field::Empty,
+        );
+        let _verify_guard = verify_span.enter();
 
-    // Stage 4 — verify every deferred hash group (identity collapse + keeper
-    // selection + byte-verify). This phase's workload is typically much
-    // smaller than `y`, so it gets its own denominator (FR-19) rather than
-    // continuing to count against the hashing-phase total — otherwise the
-    // display would either overrun `y` or sit at a misleading "100%" while
-    // still working. `retotal` is paired immediately with `set_phase` so the
-    // label and the new denominator change together in the rendered output.
-    // When there is nothing to verify, the phase is skipped entirely
-    // (finding 2) — `pending_hash_groups` is empty in that case by
-    // construction (every pushed group has length >= 2), so there is
-    // nothing left to iterate either way.
-    let verify_total: u64 = pending_hash_groups.iter().map(|g| g.len() as u64).sum();
-    let verify_group_count = pending_hash_groups.len();
-    if verify_total > 0 {
-        sink.retotal(verify_total);
-        sink.set_phase(Phase::Verifying);
-        for group in pending_hash_groups {
-            // Captured before the call because `process_hash_group` consumes
-            // `group`; every member's disposition is decided by the time it
-            // returns, regardless of which internal branch (all-anchor group,
-            // verify pass/fail, ...) was taken.
-            let group_len = group.len() as u64;
-            process_hash_group(group, &keeper_order, &mut outcome);
-            sink.advance(group_len);
+        // Stage 4 — verify every deferred hash group (identity collapse +
+        // keeper selection + byte-verify). This phase's workload is typically
+        // much smaller than `y`, so it gets its own denominator (FR-19) rather
+        // than continuing to count against the hashing-phase total — otherwise
+        // the display would either overrun `y` or sit at a misleading "100%"
+        // while still working. `retotal` is paired immediately with
+        // `set_phase` so the label and the new denominator change together in
+        // the rendered output. When there is nothing to verify, the phase is
+        // skipped entirely (finding 2) — `pending_hash_groups` is empty in
+        // that case by construction (every pushed group has length >= 2), so
+        // there is nothing left to iterate either way.
+        let verify_total: u64 = pending_hash_groups.iter().map(|g| g.len() as u64).sum();
+        let verify_group_count = pending_hash_groups.len();
+        if verify_total > 0 {
+            sink.retotal(verify_total);
+            sink.set_phase(Phase::Verifying);
+            for group in pending_hash_groups {
+                // Captured before the call because `process_hash_group`
+                // consumes `group`; every member's disposition is decided by
+                // the time it returns, regardless of which internal branch
+                // (all-anchor group, verify pass/fail, ...) was taken.
+                let group_len = group.len() as u64;
+                process_hash_group(group, &keeper_order, &mut outcome);
+                sink.advance(group_len);
+            }
         }
+        verify_span.record("groups", verify_group_count);
+        verify_span.record("files_verified", verify_total);
     }
-    verify_span.record("groups", verify_group_count);
-    verify_span.record("files_verified", verify_total);
-    drop(_verify_guard);
 
     // ADR-0017 (TASK-0338): `sort_canonical` gets its own span, wrapping the
-    // final canonical-sort pass.
-    let sort_canonical_span = tracing::info_span!("sort_canonical", groups = tracing::field::Empty);
+    // final canonical-sort pass. Span *and* guard are block-scoped so the
+    // close line lands at the end of the sort — see the note on
+    // `group_by_size` above.
     {
+        let sort_canonical_span =
+            tracing::info_span!("sort_canonical", groups = tracing::field::Empty);
         let _sort_canonical_guard = sort_canonical_span.enter();
         // Canonical sort (ADR-0010, TASK-0306): sort before returning so two
         // runs over identical state produce byte-identical DedupOutcome
@@ -2666,6 +2688,29 @@ mod tests {
         assert!(
             out.contains("sort_canonical"),
             "expected a `sort_canonical` span; got:\n{out}"
+        );
+
+        // Each sub-stage's close line must land at *that stage's* end, so the
+        // four appear in pipeline order with the enclosing `dedup` line last
+        // (architect review, TASK-0338). `FmtSpan::CLOSE` fires when the last
+        // `Span` handle drops, not when its guard exits: a function-scope
+        // handle defers every line to the end of `dedup_core_with_sink`, in
+        // reverse, with a meaningless `time.idle`. Each line's innermost span
+        // name is the last `name{` before `}: close` (parent names prefix
+        // every nested line, so a plain substring search would not do).
+        let closed: Vec<&str> = out
+            .lines()
+            .filter_map(|line| {
+                let head = line.split("}: close").next()?;
+                let innermost = head.rsplit(':').next()?;
+                innermost.split('{').next()?.split_whitespace().next_back()
+            })
+            .collect();
+        assert_eq!(
+            closed,
+            vec!["group_by_size", "hash", "verify", "sort_canonical", "dedup"],
+            "engine stage close lines must appear in pipeline order, each \
+             written at its own stage's end; got:\n{out}"
         );
     }
 

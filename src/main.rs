@@ -286,12 +286,19 @@ fn run(args: cli::Cli) -> i32 {
     // outright (alongside `run`). `format` is a fixed, small string — never
     // user-controlled data — and `bytes` is the size of the rendered
     // document, known only once rendering completes.
-    let render_span = tracing::info_span!(
-        "render",
-        format = if args.json { "json" } else { "human" },
-        bytes = tracing::field::Empty,
-    );
+    //
+    // The span value itself, not just its guard, is block-scoped (architect
+    // review, TASK-0338): `FmtSpan::CLOSE` fires when the last `Span` handle
+    // drops, not when the guard exits, so a function-scoped handle would
+    // print `render`'s line at the very end of `run()` — after the stdout
+    // document had already been printed — with a `time.idle` covering that
+    // print. See the same note in `engine.rs`.
     let rendered = {
+        let render_span = tracing::info_span!(
+            "render",
+            format = if args.json { "json" } else { "human" },
+            bytes = tracing::field::Empty,
+        );
         let _render_guard = render_span.enter();
         let rendered = if args.json {
             json::render(
