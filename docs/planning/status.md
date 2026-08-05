@@ -11,8 +11,9 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
-- _Session 25 (TASK-0219, public-release licensing readiness), 2026-08-05._
-  **Design step only so far — the architect's four rulings landed as a dated
+- _Session 25 (TASK-0219, public-release licensing readiness), 2026-08-05 —
+  fresh window._
+  **The architect's four rulings landed as a dated
   [amendment to ADR-0014](../adr/0014-project-license-gpl-3.0-only.md#amendment-2026-08-05--public-release-licensing-readiness-task-0219);
   the TDD implementation pass is the rest of this unit.** ADR-0014 deliberately
   left four edges open for this task, and all four are now closed as
@@ -71,11 +72,37 @@ docs pass → AI automation, batched within Claude usage limits.
   published release's auto-generated source archive is really present and
   anonymously downloadable, plus the guide/process wording that assumes a
   private repo; and re-run the `-only` check before merging a first outside
-  PR). Left for this unit's implementation pass: `src/cli.rs`'s `long_version`
-  constant, the README Corresponding Source paragraph (product-owner-owned
-  under ADR-0012 — exact text drafted in the handoff, needs their sign-off),
-  `scripts/build-release-artifact.sh` switching its exact-equality assertion to
-  `-V`, and the tests pinning all of it. This PR.
+  PR).
+  **Implementation (TDD), same session:** `src/cli.rs` gained a `LONG_VERSION`
+  `concat!` constant (starting with the bare version — clap prepends the
+  binary name itself to `long_version`'s render, verified empirically against
+  a scratch clap 4.6.3 crate before touching production code) wired via
+  `#[command(version, long_version = LONG_VERSION, ...)]`; `-V` is unchanged
+  (`imgdedup <version>`), `--version` now prints the full 6-line block, both
+  confirmed against a real `cargo run --`. Five new `src/cli.rs` unit tests
+  (the exact block, ASCII-only, ≤80 columns/line, first-line/`-V` drift guard,
+  and a regression pin on the pre-existing `-V` contract — the last
+  deliberately not forced red, since it guards behavior that already existed)
+  plus two `tests/cli_integration.rs` tests exercising the real binary via
+  `assert_cmd` for both flags. `scripts/build-release-artifact.sh`'s
+  exact-equality version-stamp assertion moved from `--version` to `-V`
+  (the one-line form the script and the Claude plugin's preflight depend on),
+  with a second check that `--version`'s first line matches the same stamped
+  value — sliced from a captured variable via bash parameter expansion rather
+  than piped through `head`, avoiding a `set -o pipefail` SIGPIPE footgun
+  under the script's `set -euo pipefail`. `docs/process/release.md` updated to
+  match. `make validate` green (289+24+38+7 tests passing, `scale.rs`
+  correctly skipped). The README Corresponding Source paragraph (§6(d),
+  product-owner-owned under ADR-0012) was routed to the product-owner rather
+  than landed unilaterally: three short paragraphs rather than the ADR's one
+  dense sentence, corrected to no longer describe `--version` as printing a
+  bare version string (it now prints the license block, which the paragraph
+  cites as the _other_ half of the §6(d) directions), and a pointer to the
+  ADR amendment rather than restating its legal reasoning inline. Explicitly
+  left out of both passes, per the ADR's own rejections: per-file SPDX
+  headers, a `NOTICE` file, a §6(b) written offer, a `--license` flag, and any
+  build.rs/vergen commit stamp. Next: architect review of the branch diff vs
+  `main`, then PR. This PR.
 
 - _Session 24 (TASK-0332, scanning's walk liveness cue), 2026-08-05 —
   continuing session 23's window (5h=49% at start; owner explicitly
