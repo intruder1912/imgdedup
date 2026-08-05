@@ -249,6 +249,21 @@ pub fn filter_candidates_with_progress(
     candidates: Vec<Candidate>,
     sink: &dyn ProgressSink,
 ) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
+    // ADR-0017 (TASK-0338): this stage's own span. `candidates` is known
+    // before consuming the input; `confirmed`/`rejected` are only known once
+    // the (parallel) pass completes, so they are `Empty` and recorded just
+    // before returning. Every field here is a count, never a path (the
+    // security rule, ADR-0017 §6). No span is created inside the rayon
+    // closure below — this span wraps the whole parallel section, so its
+    // `time.busy` is the wall time of the whole sniff pass.
+    let sniff_span = tracing::info_span!(
+        "sniff",
+        candidates = candidates.len(),
+        confirmed = tracing::field::Empty,
+        rejected = tracing::field::Empty,
+    );
+    let _sniff_guard = sniff_span.enter();
+
     let results: Vec<Result<ConfirmedFile, SniffWarning>> = candidates
         .into_par_iter()
         .map(|candidate| {
@@ -286,6 +301,9 @@ pub fn filter_candidates_with_progress(
             Err(w) => warnings.push(w),
         }
     }
+
+    sniff_span.record("confirmed", confirmed.len());
+    sniff_span.record("rejected", warnings.len());
 
     (confirmed, warnings)
 }
@@ -939,5 +957,35 @@ mod tests {
             confirmed[0].mtime, sentinel_mtime,
             "ConfirmedFile.mtime must carry the enumerated mtime through unchanged"
         );
+    }
+
+    // ── ADR-0017 / TASK-0338: `sniff` span ────────────────────────────────
+
+    #[test]
+    fn filter_candidates_with_progress_emits_a_sniff_span_with_expected_fields() {
+        use crate::trace_test_support::capture;
+
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg_header: &[u8] = &[
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x01, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        ];
+        let real_path = write_fixture(&dir, "real.jpg", jpeg_header);
+        let fake_path = write_fixture(&dir, "fake.jpg", b"not an image at all");
+
+        let out = capture(|| {
+            let _ = filter_candidates_with_progress(
+                vec![candidate(real_path), candidate(fake_path)],
+                &NoProgress,
+            );
+        });
+
+        assert!(
+            out.contains("sniff"),
+            "expected a `sniff` span close line; got:\n{out}"
+        );
+        assert!(out.contains("candidates=2"), "got:\n{out}");
+        assert!(out.contains("confirmed=1"), "got:\n{out}");
+        assert!(out.contains("rejected=1"), "got:\n{out}");
     }
 }
