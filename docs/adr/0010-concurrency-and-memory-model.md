@@ -412,12 +412,14 @@ a wide margin (~86% of wall time), consistent across all three runs;
 hashing, i.e. noise by comparison. TASK-0321's own note is confirmed correct to
 flag the question, but the premise it worried about — a small-file corpus
 where the now-fast `sniff` stage leaves `enumerate` exposed as the new
-bottleneck — does not hold on a corpus of ordinary camera photos (avg. 2.76
-MB/file, every file clearing `RAYON_HASH_THRESHOLD`): hashing 2,021 real files
-(850 of them, the rest dropped as unique-sized singletons by `group_by_size`
-before ever reaching `hash`) at ~2.2 GB/s aggregate simply costs more than
-walking a 2,021-entry tree ever could, `enumerate`'s parallelism status
-notwithstanding.
+bottleneck — does not hold on a corpus of ordinary camera photos (avg. ~2.8
+MB/file; every file clears `RAYON_HASH_THRESHOLD`, the smallest being 1.19 MB):
+hashing the 850 files that survive `group_by_size` (the other 1,171 are dropped
+as unique-sized singletons before ever reaching `hash`) means reading 2.17 GB,
+and even at the ~5.2 GB/s aggregate the parallel hasher sustains here (the
+`hash` span's own `bytes_hashed=2168910223` over its 417 ms) that still costs
+more than walking a 2,021-entry tree ever could, `enumerate`'s parallelism
+status notwithstanding.
 
 **Caveat, named rather than glossed:** this is one corpus shape. A tree
 dominated by tiny files below `RAYON_HASH_THRESHOLD`, or one with a much larger

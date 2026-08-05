@@ -81,9 +81,9 @@ docs pass → AI automation, batched within Claude usage limits.
   nothing to verify). **This closes TASK-0321's open question
   (["is `enumerate` now the dominant serial stage?"](../adr/0010-concurrency-and-memory-model.md#consequence-note--the-scan-stage-is-no-longer-serial-2026-08-03-task-0321)):
   no** — recorded as a new consequence note on ADR-0010, with the honest
-  caveat that this is one corpus shape (avg. 2.76 MB/file, every file clearing
-  `RAYON_HASH_THRESHOLD`) and a tiny-file-heavy corpus could shift the
-  `enumerate`/`hash` ratio; not claimed to generalize.
+  caveat that this is one corpus shape (avg. ~2.8 MB/file, every file clearing
+  `RAYON_HASH_THRESHOLD` — the smallest is 1.19 MB) and a tiny-file-heavy
+  corpus could shift the `enumerate`/`hash` ratio; not claimed to generalize.
   **Product-owner pass:** concurs with ADR-0017's "no PRD-0001 FR/AC" ruling
   (checked the reasoning rather than rubber-stamping it: `--timings` emits
   nothing on stdout and changes no grouping/removal decision). Wrote a new
@@ -114,6 +114,26 @@ docs pass → AI automation, batched within Claude usage limits.
   `make validate` (mdlint, spell, links, shellcheck, actionlint, fmt, clippy
   `-D warnings`, full test suite) green throughout — 301 unit + 24 acceptance +
   45 CLI-integration + 7 golden-set tests, `scale.rs`'s 4 correctly ignored.
+  **Final architect confirmation pass over the four post-review commits
+  (measured, not read):** the corpus run reproduced independently (3 fresh
+  runs — `hash` 435–447 ms, `sniff` 50–60 ms, `enumerate` 8–15 ms, i.e. the
+  note's ~86 / ~11 / ~2% split holds); `µ` confirmed as U+00B5 in real output
+  and `nu-ansi-term` confirmed absent from `Cargo.lock`, so ADR-0017's
+  corrected UTF-8-not-ASCII claim is right on both halves; the binary-size
+  delta re-derived by building `main` in a scratch worktree (1 724 176 →
+  1 954 688 bytes = +225 KiB); lock 123 → 130 and `cargo deny check`
+  advisories/bans/licenses/sources all ok; 9 stderr lines on both a 6-file and
+  a 4 000-file tree; stdout `cmp`-identical with and without `--timings` on
+  both report and `--json`; `--timings` still in `--help` (and now a single
+  line under `-h`); `make validate` plus `cargo test --release` green.
+  **One real correction made in this pass:** the ADR-0010 note quoted
+  "~2.2 GB/s aggregate" for the `hash` stage — that is session 29's
+  _per-CPU-second_ rate over the whole 5.72 GB corpus, not this stage's
+  wall-clock rate, which is ~5.2 GB/s (`bytes_hashed=2168910223` over 417 ms);
+  corrected there and the avg-file-size parenthetical tightened to the
+  measured ~2.8 MB/file (5.72 GB / 2 021) in both the ADR and this entry.
+  Session 29's own "2.76 MB/file" is the same arithmetic slip but is left
+  as-is: it is a dated historical record, and no conclusion turns on it.
   Next: PR. This PR.
 
 - _Session 30 (TASK-0338, performance instrumentation — design step), 2026-08-05
