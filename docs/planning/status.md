@@ -11,6 +11,38 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 27 (`SECURITY.md`/`CONTRIBUTING.md` staleness fix, chore), 2026-08-05
+  — same window as session 26._ Surfaced during a public-readiness discussion
+  (Actions/fork-PR safety, repo permissions, secret-history coverage, git
+  history limits, and test-data privacy — none of which needed code changes;
+  see this session's conversation, not a task file) that predates any actual
+  decision to go public: two docs were simply **wrong today**, independent of
+  visibility. `SECURITY.md` still said "pre-release (Phase 0), no versions
+  supported" and described the language-level dependency audit as a Phase-2
+  future item — the project is in Phase 3 with `v0.5.1` released and
+  `cargo-deny` (RUSTSEC/license/bans/sources, weekly-scheduled) live since
+  TASK-0208. Fixed: a "latest release only" supported-versions policy, and an
+  accurate description of the existing `cargo-deny`/Dependabot/gitleaks
+  security surface, including the `contents: write`-is-manual-dispatch-only
+  fact (relevant to the fork-PR-safety question raised in conversation).
+  `CONTRIBUTING.md`'s "Local validation" section still read "until the product
+  stack is chosen (Phase 2)... documentation quality... (once code exists) the
+  language test suite" — also predates the Rust crate existing. Fixed to
+  describe what `make validate` actually runs today (mdlint/spellcheck/
+  linkcheck/shellcheck/actionlint/fmt/clippy/full test suite), plus a new
+  paragraph stating explicitly that no real images are needed to build or test
+  the project — the test suite is 100% synthetic (`tests/golden_set.rs`
+  generates minimal valid images per format at test time; nothing real-world
+  is checked into the repo), directly answering a contributor-privacy question
+  raised in the same conversation (verified live: zero image binaries tracked
+  in git, zero references to the owner's local `test-images/` corpus anywhere
+  in code/CI/Makefile). Docs-only, no product code, no write-permission/secret
+  CI surface — same shape as TASK-0217's docs-consistency precedent — but not
+  claimed under ADR-0011's low-risk skip exception, since that exception is
+  explicitly scoped to "a planning/status sync or a CI-tooling chore... nothing
+  else by analogy," and neither file is either; goes through the normal
+  architect review. This PR.
+
 - _Session 26 (TASK-0314, real-photo field validation), 2026-08-05 — fresh
   window._ Closes the last dependency-clear item this repo had been carrying
   as blocked since sessions 4/5: the owner supplied a real photo corpus by
