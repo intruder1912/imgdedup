@@ -106,6 +106,19 @@ jobs:
       # `shopt -s globstar`), so a `**` pattern silently fails to recurse and
       # would have under-checked everything below the top level.
       TYPOS_SHA256: "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c"
+      SHELLCHECK_VERSION: "0.11.0"
+      # sha256 of shellcheck-v0.11.0.linux.x86_64.tar.xz, computed and pinned
+      # by hand — same reasoning as TYPOS_SHA256: upstream publishes no
+      # separate checksums file for this release to verify against instead.
+      SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+      ACTIONLINT_VERSION: "1.7.12"
+      # sha256 of actionlint_1.7.12_linux_amd64.tar.gz, checked against
+      # upstream's own published actionlint_1.7.12_checksums.txt and pinned
+      # here by hand rather than trusted at fetch time — an attacker who could
+      # tamper with one release asset in transit could tamper with the
+      # checksums file alongside it, so re-fetching and re-checking it on
+      # every run would verify nothing this fixed value doesn't already.
+      ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -151,7 +164,12 @@ jobs:
         # is already red in that case and `typos: command not found` would only
         # bury the real error.
         if: ${{ !cancelled() && steps.install-typos.outcome == 'success' }}
-        run: typos $(git ls-files '*.md')
+        run: |
+          # Word splitting is the point: typos takes one filename per
+          # argument, and every tracked path here is plain ASCII with no
+          # spaces or glob metacharacters.
+          # shellcheck disable=SC2046
+          typos $(git ls-files '*.md')
 
       - name: Verify required repository structure
         if: ${{ !cancelled() }}
@@ -197,6 +215,55 @@ jobs:
         with:
           args: "--config lychee.toml --no-progress './**/*.md'"
           fail: true
+
+      # TASK-0335: neither shellcheck nor actionlint was gated anywhere before
+      # this — every finding either tool has ever caught in this repository,
+      # including a real command-injection defect found during TASK-0334's
+      # review, was caught by a human running them by hand. installed the same
+      # way as typos above: downloaded into RUNNER_TEMP, checksum-verified
+      # against a hand-pinned value, installed to /usr/local/bin.
+      - name: Install pinned shellcheck
+        id: install-shellcheck
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sfLO "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | sha256sum -c
+          tar -xJf "shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          install -m 755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+      - name: Lint shell scripts
+        if: ${{ !cancelled() && steps.install-shellcheck.outcome == 'success' }}
+        run: |
+          # Tracked files, not a scripts/*.sh glob: a script added below the
+          # top level of scripts/ (e.g. scripts/release-preflight/ already
+          # exists as a directory) would otherwise go unlinted with no signal.
+          # shellcheck disable=SC2046
+          shellcheck $(git ls-files '*.sh')
+
+      - name: Install pinned actionlint
+        id: install-actionlint
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -sfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | sha256sum -c
+          tar -xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
+          install -m 755 actionlint /usr/local/bin/actionlint
+      - name: Lint GitHub Actions workflows
+        # actionlint runs shellcheck on every embedded `run:` script too, as
+        # long as a `shellcheck` binary is on PATH — which the step above just
+        # put there, so this also re-covers every workflow's inline shell with
+        # no separate invocation. That coupling is silent if it ever breaks:
+        # actionlint with no shellcheck on PATH just skips the embedded-shell
+        # rule rather than failing, so it's asserted explicitly here instead
+        # of trusted.
+        if: ${{ !cancelled() && steps.install-actionlint.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          command -v shellcheck >/dev/null || { echo "::error::actionlint needs shellcheck on PATH to lint embedded shell"; exit 1; }
+          actionlint
 
       # PR-title lint only applies to pull requests (squash uses the title as
       # the commit on main and drives the release).

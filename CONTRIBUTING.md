@@ -24,8 +24,8 @@ Summary:
 2. **Create a branch**: `feature/<slug>`, `fix/<slug>`, `chore/<slug>`,
    `docs/<slug>`. See [`docs/process/branching.md`](docs/process/branching.md).
 3. **Implement** using TDD (failing test → pass → refactor).
-4. **Validate locally**: run `make validate` (lint, format check, spell check,
-   link check, tests). Fix everything.
+4. **Validate locally**: run `make validate` (Markdown/spell/link check, shell
+   script and workflow lint, format check, lint, tests). Fix everything.
 5. **Commit** with a Conventional Commit message
    (see [`docs/process/commits.md`](docs/process/commits.md)).
 6. **Push** and **open a PR** with a Conventional Commit title and a description
@@ -43,8 +43,9 @@ documentation quality. Run:
 make validate
 ```
 
-This runs Markdown lint, spell check, link check, and (once code exists) the
-language test suite. See [`scripts/`](scripts/) and the
+This runs Markdown lint, spell check, link check, shell script lint
+(`shellcheck`) and GitHub Actions workflow lint (`actionlint`), and (once code
+exists) the language test suite. See [`scripts/`](scripts/) and the
 [`Makefile`](Makefile). If a tool is not installed, the script tells you how to
 install it. CI runs the same checks and is the enforcement boundary.
 

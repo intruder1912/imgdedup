@@ -8,7 +8,7 @@
 # rust-toolchain.toml).
 
 .DEFAULT_GOAL := help
-.PHONY: help validate mdlint spell links build test fmt lint coverage deny release-dry-run release-preflight
+.PHONY: help validate mdlint spell links shellcheck actionlint build test fmt lint coverage deny release-dry-run release-preflight
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -17,7 +17,7 @@ help: ## Show available targets
 
 # ── Composite gate ────────────────────────────────────────────────────────────
 
-validate: mdlint spell links fmt lint test ## Run all local validation (run before every push)
+validate: mdlint spell links shellcheck actionlint fmt lint test ## Run all local validation (run before every push)
 	@echo "✓ local validation passed"
 
 # ── Documentation checks ──────────────────────────────────────────────────────
@@ -30,6 +30,14 @@ spell: ## Spell-check documentation (needs: brew install typos-cli / cargo insta
 
 links: ## Check links in Markdown (needs: brew install lychee / cargo install lychee); matches CI's lychee.toml gate
 	lychee --config lychee.toml --no-progress './**/*.md'
+
+# ── Tooling checks ────────────────────────────────────────────────────────────
+
+shellcheck: ## Lint shell scripts (needs: brew install shellcheck / apt install shellcheck)
+	shellcheck $$(git ls-files '*.sh')
+
+actionlint: ## Lint GitHub Actions workflows, incl. embedded shell via shellcheck (needs: brew install actionlint / go install github.com/rhysd/actionlint/cmd/actionlint)
+	actionlint
 
 # ── Rust checks ───────────────────────────────────────────────────────────────
 
