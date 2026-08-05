@@ -4,6 +4,19 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Manual trigger, added with TASK-0331(a). It is the pre-merge escape hatch
+  # for the macOS cadence documented on the `rust` matrix below: macOS no
+  # longer runs per PR, so without an on-demand path a macOS-only failure could
+  # only ever be reproduced by merging. Costs nothing unless someone asks for
+  # it, and only a collaborator with write access can ask.
+  #
+  # Checked against the release pipeline, since `release.yml` is triggered by
+  # this workflow's completion and is the one job in the repository holding
+  # `contents: write`: a dispatched run cannot publish anything. Its
+  # `workflow_run.event` is `workflow_dispatch`, not `push`, which
+  # `release.yml`'s trigger condition requires — so the release job is skipped
+  # (no runner, no billing) rather than merely failing later.
+  workflow_dispatch:
 
 # Minimal default permissions; jobs widen only if needed.
 permissions:
@@ -179,12 +192,59 @@ jobs:
   rust:
     name: rust (${{ matrix.os }})
     needs: checks
-    if: needs.checks.outputs.code == 'true'
+    # A manual run is an explicit request for this matrix, so it is honoured
+    # regardless of what the paths filter says changed (the filter's non-PR
+    # semantics — diff against the default branch — would otherwise decide it).
+    if: needs.checks.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # TASK-0330 / TASK-0331(a) (CI-minutes optimization). Measured
+      # 2026-08-01..04 from the Actions API (per-job durations, billed rounded
+      # up to the whole minute per job, with GitHub's OS multipliers — Linux
+      # 1x, Windows 2x, macOS 10x):
+      #
+      #   leg               runs  avg dur  billed min  floor at 1 min/run
+      #   ubuntu-latest       32      68s          60                  32
+      #   windows-latest      32     148s         190                  64
+      #   macos-latest        32      53s         390                 320
+      #
+      # macOS alone was 22% of the repository's entire Actions bill (390 of
+      # ~1790 billed minutes over those four days) for the leg that finishes
+      # *fastest*: 320 of its 390 minutes are the one-minute per-job floor
+      # multiplied by 10. Nothing about how that job runs can reach that number
+      # — TASK-0330 measured that caching it makes it worse, since restoring a
+      # several-hundred-megabyte `target` pushes a 53s job past 60s and doubles
+      # the bill (see the cache step below). The only remaining lever is how
+      # *often* it runs.
+      #
+      # Owner ruling (2026-08-05): macOS runs on `push: main` only, not per PR.
+      # ubuntu and windows are unchanged and still run on every PR commit.
+      # Dropping ~24 of macOS's 32 runs is worth an estimated −250 to −300
+      # billed minutes per four days — the single largest lever available, and
+      # larger than everything TASK-0330 shipped put together.
+      #
+      # The trade, stated plainly: a macOS-only regression is now found after
+      # the merge that introduced it, on `main`, rather than on the PR that
+      # introduced it. Accepted because this leg mostly duplicates the Linux
+      # leg's coverage — the one macOS-specific behaviour, trash
+      # recoverability, is *not* asserted there anyway (see
+      # IMGDEDUP_REQUIRE_TRASH_CHECK below, an older and orthogonal exemption)
+      # — and because a red `main` is loud rather than silent. The workflow's
+      # `workflow_dispatch` trigger keeps a pre-merge path open: run this
+      # workflow manually on a branch for the full three-OS matrix on demand,
+      # i.e. one deliberate 10x run instead of 32 automatic ones.
+      #
+      # Mechanism note: this varies the matrix *width* rather than adding a
+      # separate macOS job with a job-level `if:`. `rust` therefore remains
+      # exactly one job with one result, so `ci-gate`'s `needs.rust.result`
+      # check is unaffected and needs no new skip case. A `rust-macos` job
+      # would instead report `skipped` on every PR and add a third `needs:`
+      # entry whose `skipped` result `ci-gate` would have to distinguish from a
+      # real one — the same class of `needs:`/`if:`/skip interaction the
+      # `checks` job's header already warns about.
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
     permissions:
       contents: read
     env:
@@ -199,24 +259,19 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show  # reads rust-toolchain.toml; installs the pinned channel + components
 
-      # TASK-0330 (CI-minutes optimization). Measured 2026-08-01..04 from the
-      # Actions API (per-job durations, billed rounded up to the minute, with
-      # GitHub's OS multipliers — Linux 1x, Windows 2x, macOS 10x):
-      #
-      #   leg               runs  avg dur  billed min  floor at 1 min/run
-      #   ubuntu-latest       32      68s          60                  32
-      #   windows-latest      32     148s         190                  64
-      #   macos-latest        32      53s         390                 320
-      #
-      # macOS is the most expensive job in the repository and yet the *least*
-      # worth caching: it already finishes inside the one-minute billing floor,
-      # so at most 70 of its 390 minutes are recoverable, while restoring and
-      # unpacking a several-hundred-megabyte `target` on a macOS runner would
-      # push a 53-second job past 60 seconds and double the bill instead. The
-      # cache is therefore applied only where there is headroom above the
-      # floor. Revisit this exclusion once the macOS leg's own build time grows
-      # past ~60s. A single `runner.os`-keyed cache is unambiguous here: this
-      # matrix builds exactly one architecture per OS.
+      # TASK-0330 (CI-minutes optimization). Against the measurement tabulated
+      # above, macOS is the most expensive job in the repository and yet the
+      # *least* worth caching: it already finishes inside the one-minute
+      # billing floor, so at most 70 of its 390 minutes were ever recoverable,
+      # while restoring and unpacking a several-hundred-megabyte `target` on a
+      # macOS runner would push a 53-second job past 60 seconds and double the
+      # bill instead. The cache is therefore applied only where there is
+      # headroom above the floor. This exclusion is now doubly moot on PRs,
+      # where TASK-0331(a) removed the macOS leg outright, but it still governs
+      # the `push: main` runs where it does execute. Revisit it if the macOS
+      # leg's own build time grows past ~60s. A single `runner.os`-keyed cache
+      # is unambiguous here: this matrix builds exactly one architecture per
+      # OS.
       - name: Cache cargo registry and build artifacts
         if: runner.os != 'macOS'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -1110,10 +1110,38 @@ validation (TASK-0314), AI automation = skill + command + operator agent
 
 ## Blockers / waiting on owner
 
-None currently open.
+- **Owner action, with TASK-0331's PR, not after it — swap `main`'s required
+  status checks.** That PR folds `secret-scan` and `cargo-deny` into a single
+  `security` job (TASK-0331(d)), so both of those context names stop existing.
+  Branch protection still requires them by exact string, and a required check
+  that never reports sits at "Expected — waiting for status to be reported"
+  forever, on this PR and every later one. `enforce_admins` is `false`, so the
+  owner can still merge through it, but the swap belongs at merge time.
+  Verified live via the API on 2026-08-05, the current list is `secret-scan`,
+  `ci-gate`, `cargo-deny`, `checks` (`strict: true`). The replacement — three
+  names, since `security` absorbs both `secret-scan` and `cargo-deny`:
 
-- `main`'s required checks, verified live via the GitHub API on 2026-08-04
-  (post-TASK-0330): `secret-scan`, `ci-gate`, `cargo-deny`, `checks`
+  ```sh
+  gh api -X PATCH \
+    /repos/intruder1912/imgdedup/branches/main/protection/required_status_checks \
+    -F strict=true \
+    -f 'contexts[]=checks' \
+    -f 'contexts[]=ci-gate' \
+    -f 'contexts[]=security'
+  ```
+
+  Read back with `gh api
+  /repos/intruder1912/imgdedup/branches/main/protection/required_status_checks
+  --jq '{strict, contexts}'` and resolve this entry once it confirms the new
+  list. Same shape as the manual renames TASK-0330 (`checks`) and TASK-0206
+  (`linkcheck`) each needed; the architect does not change repository settings.
+  Note the macOS half of TASK-0331 needs **no** protection change: `rust`
+  varies its matrix width by event, `ci-gate` remains the single aggregating
+  required check, and none of the per-leg `rust (…)` contexts is required.
+
+- `main`'s required checks, verified live via the GitHub API on 2026-08-04 and
+  again on 2026-08-05 (post-TASK-0330, pre-TASK-0331): `secret-scan`,
+  `ci-gate`, `cargo-deny`, `checks`
   (`strict: true`) — the owner swapped in the consolidated `checks` context
   (absorbing `markdownlint`, `spellcheck`, `structure`, `pr-title`,
   `linkcheck`) at merge time, exactly as TASK-0330 requested, resolving what
