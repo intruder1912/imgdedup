@@ -18,12 +18,13 @@ authenticated [`gh`](https://cli.github.com) CLI (`gh auth login` once), which
 resolves the asset through the API:
 
 ```sh
-# Example: Linux, release v0.2.0 — adjust the tag/pattern for your platform.
-gh release download v0.2.0 --repo intruder1912/imgdedup \
-  --pattern 'imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz*'
-sha256sum -c imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz.sha256  # macOS: shasum -a 256 -c
-tar -xzf imgdedup-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
-# the imgdedup binary is now in imgdedup-v0.2.0-x86_64-unknown-linux-gnu/
+# Example: Linux — adjust the pattern for your platform. Omitting the tag
+# downloads from the latest release, so this never needs a version bump.
+gh release download --repo intruder1912/imgdedup \
+  --pattern 'imgdedup-*-x86_64-unknown-linux-gnu.tar.gz*'
+sha256sum -c imgdedup-*-x86_64-unknown-linux-gnu.tar.gz.sha256  # macOS: shasum -a 256 -c
+tar -xzf imgdedup-*-x86_64-unknown-linux-gnu.tar.gz
+# the imgdedup binary is now in imgdedup-<version>-x86_64-unknown-linux-gnu/
 ```
 
 The trailing `*` in the pattern fetches the archive and its `.sha256` together.
