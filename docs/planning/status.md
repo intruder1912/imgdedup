@@ -53,16 +53,41 @@ docs pass → AI automation, batched within Claude usage limits.
      **continues the run, reports once, and exits 1** (an `AtomicBool` latch
      keeps a full disk cheap on the rayon hot path). A consequence note on
      ADR-0008 records the finalization property as a pipeline-level fact.
-  **Not yet done** — this unit cannot open a PR yet: the user-facing guide
-  (`docs/guide/output-and-exit-codes.md`, largest rework; `getting-started.md`;
-  `README.md`) still reflects the old design, `backlog.md`'s TASK-0340/0341
-  rows need updating, and one whole-diff architect confirm pass is still owed
-  before the PR opens. **Session stopped at 83% of the 5h window** (est.
-  40–55% for the design step; actual cost roughly doubled by the mid-session
-  direction change adding two full extra round-trips) — logged as a batch-plan
-  lesson: **a human-directed pivot mid-design costs about as much as starting
-  the design over**, not a small delta on top of the original estimate. Next
-  window: guide-doc pass, planning update, final architect review, then PR.
+  **Window 1 stopped at 83% of the 5h window** (est. 40–55% for the design
+  step; actual cost roughly doubled by the mid-session direction change adding
+  two full extra round-trips) — logged as a batch-plan lesson: **a
+  human-directed pivot mid-design costs about as much as starting the design
+  over**, not a small delta on top of the original estimate.
+
+  **Window 2, same day.** Product-owner drafted the guide-doc pass
+  (`README.md`, `output-and-exit-codes.md`, `getting-started.md`) against the
+  confirmed FR-19/FR-20/FR-21 text, marked "not in a release yet" since
+  `--output` doesn't exist in `src/cli.rs`. The required whole-branch-diff
+  architect review ([`docs/process/sdlc.md`](../process/sdlc.md), ADR-0011)
+  found it **not ready**: a stale self-contradiction in this file (this
+  paragraph, previously claiming the guide pass as undone after it had
+  landed), two factual-drift findings verified against `src/apply.rs` and
+  `src/main.rs` (a stderr category with nothing that writes to it; the apply
+  skip-line reclassification stated as an unqualified "genuine failure" for
+  all ten `SkipReason` variants, when four — including the two
+  `--follow-symlinks`-reachable symlink variants — are documented in source as
+  routine, not failures), plus a policy question: every prior guide-doc update
+  in this repo rides its feature's _implementation_ PR: should this one break
+  that precedent by documenting unshipped behavior with disclaimers, or hold?
+  **Owner decision: hold** — the guide-doc commit was reverted
+  (`a2fd3d2`, reverting `1325211`) rather than kept with disclaimers, so this
+  PR stays PRD + ADR only, and the six findings' fixes are moot for now but
+  recoverable from `1325211` (a good starting draft) when TASK-0340/0341's
+  implementation slice writes the guide for real. The architect's own
+  ADR-0018 had the same gap the guide inherited (`§9 #7`'s skip-line hedge
+  only named one of the four routine `SkipReason` variants) — fixed directly
+  (`48b5700`), widening the hedge to all four with the concrete evidence from
+  `apply.rs`, decision unchanged. This unit is now **PRD-0001 Amendment
+  2026-08-06 + ADR-0018 only**, architect-reviewed, ready to open its PR;
+  TASK-0340/0341's backlog rows point at the reverted guide-doc draft for
+  reuse. Implementation (TDD, both FR-20/FR-21 first, FR-22 paging as a later
+  slice, guide docs riding that PR per precedent) is the rest of this backlog
+  item, scheduled for a fresh window.
 
 - _Session 32 (new TASK-0339/TASK-0340/TASK-0341, real-world dogfooding
   follow-ups; planning-only), 2026-08-06 — merged [PR #97](https://github.com/intruder1912/imgdedup/pull/97)._
