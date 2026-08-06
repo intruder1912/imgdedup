@@ -3,7 +3,7 @@
 - **Status:** approved
 - **Owner:** product-owner
 - **Created:** 2026-06-13
-- **Related:** [roadmap Phase 1](../planning/roadmap.md), [backlog TASK-0101](../planning/backlog.md), [TEMPLATE](TEMPLATE.md); hands open questions to the architect (TASK-0201 technology-stack ADR and design ADRs)
+- **Related:** [roadmap Phase 1](../planning/roadmap.md), [backlog TASK-0101](../planning/backlog.md), [TEMPLATE](TEMPLATE.md); hands open questions to the architect (TASK-0201 technology-stack ADR and design ADRs). FR-20/FR-21 are designed in [ADR-0018](../adr/0018-durable-run-record-and-output-stream-routing.md).
 
 ## 1. Summary
 
@@ -60,12 +60,17 @@ Explicitly out of scope for this PRD (YAGNI; some are future phases):
   reserved for a future `--sniff-all` flag (see §10).
 - Moving duplicates to a user-specified quarantine folder — the chosen removal
   model is the OS trash.
-- A dedicated `--output <file>` flag for saving results — deferred. Shell
-  redirection of stdout (`imgdedup … --json > result.json`) is the supported
-  mechanism, because stdout already carries only the report/JSON and all
-  diagnostics go to stderr (see the [Amendment 2026-07-19](#amendment-2026-07-19--progress-indication--stored-results)).
 - GUI, image preview/thumbnails, EXIF-based logic, config files, and watch/daemon
   modes.
+
+**No longer a non-goal (Amendment 2026-08-06):** a dedicated `--output <file>`
+flag. It was listed here as deferred by the Amendment 2026-07-19 (decision 2),
+on the reasoning that shell redirection already covered saving results. That
+reasoning held for a flag that merely duplicates `> file`; it does not hold for
+the flag now specified in **FR-20**, which writes its file **continuously as
+the run progresses**, so an interrupted run still leaves everything it had
+produced — something redirection cannot do. See the
+[Amendment 2026-08-06](#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341).
 
 ## 5. Users & use cases
 
@@ -83,6 +88,13 @@ User stories:
   mistake is recoverable.
 - As a power user, I want **JSON output** and **deterministic** behavior so that I
   can drive `imgdedup` from a script.
+- As a user running a scan that takes hours over a large or networked library, I
+  want a **file that is written as the run goes**, so that if the run is
+  interrupted — or the report scrolls out of my terminal — I still have
+  everything it found (Amendment 2026-08-06, FR-20).
+- As a user watching a long run, I want to see **how long it has been going**
+  and to find the run's own output on **standard output**, with standard error
+  reserved for actual problems (Amendment 2026-08-06, FR-21).
 
 ## 6. Functional requirements
 
@@ -127,7 +139,9 @@ User stories:
   space.
 - **FR-14:** `--json` emits machine-readable output (groups, keeper, intended or
   performed actions, and totals) suitable for scripting.
-- **FR-15:** Exit `0` on success and a distinct non-zero code on error.
+- **FR-15:** Exit `0` on success and a distinct non-zero code on error. A
+  failure to write the FR-20 record file mid-run is such an error (exit `1`)
+  even when the deduplication work itself succeeded — see FR-20 and AC-28a.
 - **FR-16:** Re-validate at apply time. Because the scan (which selects groups and
   keepers) and `--apply` are separate passes, immediately before trashing or
   deleting a non-keeper the tool re-confirms the file still exists, is still a
@@ -143,27 +157,42 @@ User stories:
   can detect duplicates without parsing output. Without the flag, a successful run
   exits `0` regardless of findings (see FR-15). The flag changes only the exit
   status — never what is scanned, grouped, or removed.
-- **FR-19 (Amendment 2026-07-19; refined 2026-08-01):** While a scan runs, show
-  **live progress on standard error** so the user can see the tool is working and
+- **FR-19 (Amendment 2026-07-19; refined 2026-08-01; amended 2026-08-06):**
+  While a scan runs, show
+  **live progress** so the user can see the tool is working and
   how far along it is. The indicator conveys both (a) the **overall problem
   size** — the number of candidate files to be checked, known once enumeration
   completes — and (b) **ongoing progress** as `x of y` files done plus a
   **percentage**, labeled with the current phase (e.g. scanning → hashing →
   verifying; user-facing phase names, not an implementation contract). Progress
   is **output-only**: it never changes what is scanned, grouped, or removed
-  (like `--json`), and it is written **only to stderr — never to stdout, in any
-  mode (including `--json`)**, so redirected stdout stays a pure report/JSON
-  document (the S2 stdout-purity contract). It is **enabled by default** and
-  **auto-adapts to the terminal**:
-  - When stderr is an **interactive terminal (TTY)**, it renders as a **single line
+  (like `--json`). **Which stream carries it is governed by FR-21 (Amendment
+  2026-08-06)**: stdout in the default report mode when stdout is an
+  interactive terminal, stderr in every other case. FR-19 originally specified
+  stderr only, in every mode; that clause is superseded, while the property it
+  existed to protect — a redirected or piped stdout carrying nothing but the
+  report/JSON document — is preserved intact by FR-21. Progress is **enabled by
+  default** and **auto-adapts to the terminal**:
+  - When the stream carrying progress is an **interactive terminal (TTY)**, it
+    renders as a **single line
     updated in place** (redrawn as counts advance).
-  - When stderr is **not a TTY** (piped, redirected, or captured by CI/logs), the
+  - When that stream is **not a TTY** (piped, redirected, or captured by
+    CI/logs), the
     in-place updater is **disabled automatically**; instead it emits **occasional
     plain, newline-terminated progress lines** — no carriage returns or ANSI
     control codes — at coarse milestones (phase transitions and bounded percentage
     steps), so logs stay readable and bounded.
   - `--no-progress` **disables progress output entirely** (both the TTY and
-    non-TTY paths); nothing progress-related is written to stderr.
+    non-TTY paths); nothing progress-related is written to either stream.
+
+  **Elapsed time (Amendment 2026-08-06).** Every progress render carries the
+  time elapsed since the run started — in **every** phase and state, not only
+  scanning's indeterminate walk state (AC-21b, which this generalizes) — and
+  the terminal completion state additionally reports the run's **total**
+  elapsed time. No remaining-time / ETA estimate is shown: this pipeline's
+  phases have very different per-file costs (hashing dominated a real corpus
+  at ~86%, TASK-0338), so an extrapolated estimate would be confidently wrong
+  in exactly the long runs it would be wanted for.
 
   Before the candidate total `y` is known the indicator may show a
   counting/indeterminate state and switch to `x of y` + percentage once the
@@ -211,7 +240,101 @@ User stories:
   intermediate phase's own denominator was smaller.
 
   Progress output is **excluded from the determinism/parity guarantees** (NFR-3
-  governs stdout content only; see §7).
+  governs the result document; see §7). This is unaffected by the 2026-08-06
+  stream change: progress reaches stdout only when stdout is an interactive
+  terminal, which is exactly the case NFR-3 does not govern.
+
+- **FR-20 (Amendment 2026-08-06):** Provide **`--output <file>`**: a durable
+  record of the run, written **continuously as the run progresses** rather than
+  at the end, so that a run which is interrupted, killed, or throttled still
+  leaves everything it had produced by that point.
+  - The file contains, in order of occurrence: a header (tool version,
+    invocation, start time); coarse phase/elapsed milestones at the same
+    granularity as the non-TTY progress fallback (AC-22), never one line per
+    file; each duplicate group as soon as it is known to be final, with its
+    keeper and removable files; every warning and error as it occurs;
+    apply-time removals and skips as they happen; and, **on completion only**,
+    the complete canonical result document — the **same document** the run
+    writes to stdout. In the human-readable record that is a byte-for-byte
+    match; under `--json` it is the same document in the record's own
+    serialization (one line, compact) rather than the same bytes as stdout's
+    pretty-printed form. Same content and same schema, not necessarily the
+    same bytes.
+  - **Only the completion document is covered by NFR-3.** The preceding
+    transcript follows the order work finished, which is not guaranteed
+    reproducible, and its running counts are provisional. The file must make
+    that distinction legible to a reader. A file with no completion document is
+    the signal that the run did not finish.
+  - **Format follows the output mode:** the human-readable rendering by
+    default; **NDJSON** (one JSON object per line, the completion document on
+    the final line) under `--json`, so that every complete line of a
+    partially-written file still parses.
+  - Content is **flushed as it is written**, so a `SIGKILL` loses at most the
+    record currently being written.
+  - The flag is **opt-in**; no file is created without it. It is **additive**,
+    not a redirection: the terminal still shows progress and still receives the
+    report exactly as it would without the flag. Without `--output` there is no
+    incremental trace — see FR-21's closing note, where that is recorded as a
+    deliberate decision rather than a gap.
+  - An unwritable path fails the run **before any scanning begins**, with a
+    usage-level error, rather than failing hours in.
+  - **A write failure *during* the run does not stop the run** (decided
+    2026-08-06, ADR-0018): the scan or apply proceeds and completes entirely on
+    its own terms, unaffected. The failure is reported **once** — not once per
+    subsequent failed write — and the run **exits `1`**, FR-15's run-level
+    failure code, even though the deduplication work itself succeeded. The
+    rationale is that a run whose durable record is incomplete has failed at
+    something the user explicitly asked for, and a script must be able to see
+    that; aborting the scan instead would throw away completed work to punish a
+    reporting problem.
+  - `--output` is **output-only**: it never changes what is scanned, grouped,
+    or removed, and a run with and without it produces the same stdout bytes.
+    Its only effect outside the file is the exit code in the write-failure case
+    above.
+
+- **FR-21 (Amendment 2026-08-06; supersedes FR-19's "stderr only, in any
+  mode"):** Route the run's **normal output to stdout and reserve stderr for
+  genuine failures**.
+  - In the default (non-`--json`) mode **with stdout an interactive terminal**,
+    progress (FR-19), phase and elapsed-time output, and apply-time status
+    lines are written to **stdout**.
+  - In the default mode **with stdout redirected or piped**, none of that is
+    written to stdout: stdout carries the report and nothing else, and progress
+    moves to **stderr**, rendered according to **stderr's own** TTY-ness
+    (AC-21/AC-22, unchanged) — a live in-place line when stderr is still a
+    terminal, plain milestone lines when it is not. Redirecting stdout must not
+    downgrade a live indicator the user can still see.
+  - Under **`--json`**, stdout is **exactly one JSON document and nothing
+    else**, terminal or not; progress goes to stderr, as before, again rendered
+    per stderr's own TTY-ness.
+  - **stderr carries only genuine failures** — run-level errors and per-file
+    failures — plus `--timings` (ADR-0017's engineering diagnostic, an explicit
+    carve-out). Routine status no longer appears there. The report's own
+    `Warnings:` section remains part of the report document on stdout.
+    **Apply-time destructive-action lines (`trashed:`/`deleted:`) get no stderr
+    carve-out** (decided 2026-08-06, ADR-0018). They are routine status, not
+    failures, and they are already durably recorded twice over: the result
+    document's `actions` object (FR-14) is authoritative once a run completes,
+    and with `--output` each one is captured incrementally as it happens
+    (FR-20). Under `--json` they therefore appear on neither stream — which is
+    correct, not an omission.
+  - `--no-progress` continues to suppress progress entirely, on whichever
+    stream it would have used (AC-23 unchanged).
+
+  **`--json` without `--output` has no incremental or durable trace — accepted
+  deliberately (2026-08-06), not an oversight.** In that combination the only
+  output is the single JSON document, and only if the run completes, exactly as
+  `--json` behaves today. This was considered and kept for two reasons.
+  **Chainability:** one parseable document piped straight into `jq` or another
+  consumer is the contract TASK-0308's schema and ADR-0016's plugin are built
+  on, and making stdout incremental would break it for every existing consumer.
+  **It would not actually fix the problem it appears to fix:** a single-document
+  pipe is already comparably fragile on a crash — nothing downstream of a
+  crashed pipe survives either — so streaming stdout relocates the failure mode
+  rather than removing it. The durable answer for a `--json` run that must
+  survive interruption is `--output` (FR-20), which is why the two compose.
+  A future reader should treat this paragraph as the reason **not** to reopen
+  streaming stdout without new evidence.
 
 ## 7. Non-functional requirements
 
@@ -221,11 +344,17 @@ User stories:
   (FR-4) re-validated at apply time (FR-16).
 - **NFR-2 (no collateral damage):** A non-image is never trashed or deleted;
   magic-byte confirmation (FR-3) precedes every destructive action.
-- **NFR-3 (determinism):** For a given filesystem state and flags, results and
-  keeper choices are identical across runs and platforms. This guarantee governs
-  **stdout content only** (the report / `--json` document); the FR-19 progress
-  stream on stderr is explicitly excluded from determinism and parity (Amendment
-  2026-07-19).
+- **NFR-3 (determinism; narrowed 2026-08-06):** For a given filesystem state and
+  flags, results and keeper choices are identical across runs and platforms.
+  This guarantee governs the **result document**, which means concretely:
+  **stdout whenever stdout is not an interactive terminal, and stdout always
+  under `--json`** — every case a script, a redirect, a pipe, or a diff
+  depends on — plus the completion document that ends an FR-20 record file.
+  Explicitly **excluded**: the FR-19 progress stream, on whichever stream
+  FR-21 puts it (Amendment 2026-07-19, re-scoped by the Amendment 2026-08-06);
+  anything written to an interactive terminal alongside progress; and the
+  transcript portion of an FR-20 record file, whose order follows the order
+  work finished.
 - **NFR-4 (scale):** Comfortably process large libraries — on the order of 100k+
   images and hundreds of gigabytes — by streaming file reads (no whole-file
   buffering in memory) and hashing in parallel across CPU cores. Concrete
@@ -258,8 +387,9 @@ Actions (default is dry-run / report only):
 
 Output:
   --json              Machine-readable output
+  --output <file>     Write a continuous, durable record of the run to <file>
   --exit-code         Exit 3 if any duplicate groups were found (else 0)
-  --no-progress       Disable the live progress indicator on stderr
+  --no-progress       Disable the live progress indicator
 ```
 
 Behavior:
@@ -275,14 +405,24 @@ Behavior:
 - **`--exit-code`:** opt-in; the tool exits `3` when duplicate groups were found
   and `0` when none were, so scripts/CI can detect duplicates without parsing
   output. Without it, a successful run exits `0` regardless of findings.
-- **Progress (Amendment 2026-07-19):** by default a live progress indicator on
-  **stderr** shows the phase, `x of y` files, and a percentage while the run works
-  (a single line redrawn in place on a TTY; occasional plain lines when stderr is
-  redirected). It never writes to stdout, so `imgdedup … > out` and
-  `imgdedup … --json > out.json` capture only the report/JSON. `--no-progress`
-  turns it off.
+- **Progress (Amendment 2026-07-19; streams amended 2026-08-06):** by default a
+  live progress indicator shows the phase, `x of y` files, a percentage, and the
+  elapsed time while the run works (a single line redrawn in place on a TTY;
+  occasional plain lines otherwise). In the default report mode on an
+  interactive terminal it is written to **stdout**; when stdout is redirected or
+  piped, and always under `--json`, it is written to **stderr** instead — so
+  `imgdedup … > out` and `imgdedup … --json > out.json` still capture only the
+  report/JSON. `--no-progress` turns it off.
+- **`--output <file>` (Amendment 2026-08-06):** writes a durable record of the
+  run to `<file>` **as the run progresses** — groups as they are determined,
+  warnings and errors as they occur, elapsed milestones, and the complete result
+  document once the run finishes — so an interrupted run still leaves what it
+  had produced. Human-readable by default, NDJSON under `--json`. It adds a
+  file; it changes nothing about what the terminal or stdout receives.
 - **Errors:** per-file problems are listed and skipped; the overall run still
-  completes and summarizes. Exit non-zero only on a run-level failure.
+  completes and summarizes. Exit non-zero only on a run-level failure. Standard
+  error carries **only** genuine failures (Amendment 2026-08-06) — plus
+  `--timings`, ADR-0017's diagnostic.
 
 ## 9. Acceptance criteria
 
@@ -390,14 +530,20 @@ Behavior:
 - **AC-19 (FR-18):** Given `--exit-code`, when a scan finds duplicate groups the
   tool exits `3`; when it finds none it exits `0`; and without `--exit-code` a
   successful run exits `0` even when duplicates are present.
-- **AC-20 (FR-19, stdout purity):** Given progress is enabled (default), when a
-  run completes — in either the default report mode or with `--json` — then
-  **stdout contains exactly the report/JSON document and no progress text**; all
-  progress output appears on stderr only. Redirecting stdout to a file therefore
-  yields a clean report/JSON.
-- **AC-21 (FR-19, TTY; amended 2026-08-01, 2026-08-05):** Given stderr is an
+- **AC-20 (FR-19/FR-21, stdout purity; re-scoped 2026-08-06):** Given progress
+  is enabled (default), when a run completes with **stdout redirected or piped**
+  — in either the default report mode or with `--json` — or with **`--json`** at
+  all, then **stdout contains exactly the report/JSON document and no progress
+  text**; the progress output appears on stderr instead. Redirecting stdout to a
+  file therefore yields a clean report/JSON. On an interactive terminal in the
+  default report mode, progress deliberately *does* share stdout with the report
+  (FR-21) — no script or redirect is reading in that case.
+- **AC-21 (FR-19, TTY; amended 2026-08-01, 2026-08-05, 2026-08-06):** Given the
+  stream FR-21 assigns to progress (stdout in the default report mode, stderr
+  under `--json`) is an
   interactive terminal, when a scan runs, then a **live single-line** progress
-  indicator is shown on stderr reporting the current phase and its progress,
+  indicator is shown on that stream reporting the current phase, its progress,
+  and the elapsed time (AC-32),
   where: scanning renders an indeterminate counting state while it walks the
   tree and the total is genuinely unknown, and then a **determinate** state
   measured against the number of files that walk found (AC-21a),
@@ -462,8 +608,11 @@ Behavior:
   process). Non-TTY is unaffected — AC-22's existing "found-so-far count
   stays TTY-only" reasoning applies identically to elapsed time, since a
   non-redrawn line could only ever record a stale value.
-- **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01, 2026-08-05):** Given stderr is
-  **not** a TTY (redirected or piped), when a scan runs, then **no in-place
+- **AC-22 (FR-19, non-TTY fallback; amended 2026-08-01, 2026-08-05,
+  2026-08-06):** Given the stream FR-21 assigns to progress is
+  **not** a TTY (redirected or piped) — which, in the default report mode with
+  stdout redirected, means progress falls back to plain lines on **stderr**
+  rather than joining the report on stdout — when a scan runs, then **no in-place
   redraw / carriage-return / ANSI control sequences** are emitted; progress
   instead appears as occasional plain, newline-terminated lines (log-friendly and
   bounded), following the same per-phase-subset-with-total-visible convention as
@@ -476,13 +625,79 @@ Behavior:
   therefore does **not** discharge the problem-size minimum above, which is
   about `y`. Scanning's indeterminate found-so-far count stays TTY-only: a
   non-redrawn line could only ever record a stale count. The AC-21b elapsed-
-  time liveness cue is TTY-only for the identical reason.
-- **AC-23 (FR-19, opt-out):** Given `--no-progress`, when a scan runs, then **no
-  progress output is written to stderr at all**, and stdout is unchanged.
-- **AC-24 (FR-19, output-only):** Given identical inputs and flags, the groups,
-  keeper, intended removals, and the **stdout report/JSON are identical** whether
-  progress is enabled, disabled (`--no-progress`), or on the non-TTY fallback path
-  — progress affects neither the results nor stdout (NFR-3 unaffected).
+  time liveness cue is TTY-only for the identical reason. **Scope note
+  (2026-08-06):** that TTY-only reasoning is about the *indeterminate walk
+  state*, whose count and clock are only meaningful while being redrawn. It
+  does **not** constrain elapsed time elsewhere: AC-32's per-render elapsed time
+  applies wherever progress renders, and FR-20's record-file milestone lines
+  always carry elapsed time regardless of any stream's TTY-ness — a written
+  milestone is a timestamped fact, not a stale redraw.
+- **AC-23 (FR-19, opt-out; re-scoped 2026-08-06):** Given `--no-progress`, when
+  a scan runs, then **no progress output is written at all** — to stderr or to
+  stdout, whichever FR-21 would have used — and the report/JSON document is
+  unchanged.
+- **AC-24 (FR-19, output-only; re-scoped 2026-08-06):** Given identical inputs
+  and flags, the groups, keeper, intended removals, and the **result document
+  are identical** whether progress is enabled, disabled (`--no-progress`), or on
+  the non-TTY fallback path. Where the result document is the whole of stdout —
+  stdout redirected or piped, and always under `--json` — those stdout bytes are
+  therefore identical too (NFR-3 unaffected). On an interactive terminal in the
+  default report mode, progress shares stdout by design (FR-21), so the
+  invariant is on the report itself, not on every byte of the stream.
+- **AC-25 (FR-20, durability):** Given `--output run.txt` on a run that finds
+  duplicate groups, when the process is killed partway through, then the file
+  exists and contains the header, the milestones reached so far, and every
+  group that had already been determined — and it does **not** contain the
+  completion document, so an interrupted run is distinguishable from a
+  finished one.
+- **AC-26 (FR-20, completion document):** Given `--output run.txt` on a run
+  that completes, when the run finishes, then the file ends with the complete
+  canonical result document — **byte-identical** to what the same run writes to
+  stdout in the human-readable case — and two runs over an unchanged tree
+  produce byte-identical completion documents (NFR-3, AC-16) even if their
+  transcripts differ.
+- **AC-27 (FR-20, NDJSON under `--json`):** Given `--output run.ndjson --json`,
+  when the process is killed partway through, then every complete line of the
+  file parses as an independent JSON object; and when the run completes
+  instead, the final line is the complete result document — **the same document
+  and schema that stdout received, though not the same bytes**: the record
+  serializes it compactly on one line, stdout pretty-prints it. Parsing both and
+  comparing the resulting values must show them equal.
+- **AC-28 (FR-20, output-only + fail fast):** Given identical inputs and flags,
+  the groups, keeper, intended removals, and **stdout bytes** are identical with
+  and without `--output`, and the terminal shows the same progress and report
+  either way; and given an unwritable `--output` path, the run fails with a
+  usage-level error **before scanning starts** and writes no report.
+- **AC-28a (FR-20, mid-run write failure; added 2026-08-06):** Given a valid
+  `--output` path that becomes unwritable **while the run is in progress** (disk
+  full, network path dropped), when the run continues, then the scan or apply
+  completes normally and its groups, keeper choices, removals, and stdout
+  report/JSON are exactly what they would have been without `--output`; the
+  failure is reported **exactly once**, not once per subsequent failed write;
+  and the process exits **`1`** (FR-15's run-level failure code) despite the
+  deduplication work itself having succeeded.
+- **AC-29 (FR-21, interactive stdout):** Given the default (non-`--json`) mode
+  with stdout an interactive terminal, when a scan runs, then progress —
+  including elapsed time — and apply-time status lines appear on **stdout**,
+  and **stderr receives nothing** unless a genuine failure occurred.
+- **AC-30 (FR-21, redirected stdout unchanged; corrected 2026-08-06):** Given
+  the default mode with stdout redirected or piped, when a run finishes, then
+  stdout is byte-identical to the report the same run produced before the
+  Amendment 2026-08-06 — no progress, no elapsed-time lines, no status lines —
+  and progress appears on **stderr** instead, rendered according to **stderr's
+  own** TTY-ness per AC-21/AC-22: a live single line redrawn in place when
+  stderr is still a terminal (the common `imgdedup ./photos > report.txt` case,
+  whose live indicator must not regress), plain milestone lines when stderr is
+  redirected too.
+- **AC-31 (FR-21, `--json` purity):** Given `--json`, when a run finishes,
+  whether or not stdout is a terminal, then stdout is exactly one JSON document
+  and nothing else, and progress appears on stderr only.
+- **AC-32 (FR-19 amended 2026-08-06, elapsed time):** Given progress is
+  enabled, when a scan runs on a terminal, then **every** progress render
+  carries the elapsed time since the run started — in every phase and state,
+  generalizing AC-21b beyond scanning's indeterminate walk state — and the
+  terminal completion state reports the run's total elapsed time. No
+  remaining-time estimate is shown.
 
 ## 10. Open questions
 
@@ -528,6 +743,18 @@ Handed to the architect (Phase 2) unless noted:
 - **Risk — TOCTOU between scan and apply:** a file may change between the dry-run
   scan and `--apply` (including being swapped for a symlink). Mitigated by
   re-validation at apply time (FR-16); AC-11 parity is scoped to an unchanged tree.
+- **Risk — a second machine-readable surface drifting (Amendment 2026-08-06):**
+  FR-20's NDJSON record file is machine-readable output that is *not* the
+  `--json` document, so the two can diverge in field names, meanings, or
+  coverage. Mitigated by making the record file's completion line the
+  **same** result document `--json` emits, and by giving the event vocabulary an
+  explicit stability posture (handed to the architect) rather than letting one
+  accrete by accident.
+- **Risk — a partial record read as a complete one (Amendment 2026-08-06):** a
+  transcript from an interrupted run reports provisional counts in
+  work-completion order. Mitigated by the completion document's presence being
+  the only "this run finished" signal, and by requiring the file to make the
+  transcript/result distinction legible (FR-20).
 - **Risk — hard links misreported as reclaimable:** removing one link frees no
   space and may discard a path the user considers distinct. Mitigated by FR-17
   (hard links are not proposed for removal and excluded from reclaimable space).
@@ -576,6 +803,16 @@ considered and explicitly deferred** (YAGNI): redirection already covers the nee
 with zero new surface. Recorded as a non-goal in §4; it is intentionally **not** a
 backlog task. If a future need arises (e.g. writing a file while also printing a
 human summary to the terminal), it can be revisited in a new PRD/ADR.
+
+> **Superseded 2026-08-06 — decision 2 only.** The future need this decision
+> anticipated arrived. A real ~69 000-file run showed that redirection cannot
+> help a run interrupted before it ends, because the report is written in one
+> shot at the very end. `--output <file>` now exists as **FR-20**, carrying the
+> property that distinguishes it from the flag deferred here: it writes
+> **continuously as the run progresses**. The §4 non-goal is removed. Decisions
+> 1 and 3 stand, except that decision 1's "stderr only, in any mode" routing is
+> separately superseded by **FR-21**. See the
+> [Amendment 2026-08-06](#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341).
 
 **Owner decision 3 — scheduling.** FR-19 is specified now but **built in a fresh
 usage window as its own unit** (implementer, TDD) — see
@@ -812,3 +1049,411 @@ phrased in terms of "progress enabled/disabled," not by flag name.
 No new FR or AC: `--timings` remains ADR-0017's diagnostic/engineering
 surface, not a PRD-0001 product capability (see that ADR's "Product scope and
 unit classification" section).
+
+## Amendment 2026-08-06 — durable run record, stream model, and report paging (product-owner ruling, TASK-0340 + TASK-0341)
+
+The owner ran the shipped binary unattended against a real ~69 000-file corpus
+on an SMB-mounted NAS volume (session 32). The run completed and the result was
+correct; the two complaints came from *watching* it, not from what it produced:
+
+1. **The report outran the terminal's scrollback.** Enough duplicate groups
+   were found that, with stdout not redirected, the earlier part of the report
+   could no longer be scrolled back to once the run finished. FR-19 bounds
+   *progress* output, but the report body — one block per duplicate group
+   (FR-13) — has no size bound at all and is written in one shot at the end
+   (TASK-0340).
+2. **The stream split "reads backwards" at this scale, and an interrupted run
+   leaves nothing.** For the whole run stdout is silent and every visible sign
+   of life is on stderr; and because the report is buffered to the very end, a
+   run killed, interrupted, or throttled (TASK-0339) before completion leaves
+   **zero** stdout output — with the in-flight progress gone from scrollback
+   too, unless stderr happened to be redirected as well (TASK-0341).
+
+The two tasks were deliberately routed into one ruling: they are the same
+question — what a user actually gets to *see* and *keep* from a long run — and
+each one's leading candidate direction was the other's alternative.
+
+**Owner direction, 2026-08-06.** The human product owner gave direct product
+direction on this amendment before it was finalized. It is the governing input
+for rulings 1–4 and it is quoted verbatim so later readers can check the
+rulings against it rather than against a paraphrase:
+
+> "i would like to see a switch/flag that let's one define a file that is
+> continuously written to and with that contains all information. i would also
+> like to see some form of tracking of elapsed time in the terminal output.
+> this normal output should run on stdout; stderr should only carry actual
+> errors"
+
+This supersedes three positions an earlier draft of this amendment had taken:
+deferring `--output <file>` a second time, deferring incremental emission, and
+leaving the stdout/stderr split untouched. Ruling 6 records what was
+superseded and why, so the overridden reasoning stays legible instead of
+vanishing.
+
+**Ruling 1 — `--output <file>`: a durable run record, written continuously.**
+A new flag names a file that `imgdedup` writes **as the run progresses**, not
+at the end, and that ends up containing **everything the run produced** — the
+duplicate groups as they become known, every warning and error, phase and
+elapsed-time milestones, apply-time removals and skips, and finally the
+complete canonical result. This closes both field complaints at once: a long
+run's results survive the terminal's scrollback (TASK-0340) *and* survive the
+run itself being killed, interrupted, or throttled (TASK-0341's durability
+gap), which no end-of-run write and no shell redirection can do. It reverses
+the 2026-07-19 deferral of `--output <file>` (§4, Amendment 2026-07-19
+decision 2) on the owner's direction, and on the substantive ground that
+distinguishes it from that decision: the flag deferred then was a convenience
+duplicate of `> file`, whereas this one does something redirection
+provably cannot. Specified as **FR-20** below; the name `--output <file>` is
+owner-confirmed (2026-08-06).
+
+The flag is **opt-in**. Writing a record file into the user's working
+directory unasked (the `rdfind`/`rmlint` shape) is still rejected: FR-9's
+posture is that a default run changes nothing on disk, and that includes
+files the user did not ask for.
+
+**The record file is additional, not a replacement** (owner-confirmed
+2026-08-06). Passing `--output` changes nothing about what the terminal shows
+or what stdout receives: progress still renders, the report is still printed.
+The file is an independent, parallel record — so a user who passes it does not
+have to choose between watching the run and keeping it.
+
+**Ruling 2 — what "all information" means, and what the file's format is.**
+The record file is a **transcript followed by the authoritative result**, in
+one file:
+
+1. A header identifying the tool version, the invocation (roots and flags),
+   and the start time.
+2. Coarse phase/progress milestones carrying elapsed time — bounded, at the
+   same milestone granularity as the non-TTY progress fallback (AC-22), never
+   one line per file.
+3. Each duplicate group **as soon as it is known to be final**, with its
+   keeper and its removable files.
+4. Every warning and every error, at the moment it occurs.
+5. Apply-time removals and skips, as they happen.
+6. On completion, the **complete canonical result document** — byte-identical
+   to what stdout receives for the same run.
+
+Only item 6 is covered by **NFR-3**. Items 1–5 are a transcript of a run in
+progress: their order follows the order work actually finished, which under
+parallel hashing is not guaranteed to be reproducible, and they may report
+counts that are still provisional. Saying so plainly is what makes the file
+honest — a reader can trust the tail absolutely and read the body as "what had
+happened by then". A partial file left by a killed run therefore has items 1–5
+and no item 6, which is exactly the signal that the run did not finish.
+
+**Format follows the output mode** (owner-confirmed 2026-08-06). Without
+`--json` the file is the human-readable rendering. With `--json` it is
+**NDJSON** — one JSON object per line, items 1–5 as event objects and item 6 as
+the complete result document on the final line. NDJSON is chosen precisely
+because it is valid at every line boundary, so a process killed mid-write
+leaves a file whose every complete line still parses; that is the direct answer
+to "what is a valid partial JSON document", and it costs stdout's
+single-document contract nothing. The cost is accepted with eyes open: this is
+a **second machine-readable surface** alongside `--json`'s single document,
+with its own event vocabulary to design, document and version (handed to the
+architect below).
+
+**Ruling 3 — stream model: normal output on stdout, stderr for genuine errors
+only.** Per the owner's direction, the FR-19 rule that progress goes to stderr
+in every mode is reversed for the interactive default case, and the S2
+stdout-purity contract is **narrowed rather than abolished**. The
+**TTY-conditional** reading below is owner-confirmed (2026-08-06):
+
+- **Default (non-`--json`) mode with stdout an interactive terminal:**
+  progress, phase and elapsed-time output, and apply-time status lines are
+  written to **stdout**. This is the case the owner is describing — the run's
+  visible activity is now on the stream a user expects it on.
+- **Default mode with stdout redirected or piped:** progress is **not** written
+  to stdout. It moves to **stderr**, rendered per stderr's own TTY-ness
+  (AC-21/AC-22, unchanged) — still a live in-place line when stderr is a
+  terminal, plain milestone lines when it is not. Interleaving progress
+  into `imgdedup ./photos > report.txt` would corrupt the documented
+  save-a-report workflow and break AC-24 for no benefit — and the durable copy
+  a user wants from a redirected run is now ruling 1's job anyway.
+- **`--json`, always:** stdout stays **exactly one JSON document and nothing
+  else**, on a terminal or not. Progress under `--json` goes to stderr as
+  today. This is not deference to the old contract for its own sake: writing
+  progress into stdout under `--json` would literally corrupt the document, so
+  no reading of the owner's direction can intend it. TASK-0308's schema and
+  ADR-0016's plugin consumer are unaffected.
+- **stderr carries only genuine failures:** run-level errors (`root_errors`)
+  and per-file failures (unreadable file, permission denied, a skip that
+  represents an actual problem). Routine status — progress, phase changes,
+  elapsed time, "removed X" lines — no longer belongs there. The report's own
+  `Warnings:` section is part of the report document and stays on stdout,
+  unchanged; live per-file error lines on stderr are the existing pattern
+  (`docs/guide/output-and-exit-codes.md`), not a new one.
+- **`--timings` is an explicit carve-out** and stays on stderr. It is
+  ADR-0017's engineering diagnostic, not "normal output", and it already owns
+  stderr to the exclusion of the progress indicator.
+
+So stdout purity now means: **stdout is exactly the result document whenever
+stdout is not an interactive terminal, and always under `--json`** — which is
+every case NFR-3, AC-20, AC-24, `--json > result.json`, and every scripted
+consumer actually depend on. The interactive terminal case, where no script is
+reading, is the one that changes. Specified as **FR-21** below, which
+supersedes FR-19's "stderr only, in any mode" clause.
+
+**Ruling 4 — elapsed time everywhere in the terminal output, not just during
+the walk.** AC-21b already shows elapsed time, but only in scanning's
+indeterminate walk state — precisely the ≈10% of the scanning window that is
+*not* the long wait. Per the owner's direction this generalizes: **every**
+progress render carries elapsed time since the run started, in every phase and
+state, and the terminal completion state carries the run's **total** elapsed
+time. A remaining-time / ETA estimate is deliberately **not** adopted: this
+pipeline's phases have very different per-file costs (hashing dominated a real
+corpus at ~86%, TASK-0338), so an extrapolated ETA would be confidently wrong
+in exactly the long runs it is wanted for — the same honesty test that
+rejected an entries-visited tick on 2026-08-05. Recorded as an amendment to
+FR-19 with **AC-32**.
+
+**Ruling 5 — page the human-readable report on an interactive terminal, as a
+second, lower-priority slice.** The `git log` pattern still earns its place:
+it is the only mechanism that requires **no foresight**, and foresight is what
+actually failed in the field (redirection has always existed and is
+documented; the owner simply had not decided to use it before starting a
+multi-hour run). Ruling 1's record file also requires the user to have decided
+in advance, so it does not make paging redundant — but it *does* make it less
+urgent, since results are no longer lost either way. Sequencing therefore:
+ruling 1 + ruling 3 + ruling 4 ship first as one slice; paging is a separate,
+independently shippable slice after it. Specified as **FR-22**, and
+deliberately **never applied to `--json`**: routing machine-readable output
+through an interactive program is never right, and an agent harness that
+allocates a pty (ADR-0016's plugin) would otherwise hang on a keypress it can
+never send. Named residual: `imgdedup --json` eyeballed on a terminal can
+still overrun scrollback — accepted, since redirection and `--output` both
+cover it and `| less` remains available.
+
+**Ruling 6 — what an earlier draft of this amendment ruled, now superseded.**
+Recorded rather than deleted, per this project's practice of keeping
+overridden reasoning legible:
+
+- *`--output <file>` stays deferred* — **superseded by ruling 1.** The draft's
+  argument was that the flag needs the same foresight redirection needs, so it
+  would not have prevented what happened. That argument survives for a
+  *final-write* output flag and is why paging is still worth having (ruling
+  5); it does not survive for a *continuously written* one, which buys
+  durability nothing else can.
+- *Incremental emission deferred with a trigger* — **superseded by rulings 1
+  and 2.** The draft deferred it partly on a suspected NFR-3 conflict. Ruling
+  2 dissolves that conflict rather than resolving it: the incremental content
+  goes to a file that is explicitly not covered by NFR-3, while stdout keeps
+  the canonical, deterministic, complete document. The draft's other objection
+  — that a partial prefix misstates end-of-run totals — is answered by
+  labelling items 1–5 as provisional and by the absence of item 6 being the
+  signal that the run did not finish.
+- *The S2 contract stands unchanged* — **superseded by ruling 3.** The draft
+  argued the split matches convention (`curl`, `grep`, `git`) and that the
+  complaint was about *when* stdout arrives rather than *what* is on it. The
+  owner's call is that the interactive experience matters more than the
+  convention argument; ruling 3 keeps the part of the contract that scripts
+  depend on and gives up only the interactive-terminal case.
+
+**Rejected alternatives**, named so they are not re-proposed:
+
+- **Truncating the report** (show the first *N* groups plus "…and 3 412 more")
+  — rejected outright. §5's first user story is seeing *every* set before
+  anything changes; silently withholding findings from a safety-critical dry
+  run is the one thing this report must not do.
+- **Docs/discoverability only** (TASK-0340 direction (c)) — rejected as the
+  answer by itself: "remember to redirect" is precisely the instruction that
+  was available and did not help.
+- **Writing a record file by default, without a flag** — see ruling 1.
+- **Streaming the incremental result to stdout** (TASK-0341 direction (b) in
+  its original form) — not adopted: it would put a nondeterministic, partial
+  document on the one stream that must stay canonical. Ruling 1 gets the same
+  durability with none of that cost.
+
+### Requirement text
+
+Rulings 1–4 are confirmed and **live in the PRD body**, not here, so there is
+one source of truth: **FR-20** (`--output <file>`) and **FR-21** (stream model)
+in §6, the elapsed-time amendment inside **FR-19** in §6, NFR-3's narrowing in
+§7, the flag and behavior entries in §8, and **AC-25..AC-32** in §9 (with
+AC-20/AC-21/AC-22/AC-23/AC-24 re-scoped in place). §4's `--output <file>`
+non-goal is deleted and the Amendment 2026-07-19's decision 2 is marked
+superseded there.
+
+Only **FR-22 (paging)** is still tentative and therefore still stated here in
+full, together with its acceptance criteria. It is **not** in the body and no
+work on it starts until the open question below is answered. This capability is
+**two slices** (ADR-0013): FR-20 + FR-21 + the FR-19 amendment first, FR-22
+second.
+
+- **FR-22 (Amendment 2026-08-06; TENTATIVE — not folded into §6, pending the
+  open question below):** When the human-readable report is written
+  to an **interactive terminal**, display it through a **pager**, so that a
+  report longer than the screen can be read from its first line and cannot
+  overrun the terminal's scrollback. Specifics:
+  - Paging engages **only** when stdout is an interactive TTY, and **only** for
+    the human-readable report. It never engages under `--json` (ruling 5), and
+    never when stdout is redirected or piped.
+  - The byte stream handed to the pager is **exactly** the byte stream that
+    would otherwise have gone to stdout. Nothing is truncated, summarized,
+    reordered, or re-styled.
+  - The pager is the one named by **`$PAGER`** when set, otherwise a sensible
+    platform default. If no pager is available, or launching it fails, the
+    report is written directly to stdout and the run still succeeds.
+  - **`--no-pager`** disables paging. `--timings` disables it too, for the same
+    reason it disables progress (ADR-0017): both would write to a screen the
+    pager owns.
+  - A report that **fits on one screen** must not require a keypress to get
+    back to the prompt.
+  - **Exit codes are the tool's own.** The pager's exit status never replaces
+    FR-15's or FR-18's. Quitting the pager before the end of the report is a
+    normal outcome: the exit code is unchanged and no broken-pipe/`EPIPE`
+    error is reported.
+  - Progress (which under FR-21 is on stdout in this case) and every other
+    in-flight output are emitted **before** the pager takes the screen.
+  - Paging is **output-only**: it never changes what is scanned, grouped, or
+    removed. NFR-3 is unaffected — as narrowed by ruling 3 it governs stdout
+    whenever stdout is not an interactive terminal, which is exactly the case
+    in which no pager runs; the paged bytes are identical either way.
+
+Acceptance criteria for FR-22 (the confirmed criteria AC-25..AC-32 are in §9):
+
+- **AC-33 (FR-22, paging on a TTY):** Given stdout is an interactive terminal
+  and a run produces a human-readable report longer than the screen, when the
+  run finishes, then the report is displayed through a pager and can be
+  scrolled back to its first line, and the bytes displayed are identical to
+  those the same run writes when stdout is redirected.
+- **AC-34 (FR-22, when it never engages):** Given stdout is redirected or
+  piped, or `--json`, or `--no-pager`, or `--timings`, when a run finishes,
+  then no pager is launched and the report/JSON is written directly to stdout.
+- **AC-35 (FR-22, exit codes):** Given a paged report, when the user quits the
+  pager before reaching the end, then the tool exits with its own status — `0`
+  for a successful run, `3` for a run with `--exit-code` that found duplicates,
+  `1` for a run-level failure — and no broken-pipe/`EPIPE` error is printed.
+- **AC-36 (FR-22, no pager available):** Given no usable pager (`$PAGER` unset
+  with no platform default present, or the pager fails to launch), when a run
+  finishes on an interactive terminal, then the report is written directly to
+  stdout in full and the run completes with its normal exit code.
+- **AC-37 (FR-22, short report):** Given a report that fits within the
+  terminal, when the run finishes, then the user is not required to press a key
+  to return to the prompt.
+
+**Fold status.** Done for the confirmed part: §4 **deletes** the
+`--output <file>` non-goal (ruling 1) and Amendment 2026-07-19's decision 2 is
+cross-noted as superseded there; §5 gains two user stories; §6 gains FR-20 and
+FR-21, and FR-19 is amended in place; §7 records NFR-3's narrowing (ruling 3);
+§8's Output block gains `--output <file>` and its Behavior list is restated; §9
+gains AC-25..AC-32 plus **AC-28a** (mid-run record-write failure) and re-scopes
+AC-20/AC-21/AC-22/AC-23/AC-24; §11 gains two risks. The ADR-0018 design pass's
+resolutions (2026-08-06) are folded into FR-20, FR-21, AC-22, AC-26, AC-27,
+AC-28a and AC-30 — see the handoff status below. **Not folded:** FR-22 and
+AC-33..AC-37 (paging), which stay in this amendment until the open question
+below is answered.
+
+### Open question — for the human owner, and only for the FR-22 slice
+
+Questions on the flag name, the TTY-conditional stdout rule, the NDJSON record
+format, and whether the record file duplicates or replaces terminal output were
+**all answered by the owner on 2026-08-06** and are recorded as decided in
+rulings 1–3 above. One remains, and it blocks only the second slice:
+
+1. **Paging: default-on or opt-in, and is Windows a blocker?** FR-22 specifies
+   paging **on by default** (matching `git`), which means an interactive run
+   would end inside a pager waiting for `q` — a visible first-run change
+   landing right before the repository goes public (TASK-0337). And if no
+   satisfactory default pager exists on Windows, the fallback is "no paging
+   unless `$PAGER` is set" — a documented gap against NFR-5.
+   **Recommendation: default-on, and accept the Windows gap rather than
+   blocking the slice.** Until this is answered, FR-22 and AC-33..AC-37 stay
+   out of the PRD body and no paging work starts.
+
+### Handed to the architect
+
+The owner decided *that* the incrementally-written record file happens, so these
+were **design** questions, not a feasibility gate.
+
+**Status: the FR-20 and FR-21 questions are closed** by the architect's design
+pass ([ADR-0018](../adr/0018-durable-run-record-and-output-stream-routing.md)) and the
+owner's rulings on what it surfaced (2026-08-06). What was decided, kept short
+so a later reader need not reconstruct it:
+
+1. **Apply-time `trashed:`/`deleted:` lines need no stderr carve-out.** The
+   architect flagged that FR-21's failures-only stderr rule leaves them
+   "nowhere to go" under `--json`. Ruled: correct as-is — they are routine
+   status, already authoritative in the result document's `actions` object
+   (FR-14) and captured incrementally by `--output` when it is set. FR-21's
+   taxonomy stands unchanged; the reasoning is now written into FR-21 so the
+   silence reads as intentional.
+2. **`--json` without `--output` has no incremental or durable trace —
+   accepted, not a gap.** Recorded in full in FR-21's closing note, including
+   why streaming stdout would relocate rather than remove the fragility. This
+   is the paragraph that should stop a future reader from "fixing" it.
+3. **Mid-run record-write failure: continue, report once, exit `1`.** Folded
+   into FR-20 and pinned by the new **AC-28a**, which closes the gap the
+   architect named (AC-28 covered only the startup check).
+4. Three wording corrections the architect raised as technical, not product,
+   changes, all applied: **AC-30** now keys the redirected-stdout fallback off
+   **stderr's own** TTY-ness (as written it would have regressed the live
+   in-place indicator on `… > report.txt`); **FR-20/AC-27** now distinguish
+   document-equivalence from byte-equivalence for the NDJSON completion line
+   (compact vs. stdout's pretty-printed form); and **AC-22**'s "TTY-only"
+   reasoning is scoped to the indeterminate walk state so it no longer reads as
+   contradicting AC-32 or FR-20's always-timestamped record milestones.
+
+The FR-22 questions below remain open, with that slice.
+
+For FR-20 (the record file) — **closed, retained for the record**:
+
+- Can a duplicate group ever be **final** before the whole run completes? Does
+  the FR-5 size-cohort partition mean a cohort's groups are settled once that
+  cohort's candidates are hashed and byte-verified, or can a
+  discovered/hashed-later candidate still join a group already written to the
+  file? If the latter, what *can* be honestly written early — and how should a
+  later correction be represented?
+- What does incremental emission cost the pipeline as it stands — is it local
+  to the `sort_canonical`/`render` stages (ADR-0017's span table), or does it
+  require restructuring the engine's result model? Note that ruling 2 keeps
+  stdout's canonical document intact, so nothing needs to become deterministic
+  that is not deterministic today.
+- Durability mechanics: what flushing/syncing discipline makes AC-25 true, and
+  what exactly survives `SIGINT` vs `SIGKILL` vs a hard power loss? State the
+  guarantee the docs can safely make.
+- NDJSON design (the format is owner-confirmed, so this is a *how*): the event
+  vocabulary, how it versions relative to `schema_version: 1`, whether the
+  completion line is literally the existing document or a wrapped form, and
+  whether it carries its own stability contract or is explicitly declared
+  unstable for now.
+- The record file is written **while the tool is scanning** — what happens if
+  the user points `--output` at a path inside a scan root? (It is not an image
+  so it should be filtered, but the interaction should be reasoned about, not
+  assumed.) Likewise: pre-existing file — truncate, refuse, or append?
+- Mid-run write failure (disk full, network path lost): abort the run, or
+  continue and report? **Resolved** — continue, report once, exit `1`
+  (FR-20, AC-28a).
+
+For FR-21 (the stream model) — **closed, retained for the record**:
+
+- Which stream a component writes to now depends on `--json` and on stdout's
+  TTY-ness. Where should that decision live so it is made once, and how is it
+  tested without a pty for every case?
+- Progress currently renders in place using stderr TTY-ness (FR-19). With
+  progress on stdout, in-place rendering must key off **stdout**'s TTY-ness —
+  confirm there is no case where the two disagree in a way that produces
+  control codes in a captured file.
+- Re-classify each existing stderr writer as "genuine failure" or "routine
+  status": run-level `root_errors`, per-file warnings, apply-time
+  `removed:`/skip lines. Flag anything where the classification is genuinely
+  arguable rather than deciding it silently. **Resolved** — the apply-time
+  lines were the one arguable case; see item 1 above.
+
+For FR-22 (paging) — **still open**, and needed before that second slice:
+
+- Whether `$PAGER` is executed **through a shell** (needed for the common
+  `PAGER="less -R"` form, as `git` does) or exec'd directly, and what that
+  choice means under ADR-0005's security gate — the pager is a program named
+  by user-controlled environment, so the trust model and any injection surface
+  should be stated explicitly rather than inherited by analogy to `git`.
+- The platform default pager, including the Windows story (feeds the open
+  owner question above).
+- Mechanics of AC-35 and AC-37: propagating the tool's own exit code around
+  the pager, suppressing `SIGPIPE`/`EPIPE` on an early quit, and achieving
+  "no keypress for a short report" without depending on one specific pager's
+  flags.
+- Ordering guarantee for FR-22's "in-flight output is emitted before the pager
+  takes the screen", including run-level errors and the apply-stage live
+  stream — now that most of that stream is stdout, the same stream the pager
+  is about to take.
