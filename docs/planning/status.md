@@ -11,8 +11,87 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 33 (TASK-0340/TASK-0341 joint design: PRD-0001 amendment + ADR-0018),
+  2026-08-06 — branch `docs/prd-0001-pager-and-output-model`, fresh window
+  (5h 2% → 83%)._ Design-only continuation of session 32's backlog rows.
+  Product-owner's first draft (deferred `--output <file>` again, kept the S2
+  stream split unchanged) was **superseded mid-session by direct owner product
+  direction**: a continuously-written `--output <file>` record, elapsed time on
+  every progress render, and normal output on stdout with stderr reserved for
+  genuine failures only. Two product-owner round-trips plus two architect
+  round-trips (five agent dispatches total) reconciled that direction against
+  the shipped NFR-3 stdout-purity contract and TASK-0308/ADR-0016's dependence
+  on it. Landed, in two commits on the branch (PRD, then ADR):
+  1. **PRD-0001 Amendment 2026-08-06** — **FR-20** (`--output <file>`:
+     continuous durable record, human-readable by default / NDJSON under
+     `--json`, additive not a replacement) and **FR-21** (stream model: stdout
+     carries progress/status in default mode when it's an interactive
+     terminal, falls back to stderr when redirected/piped; `--json` mode
+     completely unchanged — stdout stays one document, progress stays on
+     stderr, so `--json > result.json` and the ADR-0016 plugin are
+     unaffected). FR-19 amended for elapsed time everywhere (no ETA — hashing
+     dominates real runs per TASK-0338's numbers, so an estimate would be
+     confidently wrong). NFR-3 narrowed to the result document specifically.
+     New AC-25..AC-32 + AC-28a. **FR-22 (auto-pager, ex-TASK-0340) demoted to
+     a tentative follow-on slice** — the durable record now solves the
+     data-loss half of the original field complaint, so paging is no longer
+     urgent, just still useful for scrollback; one owner question (default-on
+     vs. opt-in, Windows gap) blocks it from folding into the PRD body.
+  2. **[ADR-0018](../adr/0018-durable-run-record-and-output-stream-routing.md)**
+     — the mechanism design PRD-0001 hands to the architect. Key finding: a
+     duplicate group's **membership is provably final before the run
+     completes** (the candidate set closes before grouping starts, and
+     `group_by_size`/`group_by_hash` only ever append) — so FR-20's "as soon
+     as known final" claim holds structurally, no product rework needed.
+     Resolved three owner-adjudicated questions the design surfaced:
+     apply-time `trashed:`/`deleted:` lines get **no stderr carve-out** (they
+     were never load-bearing there — FR-14's `actions` object and FR-20's
+     `action` NDJSON event already cover them); `--json` without `--output`
+     having **no incremental trace is a deliberate accepted decision**, not a
+     gap (chainability for `jq`/the plugin outweighs it, and a crashed pipe is
+     comparably fragile regardless); and a mid-run record-write failure
+     **continues the run, reports once, and exits 1** (an `AtomicBool` latch
+     keeps a full disk cheap on the rayon hot path). A consequence note on
+     ADR-0008 records the finalization property as a pipeline-level fact.
+  **Window 1 stopped at 83% of the 5h window** (est. 40–55% for the design
+  step; actual cost roughly doubled by the mid-session direction change adding
+  two full extra round-trips) — logged as a batch-plan lesson: **a
+  human-directed pivot mid-design costs about as much as starting the design
+  over**, not a small delta on top of the original estimate.
+
+  **Window 2, same day.** Product-owner drafted the guide-doc pass
+  (`README.md`, `output-and-exit-codes.md`, `getting-started.md`) against the
+  confirmed FR-19/FR-20/FR-21 text, marked "not in a release yet" since
+  `--output` doesn't exist in `src/cli.rs`. The required whole-branch-diff
+  architect review ([`docs/process/sdlc.md`](../process/sdlc.md), ADR-0011)
+  found it **not ready**: a stale self-contradiction in this file (this
+  paragraph, previously claiming the guide pass as undone after it had
+  landed), two factual-drift findings verified against `src/apply.rs` and
+  `src/main.rs` (a stderr category with nothing that writes to it; the apply
+  skip-line reclassification stated as an unqualified "genuine failure" for
+  all ten `SkipReason` variants, when four — including the two
+  `--follow-symlinks`-reachable symlink variants — are documented in source as
+  routine, not failures), plus a policy question: every prior guide-doc update
+  in this repo rides its feature's _implementation_ PR: should this one break
+  that precedent by documenting unshipped behavior with disclaimers, or hold?
+  **Owner decision: hold** — the guide-doc commit was reverted
+  (`a2fd3d2`, reverting `1325211`) rather than kept with disclaimers, so this
+  PR stays PRD + ADR only, and the six findings' fixes are moot for now but
+  recoverable from `1325211` (a good starting draft) when TASK-0340/0341's
+  implementation slice writes the guide for real. The architect's own
+  ADR-0018 had the same gap the guide inherited (`§9 #7`'s skip-line hedge
+  only named one of the four routine `SkipReason` variants) — fixed directly
+  (`48b5700`), widening the hedge to all four with the concrete evidence from
+  `apply.rs`, decision unchanged. This unit is now **PRD-0001 Amendment
+  2026-08-06 + ADR-0018 only**, architect-reviewed, ready to open its PR;
+  TASK-0340/0341's backlog rows point at the reverted guide-doc draft for
+  reuse. Implementation (TDD, both FR-20/FR-21 first, FR-22 paging as a later
+  slice, guide docs riding that PR per precedent) is the rest of this backlog
+  item, scheduled for a fresh window.
+
 - _Session 32 (new TASK-0339/TASK-0340/TASK-0341, real-world dogfooding
-  follow-ups; planning-only), 2026-08-06._ Owner ran the local release binary
+  follow-ups; planning-only), 2026-08-06 — merged [PR #97](https://github.com/intruder1912/imgdedup/pull/97)._
+  Owner ran the local release binary
   (built and validated on the test-images corpus in session 31) unattended
   against a real ~69k-file corpus on an SMB-mounted Synology NAS volume.
   Runtime was much longer than the test-images corpus (no overall-time figure
