@@ -18,11 +18,13 @@ docs pass → AI automation, batched within Claude usage limits.
   Runtime was much longer than the test-images corpus (no overall-time figure
   was captured) but the run completed; the two things worth recording came
   from watching it run, not from the result.
-  1. **macOS throttled or effectively hibernated the process after a period
-     of no user activity, despite an indefinitely-running Amphetamine
-     session** that should have kept the system awake — not yet root-caused
-     (App Nap, system idle/display sleep, and SMB/network-specific
-     throttling are all plausible and only distinguishable by testing).
+  1. **macOS appeared to throttle or effectively hibernate the process after
+     a period of no user activity, despite an indefinitely-running
+     Amphetamine session** that should have kept the system awake — not yet
+     root-caused (App Nap, system idle/display sleep, SMB session idle
+     disconnect, NAS disk spindown, Wi-Fi/interface power-save, and other
+     network-specific throttling are all plausible and only distinguishable
+     by testing).
      Recorded as **TASK-0339**: diagnose the mechanism first, then an
      opt-in, default-off, cross-platform "stay awake" flag — macOS
      `IOPMAssertion`/`NSProcessInfo.beginActivity`, Linux
