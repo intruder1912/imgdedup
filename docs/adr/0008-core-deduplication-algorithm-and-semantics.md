@@ -736,6 +736,52 @@ described as holding regardless of how many paths are passed.
 **Unit classification: `fix:`** (defect, not a feature) — one function's
 scope, its tests, and the doc reconciliation, in one PR.
 
+## Consequence note — when a duplicate group becomes final (2026-08-06, FR-20)
+
+PRD-0001's Amendment 2026-08-06 (ruling 2) asks the record file to contain each
+duplicate group "as soon as it is known to be final", and hands the architect
+the question of whether that is honest. It is, and the reason is a property of
+*this* pipeline, so it is recorded here rather than only in
+[ADR-0018](0018-durable-run-record-and-output-stream-routing.md), which designs
+the record file itself.
+
+**A `DuplicateGroup`'s membership — its keeper, its `removable` set, its
+`protected` set, and its hard-link notes — is final the instant the engine
+finishes deciding it. Nothing later in the run can add to it, remove from it, or
+split it.** Four closure properties, in sequence:
+
+1. **The candidate set is closed before grouping starts.** Enumeration and
+   sniffing both run to completion before the engine is called, so no candidate
+   is discovered after grouping begins.
+2. **A group cannot span size cohorts.** Byte-identical files have identical
+   sizes, and the FR-5 size pre-grouping partitions the *complete* candidate set
+   by exact size. The optimization is therefore also a **closure property**:
+   nothing in one cohort can ever affect another.
+3. **A group cannot span hash groups.** Hash grouping runs per cohort and yields
+   disjoint subsets of it; accumulated groups are never merged.
+4. **Verification of one hash group reads only that group.** It appends verified
+   groups, warnings and notes; it never revisits an already-emitted group.
+
+The canonical sort that follows (ADR-0010) only **reorders** — groups by keeper
+path, members by the keeper comparator. It changes no membership.
+
+What is correspondingly **not** final early, and must not be written as if it
+were: a group's **position** in the canonical order, its `Group i/N` **index**
+(`N` is unknown until the end), and every **run total** (group count, removable
+count, reclaimable bytes). Member order within a group is settled only by the
+canonical sort, but an emitter can obtain the final order by applying the same
+comparator at emit time.
+
+**Timing, stated honestly:** "as early as possible" is not "early in the run".
+The engine defers *all* byte-verification to a second pass that starts only once
+every cohort has been hashed (ADR-0010's 2026-08-01 consequence note), and
+hashing dominated a real corpus at ~86% (TASK-0338). Groups therefore stream
+during the verify phase — the last stretch of a run — and a run killed during
+hashing produces none. Interleaving verification per cohort would fix that but
+would make the FR-19 phase label flap once per cohort and destroy the
+single-`retotal` verify denominator (AC-21), so it is rejected unless a field
+report shows otherwise.
+
 ## Pros and cons of the options
 
 ### Option 1 — layered pre-filter pipeline (chosen)
