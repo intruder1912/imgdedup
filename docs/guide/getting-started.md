@@ -162,30 +162,9 @@ Group 1/1 (2 files, 1024 bytes reclaimable):
 A skipped file never changes the exit code on its own (see
 [Output and exit codes](output-and-exit-codes.md)).
 
-### Watching a long run
-
-While the scan works, a live progress indicator shows the current phase, how far
-along it is, and how long the run has been going — on your terminal, before the
-report it eventually prints. Redirect the report to a file and the indicator
-moves to standard error instead, so the file stays a clean report.
-
-A long run is also worth recording. `--output` writes everything the run
-produces to a file **as it goes** — milestones, groups, warnings, and the final
-result — so a scan you interrupt, or that dies, still leaves what it had found:
-
-```sh
-imgdedup --output run.txt ./photos
-```
-
-See [`--output`: a durable record of the run](output-and-exit-codes.md#--output-file-a-durable-record-of-the-run)
-for what lands in the file and what survives an interrupted run — including the
-note that `--output`, and progress sharing standard output, are accepted
-behavior that is still being implemented and not in a release yet.
-
 ## Where to go next
 
 - Control what gets scanned → [Scanning and scope](scanning-and-scope.md)
 - Decide which copy is kept → [Choosing what to keep](choosing-what-to-keep.md)
 - Actually reclaim space → [Removing duplicates safely](removing-duplicates-safely.md)
 - Script against the output → [Output and exit codes](output-and-exit-codes.md)
-- Keep a durable record of a long run → [`--output`](output-and-exit-codes.md#--output-file-a-durable-record-of-the-run)

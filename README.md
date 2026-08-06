@@ -161,60 +161,37 @@ The full JSON schema is documented in
 
 ### Saving results to a file
 
-To keep the finished result, **redirect standard output**. The moment stdout is
-redirected or piped it carries exactly the report or the JSON document and
-nothing else — progress and status move to standard error — so the saved file
-stays a clean report or a valid JSON document:
+To keep a result for later, **redirect standard output** — there is no separate
+output flag. It works for both the human report and `--json` because stdout
+carries only the report/JSON while run-level errors go to standard error, so the
+saved file stays a clean report or valid JSON document:
 
 ```sh
 imgdedup ./photos > report.txt         # human-readable report
 imgdedup --json ./photos > result.json # machine-readable results
 ```
 
-For a long or unattended run, `--output <file>` is the better tool: it writes a
-durable record **as the run progresses** — milestones with elapsed time, each
-duplicate group as it is found, every warning and error, apply-time removals,
-and finally the complete result — so a run that is interrupted or killed still
-leaves everything it had produced. It is additive: the terminal and stdout are
-unaffected. Human-readable by default, NDJSON under `--json`:
-
-```sh
-imgdedup --output run.txt ./photos
-imgdedup --json --output run.ndjson ./photos > result.json
-```
-
-Note that `--json` on its own keeps nothing until the run completes — the single
-JSON document is written at the end — so pair it with `--output` for anything
-long.
-
 See [Saving results to a file](docs/guide/output-and-exit-codes.md#saving-results-to-a-file)
-and [`--output`: a durable record of the run](docs/guide/output-and-exit-codes.md#--output-file-a-durable-record-of-the-run)
 for details.
 
 ### Live progress
 
-While a scan runs, `imgdedup` shows a live progress indicator by default — the
-current phase, `x of y` files, a percentage, and how long the run has been
-going — so you can see it's working and how far along it is. On an interactive
-terminal it shares **standard output** with the report; as soon as stdout is
-redirected, piped, or carrying a `--json` document it moves to **standard
-error**, so `imgdedup ./photos > report.txt` and
+While a scan runs, `imgdedup` shows a live progress indicator on **standard
+error** by default, so you can see it's working and how far along it is.
+Standard output is never touched, so `imgdedup ./photos > report.txt` and
 `imgdedup --json ./photos > result.json` still capture a clean report or JSON
-document. Standard error otherwise carries only genuine failures. Pass
-`--no-progress` to turn the indicator off:
+document. Pass `--no-progress` to turn it off:
 
 ```sh
 imgdedup --no-progress ./photos
 ```
 
-See [Where output goes](docs/guide/output-and-exit-codes.md#where-output-goes-stdout-and-stderr)
-for the full stream rules and
-[Progress while it runs](docs/guide/output-and-exit-codes.md#progress-while-it-runs)
-for what the indicator shows.
+See [Progress while it runs](docs/guide/output-and-exit-codes.md#progress-while-it-runs)
+for what it shows and how it behaves when redirected.
 
 If a scan feels slow, `--timings` prints how long each stage of the run took to
 standard error — a diagnostic, and one that replaces the progress indicator
-(the two would collide on screen):
+(the two cannot share the stream):
 
 ```sh
 imgdedup --timings ./photos
@@ -226,18 +203,10 @@ for how to read the output and how to combine it with `--json`.
 Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--ext <LIST>` (scope); `--keep <shortest|oldest|newest>` (which copy to keep);
 `--apply` (move non-keepers to the OS trash); `--delete` (with `--apply`,
-permanently delete instead); `--json` (machine-readable output);
-`--output <FILE>` (write a continuous, durable record of the run to a file);
-`--exit-code` (signal duplicates via exit status); `--no-progress` (disable the
-live progress indicator); `--timings` (print per-stage timings to stderr for
-diagnosis). Run `imgdedup --help` for the full list.
-
-> **Not in a release yet.** `--output`, progress on standard output, and elapsed
-> time on every progress render are accepted product behavior
-> ([PRD-0001 Amendment 2026-08-06](docs/prd/PRD-0001-exact-image-deduplication.md#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341),
-> [ADR-0018](docs/adr/0018-durable-run-record-and-output-stream-routing.md)) that
-> is still being implemented; a released binary today has no `--output` flag and
-> writes progress to standard error in every mode.
+permanently delete instead); `--json` (machine-readable output); `--exit-code`
+(signal duplicates via exit status); `--no-progress` (disable the live progress
+indicator); `--timings` (print per-stage timings to stderr for diagnosis).
+Run `imgdedup --help` for the full list.
 
 ## Detailed guide
 
