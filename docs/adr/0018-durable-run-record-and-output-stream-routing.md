@@ -379,7 +379,7 @@ keeps every line in the file
 self-describing — a consumer never has to guess whether a line is an event or
 the result — and `jq -c 'select(.type=="result").result'` recovers the document
 exactly. Appending the pretty document verbatim (D3) was rejected outright: it
-is multi-line, so a kill mid-write leaves unparseable lines and destroys the one
+is multi-line, so a kill mid-write leaves unparsable lines and destroys the one
 property NDJSON was chosen for.
 
 **Consequence the PRD must absorb:** stdout under `--json` is
@@ -857,7 +857,7 @@ nothing here depends on its answers.
 ### D3 — pretty document appended verbatim
 
 - Good: literally byte-identical.
-- Bad: multi-line, so a kill mid-write leaves unparseable lines — destroys the
+- Bad: multi-line, so a kill mid-write leaves unparsable lines — destroys the
   single property NDJSON was chosen for (AC-27). Rejected.
 
 ### E1 — one pure routing function returning `(stream, tty)` (chosen)
