@@ -7,9 +7,43 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-05
+**Last updated:** 2026-08-06
 
 ## In progress
+
+- _Session 32 (new TASK-0339/TASK-0340/TASK-0341, real-world dogfooding
+  follow-ups; planning-only), 2026-08-06._ Owner ran the local release binary
+  (built and validated on the test-images corpus in session 31) unattended
+  against a real ~69k-file corpus on an SMB-mounted Synology NAS volume.
+  Runtime was much longer than the test-images corpus (no overall-time figure
+  was captured) but the run completed; the two things worth recording came
+  from watching it run, not from the result.
+  1. **macOS throttled or effectively hibernated the process after a period
+     of no user activity, despite an indefinitely-running Amphetamine
+     session** that should have kept the system awake — not yet root-caused
+     (App Nap, system idle/display sleep, and SMB/network-specific
+     throttling are all plausible and only distinguishable by testing).
+     Recorded as **TASK-0339**: diagnose the mechanism first, then an
+     opt-in, default-off, cross-platform "stay awake" flag — macOS
+     `IOPMAssertion`/`NSProcessInfo.beginActivity`, Linux
+     `systemd-inhibit`/the logind inhibitor API, Windows
+     `SetThreadExecutionState`.
+  2. **The FR-19 progress indicator (phase + %) earned its keep at this
+     scale** — the owner could see the run was alive and how far along it
+     was — but two related gaps surfaced only because this was a large,
+     easy-to-forget-to-redirect run: the final report has no size bound and
+     can overrun terminal scrollback if stdout was not redirected
+     (**TASK-0340**), and the wider stdout/stderr split — stdout silent for
+     the run's entire duration, everything visible on stderr, the report
+     flushed once at the very end — reads backwards against normal CLI
+     expectations and loses everything if a run is interrupted before
+     completion (**TASK-0341**, explicitly flagged as needing resolution
+     before the repository goes public, alongside TASK-0337).
+  All three are `todo`; TASK-0340/TASK-0341 need a product-owner PRD-0001
+  amendment and TASK-0339 an architect ADR before any code is written — this
+  session only records the observations and the backlog rows (see
+  `backlog.md`) so they survive past chat history, per
+  [`CLAUDE.md`](../../CLAUDE.md) §2. No code, no CI-relevant files touched.
 
 - _Session 31 (TASK-0338, performance instrumentation — implementation), 2026-08-05
   — fresh window._ Finishes what session 30 deliberately stopped at (the design
