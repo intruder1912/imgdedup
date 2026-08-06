@@ -657,20 +657,34 @@ than `--timings`, which the PRD itself carves out. Two entries still need
 reasoning rather than a bare verdict.
 
 **#7 — apply skip lines: classified as genuine failure, deliberately as a
-whole.** `SkipReason` spans a real range: `Unverifiable`, `RemovalFailed` and
+whole.** `SkipReason` has ten variants, and this decision was first drafted
+against six of them — `Unverifiable`, `RemovalFailed` and
 `KeeperInRemovableSet` (an internal-invariant breach) are unambiguous failures;
 `ContentChanged` and `NotARegularFile` are TOCTOU events AC-17 explicitly calls
 "skipped with a warning"; `Vanished` is documented in `apply.rs` as *not* an
-error (it is what makes a re-run a no-op, FR-12). **Decision: keep the whole
-`Skipped` stream on stderr.** Splitting the enum across two streams would push a
-`SkipReason` taxonomy decision — a product surface — into a stream-routing
-change, and would mean an `--apply` run's skips arrive on two different streams.
-Every skip means "you approved this removal and it did not happen", which is a
-deviation from the plan the user approved, and keeping them together keeps AC-29
-satisfiable (stderr silent unless something genuinely went wrong). Recorded as
-*arguable*: a purist reading of FR-21 would move `Vanished`, the one variant
-documented as routine. Revisit only if skip noise on a re-run is reported from
-the field.
+error (it is what makes a re-run a no-op, FR-12). A whole-diff review against
+this ADR (2026-08-06) found three more that are documented in `apply.rs` the
+same way as `Vanished` — routine, not failures: `IsASymlink` and
+`KeeperIsASymlink` ("the tool never unlinks a symlink standing in for a
+scanned file, because the user asked about the target"), reachable
+*systematically* under `--follow-symlinks --apply`, not as a rare edge case;
+and `SameFileAsKeeper`, a hard link created since the scan, where removing it
+"would delete one of the keeper's own names" (FR-17) — a correct refusal, not
+a problem. `KeeperUnusable` joins the unambiguous-failure group (removing the
+candidate could destroy the last copy of its content). **Decision unchanged:
+keep the whole `Skipped` stream on stderr.** Splitting the enum across two
+streams would push a `SkipReason` taxonomy decision — a product surface — into
+a stream-routing change, and would mean an `--apply` run's skips arrive on two
+different streams. Every skip means "you approved this removal and it did not
+happen", which is usually a deviation from the plan the user approved, and
+keeping them together keeps AC-29 satisfiable (stderr silent unless something
+genuinely went wrong) at the cost of also printing the four routine variants.
+Recorded as *arguable*, now for four variants rather than one: a purist
+reading of FR-21 would move `Vanished`, `IsASymlink`, `KeeperIsASymlink` and
+`SameFileAsKeeper` off stderr, since none of them represent a problem. Revisit
+if `--follow-symlinks --apply` skip noise is reported from the field — the
+symlink pair makes that materially more likely than the original one-variant
+framing suggested.
 
 **#6 — apply removal lines: routine status, with no stderr fallback (human
 owner, 2026-08-06).** They follow FR-21's routing for routine status — stdout
