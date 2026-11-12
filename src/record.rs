@@ -184,7 +184,7 @@ impl<W: Write + Send> RunRecorder for FileRecord<W> {
                 .map_or(0, |d| d.as_secs());
             let text = match self.format {
                 Format::Human => render_human(&event, elapsed_ms, wall_secs),
-                Format::Ndjson => render_human(&event, elapsed_ms, wall_secs),
+                Format::Ndjson => render_ndjson(&event, elapsed_ms, wall_secs),
             };
             let result = writer.write_all(text.as_bytes());
             if result.is_err() {
@@ -351,6 +351,194 @@ fn render_human(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> Str
             "\n===== RESULT \u{2014} run completed {} after {:.1}s =====\n\n{rendered}",
             rfc3339_utc(wall_secs),
             elapsed_ms as f64 / 1000.0,
+        ),
+    }
+}
+
+// ── NDJSON rendering (ADR-0018 §4b) ──────────────────────────────────────
+
+/// One line of the NDJSON record: `type` first, `elapsed_ms` second, then the
+/// event's own fields.
+#[derive(Serialize)]
+struct Line<'a, T: Serialize> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    elapsed_ms: u64,
+    #[serde(flatten)]
+    payload: T,
+}
+
+fn ndjson_line<T: Serialize>(kind: &str, elapsed_ms: u64, payload: T) -> String {
+    // Compact, so it is one line; `serde_json` escapes every control
+    // character, so a path can neither break the line nor reach a terminal.
+    let mut line = serde_json::to_string(&Line {
+        kind,
+        elapsed_ms,
+        payload,
+    })
+    .expect("JSON serialization of plain structs cannot fail");
+    line.push('\n');
+    line
+}
+
+#[derive(Serialize)]
+struct HeaderPayload<'a> {
+    record_version: u32,
+    tool: &'static str,
+    tool_version: &'static str,
+    started_at: String,
+    invocation: &'a Invocation,
+}
+
+#[derive(Serialize)]
+struct MilestonePayload {
+    phase: &'static str,
+    current: u64,
+    total: Option<u64>,
+    percent: Option<u64>,
+    run_total: u64,
+}
+
+#[derive(Serialize)]
+struct RootErrorPayload {
+    scope: &'static str,
+    #[serde(flatten)]
+    error: crate::json::JsonRootError,
+}
+
+#[derive(Serialize)]
+struct RunErrorPayload<'a> {
+    scope: &'static str,
+    reason: &'a str,
+}
+
+#[derive(Serialize)]
+struct ActionPayload<'a> {
+    action: &'static str,
+    mode: &'static str,
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct ResultPayload<'a> {
+    record_version: u32,
+    result: &'a crate::json::JsonReport,
+}
+
+/// Under `--json` `main.rs` always supplies the document as a value. This
+/// fallback only exists so a caller that does not still gets a parseable line.
+#[derive(Serialize)]
+struct ResultTextPayload<'a> {
+    record_version: u32,
+    result_text: &'a str,
+}
+
+/// Render one event as a single NDJSON line. Pure: time is passed in.
+fn render_ndjson(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> String {
+    use crate::json;
+    match event {
+        RecordEvent::Header(invocation) => ndjson_line(
+            "header",
+            elapsed_ms,
+            HeaderPayload {
+                record_version: RECORD_VERSION,
+                tool: "imgdedup",
+                tool_version: env!("CARGO_PKG_VERSION"),
+                started_at: rfc3339_utc(wall_secs),
+                invocation,
+            },
+        ),
+        RecordEvent::Milestone {
+            phase,
+            current,
+            total,
+            percent,
+            run_total,
+        } => ndjson_line(
+            "milestone",
+            elapsed_ms,
+            MilestonePayload {
+                phase: phase.label(),
+                current: *current,
+                total: *total,
+                percent: *percent,
+                run_total: *run_total,
+            },
+        ),
+        RecordEvent::Group { group, notes } => {
+            ndjson_line("group", elapsed_ms, json::group_payload(group, notes))
+        }
+        RecordEvent::AlreadyDeduplicated(note) => ndjson_line(
+            "already_deduplicated",
+            elapsed_ms,
+            json::hard_link_set_payload(note),
+        ),
+        RecordEvent::Warning {
+            stage,
+            path,
+            reason,
+        } => ndjson_line(
+            "warning",
+            elapsed_ms,
+            json::warning_payload(stage, path, reason),
+        ),
+        RecordEvent::RootError { path, reason } => ndjson_line(
+            "error",
+            elapsed_ms,
+            RootErrorPayload {
+                scope: "root",
+                error: json::root_error_payload(path, reason),
+            },
+        ),
+        RecordEvent::RunError { reason } => ndjson_line(
+            "error",
+            elapsed_ms,
+            RunErrorPayload {
+                scope: "run",
+                reason,
+            },
+        ),
+        RecordEvent::Action {
+            mode,
+            path,
+            skipped,
+        } => ndjson_line(
+            "action",
+            elapsed_ms,
+            ActionPayload {
+                action: if skipped.is_some() {
+                    "skipped"
+                } else {
+                    "removed"
+                },
+                mode: mode.as_str(),
+                path: path.to_string_lossy().into_owned(),
+                reason: *skipped,
+            },
+        ),
+        RecordEvent::Result {
+            json: Some(document),
+            ..
+        } => ndjson_line(
+            "result",
+            elapsed_ms,
+            ResultPayload {
+                record_version: RECORD_VERSION,
+                result: document,
+            },
+        ),
+        RecordEvent::Result {
+            rendered,
+            json: None,
+        } => ndjson_line(
+            "result",
+            elapsed_ms,
+            ResultTextPayload {
+                record_version: RECORD_VERSION,
+                result_text: rendered,
+            },
         ),
     }
 }
@@ -799,5 +987,243 @@ mod tests {
         });
         assert_eq!(messages.lock().unwrap().len(), 1);
         assert!(recorder.is_degraded());
+    }
+
+    // ── NDJSON format (ADR-0018 §4b) ─────────────────────────────────────
+
+    fn parse(line: &str) -> serde_json::Value {
+        assert!(
+            line.ends_with('\n') && !line.trim_end().contains('\n'),
+            "one line: {line:?}"
+        );
+        serde_json::from_str(line).unwrap()
+    }
+
+    #[test]
+    fn ndjson_lines_start_with_type_then_elapsed_ms() {
+        let line = render_ndjson(&RecordEvent::RunError { reason: "x" }, 1500, 0);
+        assert!(
+            line.starts_with(r#"{"type":"error","elapsed_ms":1500,"#),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn ndjson_header_carries_version_tool_start_and_structured_invocation() {
+        let v = parse(&render_ndjson(
+            &RecordEvent::Header(&invocation()),
+            0,
+            1_786_015_353,
+        ));
+        assert_eq!(v["type"], "header");
+        assert_eq!(v["record_version"], 1);
+        assert_eq!(v["tool"], "imgdedup");
+        assert_eq!(v["tool_version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(v["started_at"], "2026-08-06T11:22:33Z");
+        assert_eq!(v["invocation"]["roots"][0], "/photos");
+        assert_eq!(v["invocation"]["keep"], "shortest");
+        assert_eq!(v["invocation"]["ext"], serde_json::Value::Null);
+        assert_eq!(v["invocation"]["output"], "run.txt");
+    }
+
+    #[test]
+    fn ndjson_milestone_uses_null_for_an_unknown_denominator() {
+        let v = parse(&render_ndjson(
+            &RecordEvent::Milestone {
+                phase: Phase::Scanning,
+                current: 0,
+                total: None,
+                percent: None,
+                run_total: 0,
+            },
+            0,
+            0,
+        ));
+        assert_eq!(v["type"], "milestone");
+        assert_eq!(v["phase"], "scanning");
+        assert!(v["total"].is_null() && v["percent"].is_null());
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::Milestone {
+                phase: Phase::Hashing,
+                current: 1200,
+                total: Some(28450),
+                percent: Some(4),
+                run_total: 28450,
+            },
+            12_040,
+            0,
+        ));
+        assert_eq!(
+            (v["current"].as_u64(), v["total"].as_u64()),
+            (Some(1200), Some(28450))
+        );
+        assert_eq!(v["percent"], 4);
+        assert_eq!(v["run_total"], 28450);
+    }
+
+    #[test]
+    fn ndjson_group_has_the_json_group_shape() {
+        let group = DuplicateGroup {
+            keeper: rec("/photos/a.jpg", 4096),
+            removable: vec![rec("/photos/b.jpg", 4096)],
+            protected: vec![],
+        };
+        let v = parse(&render_ndjson(
+            &RecordEvent::Group {
+                group: &group,
+                notes: &[],
+            },
+            9,
+            0,
+        ));
+        assert_eq!(v["type"], "group");
+        assert_eq!(v["keeper"]["path"], "/photos/a.jpg");
+        assert_eq!(v["keeper"]["size"], 4096);
+        assert_eq!(v["removable"][0]["path"], "/photos/b.jpg");
+        assert_eq!(v["reclaimable_bytes"], 4096);
+        assert!(v["protected"].as_array().unwrap().is_empty());
+        assert!(v["hard_link_sets"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ndjson_diagnostics_and_actions() {
+        let p = PathBuf::from("/photos/x.jpg");
+        let note = HardLinkNote {
+            representative: PathBuf::from("/photos/f.jpg"),
+            siblings: vec![PathBuf::from("/photos/g.jpg")],
+        };
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::AlreadyDeduplicated(&note),
+            0,
+            0,
+        ));
+        assert_eq!(v["type"], "already_deduplicated");
+        assert_eq!(v["representative"], "/photos/f.jpg");
+        assert_eq!(v["siblings"][0], "/photos/g.jpg");
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::Warning {
+                stage: "sniff",
+                path: &p,
+                reason: "file is empty",
+            },
+            0,
+            0,
+        ));
+        assert_eq!(
+            (v["type"].as_str(), v["stage"].as_str()),
+            (Some("warning"), Some("sniff"))
+        );
+        assert_eq!(v["path"], "/photos/x.jpg");
+        assert_eq!(v["reason"], "file is empty");
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::RootError {
+                path: &p,
+                reason: "gone",
+            },
+            0,
+            0,
+        ));
+        assert_eq!(
+            (v["type"].as_str(), v["scope"].as_str()),
+            (Some("error"), Some("root"))
+        );
+        assert_eq!(v["path"], "/photos/x.jpg");
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::RunError {
+                reason: "not applying",
+            },
+            0,
+            0,
+        ));
+        assert_eq!(
+            (v["type"].as_str(), v["scope"].as_str()),
+            (Some("error"), Some("run"))
+        );
+        assert!(v.get("path").is_none());
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::Action {
+                mode: ActionMode::Trash,
+                path: &p,
+                skipped: None,
+            },
+            0,
+            0,
+        ));
+        assert_eq!(v["type"], "action");
+        assert_eq!(
+            (v["action"].as_str(), v["mode"].as_str()),
+            (Some("removed"), Some("trash"))
+        );
+        assert!(v.get("reason").is_none());
+
+        let v = parse(&render_ndjson(
+            &RecordEvent::Action {
+                mode: ActionMode::Delete,
+                path: &p,
+                skipped: Some("no longer exists"),
+            },
+            0,
+            0,
+        ));
+        assert_eq!(
+            (v["action"].as_str(), v["mode"].as_str()),
+            (Some("skipped"), Some("delete"))
+        );
+        assert_eq!(v["reason"], "no longer exists");
+    }
+
+    #[test]
+    fn ndjson_never_emits_a_raw_control_byte_or_a_second_line() {
+        let evil = PathBuf::from("/p/a\n{\"type\":\"result\"}\u{1b}[2J.jpg");
+        let line = render_ndjson(
+            &RecordEvent::Warning {
+                stage: "engine",
+                path: &evil,
+                reason: "x\ny",
+            },
+            0,
+            0,
+        );
+        assert_eq!(
+            line.matches('\n').count(),
+            1,
+            "exactly the terminator: {line:?}"
+        );
+        assert!(!line.contains('\u{1b}'));
+        assert_eq!(parse(&line)["path"], evil.display().to_string());
+    }
+
+    #[test]
+    fn ndjson_result_wraps_the_document_compactly() {
+        let outcome = crate::engine::DedupOutcome::default();
+        let doc = crate::json::document(
+            &outcome,
+            &[],
+            &[],
+            &[],
+            ActionMode::DryRun,
+            &crate::apply::ApplyOutcome::default(),
+        );
+        let pretty = doc.to_pretty();
+        let v = parse(&render_ndjson(
+            &RecordEvent::Result {
+                rendered: &pretty,
+                json: Some(&doc),
+            },
+            141_300,
+            0,
+        ));
+        assert_eq!(v["type"], "result");
+        assert_eq!(v["record_version"], 1);
+        // AC-27: the same document as stdout's, though not the same bytes.
+        let from_stdout: serde_json::Value = serde_json::from_str(&pretty).unwrap();
+        assert_eq!(v["result"], from_stdout);
+        assert_eq!(v["result"]["schema_version"], 1);
     }
 }
