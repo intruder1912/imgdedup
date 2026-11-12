@@ -111,7 +111,7 @@ use std::time::Instant;
 /// so a fast run does not flood the terminal with redraws. Injectable via
 /// [`Progress::new_with_interval_ms`] (test-only) so tests can pin
 /// deterministic throttling behavior instead of racing the wall clock.
-const DEFAULT_REPAINT_INTERVAL_MS: u64 = 100;
+pub(crate) const DEFAULT_REPAINT_INTERVAL_MS: u64 = 100;
 
 /// Percentage-point granularity for non-TTY milestone lines (AC-22).
 const NON_TTY_PERCENT_STEP: u64 = 10;
@@ -141,7 +141,7 @@ pub enum Phase {
 
 impl Phase {
     /// The lower-case label rendered for this phase.
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Phase::Scanning => "scanning",
             Phase::Hashing => "hashing",
@@ -256,6 +256,52 @@ impl ProgressSink for NoProgress {
     fn finish(&self) {}
 }
 
+/// Decides when a coarse, non-redrawn milestone is due: on a phase change,
+/// on entering a new [`NON_TTY_PERCENT_STEP`] bucket, or when forced. Shared
+/// by [`Progress`]'s non-TTY path and the run record's milestones
+/// (`record::MilestoneSink`) so AC-22's granularity has exactly one
+/// definition.
+#[derive(Debug, Default)]
+pub(crate) struct MilestoneGate {
+    last_phase: Option<Phase>,
+    last_bucket: Option<u64>,
+}
+
+impl MilestoneGate {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// `true` when a milestone should be written now. Updates the gate only
+    /// when it returns `true`.
+    pub(crate) fn should_emit(&mut self, phase: Phase, pct: Option<u64>, force: bool) -> bool {
+        let phase_changed = self.last_phase != Some(phase);
+        let bucket = pct.map(|p| p - (p % NON_TTY_PERCENT_STEP));
+        let bucket_changed = matches!(
+            (bucket, self.last_bucket),
+            (Some(b), shown) if shown != Some(b)
+        );
+        if !(force || phase_changed || bucket_changed) {
+            return false;
+        }
+        self.last_phase = Some(phase);
+        if let Some(b) = bucket {
+            self.last_bucket = Some(b);
+        }
+        true
+    }
+}
+
+/// `current / total` as a whole percentage, `100` when `total == 0`
+/// ("nothing to do" is complete, not a division by zero).
+pub(crate) fn percent(current: u64, total: u64) -> u64 {
+    current
+        .min(total)
+        .saturating_mul(100)
+        .checked_div(total)
+        .unwrap_or(100)
+}
+
 /// Everything about a [`Progress<W>`] except the lock-free numerator and
 /// throttle-gate, held behind one [`Mutex`] so a repaint always sees an
 /// internally-consistent snapshot and updates its bookkeeping atomically
@@ -275,11 +321,9 @@ struct State<W: Write> {
     /// the phase renders as an indeterminate `"<phase>..."` (used for
     /// Scanning, before the candidate count is known).
     total_known: bool,
-    last_phase_shown: Option<Phase>,
-    /// The last non-TTY percentage *bucket* shown (a multiple of
-    /// [`NON_TTY_PERCENT_STEP`]), so repeated advances within the same
-    /// bucket don't each print a line.
-    last_percent_shown: Option<u64>,
+    /// Decides when a non-TTY milestone line is due (unused on a TTY, which
+    /// repaints in place instead).
+    gate: MilestoneGate,
     /// Set by `finish`, so a second call (e.g. from [`SinkGuard`]'s `Drop`
     /// after `main.rs` already called it explicitly) is a no-op rather than
     /// rendering a second completion line.
@@ -356,8 +400,7 @@ impl<W: Write> Progress<W> {
                 run_total: 0,
                 phase_total: 0,
                 total_known: false,
-                last_phase_shown: None,
-                last_percent_shown: None,
+                gate: MilestoneGate::new(),
                 finished: false,
             }),
             tty,
@@ -413,16 +456,6 @@ impl<W: Write> Progress<W> {
     /// [`Progress::paint`], under the lock.
     fn due(&self) -> bool {
         self.now_millis() >= self.next_check_millis.load(Ordering::Relaxed)
-    }
-
-    /// `current / total` as a whole percentage, `100` when `total == 0`
-    /// ("nothing to do" is complete, not a division by zero).
-    fn percent(current: u64, total: u64) -> u64 {
-        current
-            .min(total)
-            .saturating_mul(100)
-            .checked_div(total)
-            .unwrap_or(100)
     }
 
     /// Render one status line: `"<phase>: <x> of <y> (<p>%) (<n>s elapsed)"`
@@ -533,7 +566,7 @@ impl<W: Write> Progress<W> {
         } else {
             raw_current
         };
-        let pct = st.total_known.then(|| Self::percent(current, phase_total));
+        let pct = st.total_known.then(|| percent(current, phase_total));
         // AC-32: every render carries elapsed time; only the non-TTY
         // indeterminate line omits it (AC-22). `show_count` is TTY-only for
         // the same reason (see `line`).
@@ -555,23 +588,10 @@ impl<W: Write> Progress<W> {
             buf.push_str("\x1b[K");
             let _ = st.writer.write_all(buf.as_bytes());
             let _ = st.writer.flush();
-            st.last_phase_shown = Some(phase);
-        } else {
-            let phase_changed = st.last_phase_shown != Some(phase);
-            let bucket = pct.map(|p| p - (p % NON_TTY_PERCENT_STEP));
-            let bucket_changed = matches!(
-                (bucket, st.last_percent_shown),
-                (Some(b), shown) if shown != Some(b)
-            );
-            if force || phase_changed || bucket_changed {
-                let mut buf = Self::line(&params);
-                buf.push('\n');
-                let _ = st.writer.write_all(buf.as_bytes());
-                st.last_phase_shown = Some(phase);
-                if let Some(b) = bucket {
-                    st.last_percent_shown = Some(b);
-                }
-            }
+        } else if st.gate.should_emit(phase, pct, force) {
+            let mut buf = Self::line(&params);
+            buf.push('\n');
+            let _ = st.writer.write_all(buf.as_bytes());
         }
     }
 }
@@ -643,7 +663,7 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         st.total_known = true;
         self.current.store(run_total, Ordering::Relaxed);
 
-        let pct = Some(Self::percent(run_total, run_total));
+        let pct = Some(percent(run_total, run_total));
         let line = Self::line(&LineParams {
             phase: Phase::Done,
             current: run_total,
@@ -667,7 +687,6 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
             buf.push('\n');
             let _ = st.writer.write_all(buf.as_bytes());
         }
-        st.last_phase_shown = Some(Phase::Done);
     }
 }
 
@@ -704,6 +723,46 @@ impl std::ops::Deref for SinkGuard {
 impl Drop for SinkGuard {
     fn drop(&mut self) {
         self.0.finish();
+    }
+}
+
+/// Forwards every call to two sinks, in order. `main.rs` uses it to feed the
+/// terminal renderer and the run record's milestones from the one observer
+/// the pipeline already calls (ADR-0018 §2), so the record keeps its
+/// milestones under `--no-progress` and `--timings`.
+#[allow(dead_code)] // composed in main.rs by the --output wiring step
+pub struct Tee {
+    first: Box<dyn ProgressSink>,
+    second: Box<dyn ProgressSink>,
+}
+
+#[allow(dead_code)]
+impl Tee {
+    pub fn new(first: Box<dyn ProgressSink>, second: Box<dyn ProgressSink>) -> Self {
+        Self { first, second }
+    }
+}
+
+impl ProgressSink for Tee {
+    fn set_total(&self, total: u64) {
+        self.first.set_total(total);
+        self.second.set_total(total);
+    }
+    fn set_phase(&self, phase: Phase) {
+        self.first.set_phase(phase);
+        self.second.set_phase(phase);
+    }
+    fn advance(&self, n: u64) {
+        self.first.advance(n);
+        self.second.advance(n);
+    }
+    fn retotal(&self, total: u64) {
+        self.first.retotal(total);
+        self.second.retotal(total);
+    }
+    fn finish(&self) {
+        self.first.finish();
+        self.second.finish();
     }
 }
 
@@ -1716,5 +1775,88 @@ mod tests {
         let p = immediate_with_elapsed(false, 12_000);
         p.set_phase(Phase::Scanning);
         assert_eq!(captured(&p), "scanning...\n");
+    }
+
+    // ── MilestoneGate: the one definition of "a milestone" (ADR-0018 §2) ────
+
+    #[test]
+    fn milestone_gate_emits_on_phase_change_and_bucket_change_only() {
+        let mut g = MilestoneGate::new();
+        assert!(
+            g.should_emit(Phase::Scanning, None, false),
+            "first sight of a phase"
+        );
+        assert!(
+            !g.should_emit(Phase::Scanning, None, false),
+            "nothing changed"
+        );
+        assert!(
+            g.should_emit(Phase::Hashing, Some(0), false),
+            "phase changed"
+        );
+        assert!(
+            !g.should_emit(Phase::Hashing, Some(9), false),
+            "same 10% bucket"
+        );
+        assert!(
+            g.should_emit(Phase::Hashing, Some(10), false),
+            "next bucket"
+        );
+        assert!(!g.should_emit(Phase::Hashing, Some(19), false));
+        assert!(
+            g.should_emit(Phase::Hashing, Some(19), true),
+            "force always emits"
+        );
+    }
+
+    #[test]
+    fn milestone_gate_does_not_advance_its_bucket_when_it_declines() {
+        let mut g = MilestoneGate::new();
+        assert!(g.should_emit(Phase::Hashing, Some(0), false));
+        assert!(!g.should_emit(Phase::Hashing, Some(5), false));
+        assert!(g.should_emit(Phase::Hashing, Some(10), false));
+    }
+
+    // ── Tee ──────────────────────────────────────────────────────────────
+
+    /// Shares one buffer between a test and a boxed `Progress`.
+    #[derive(Clone, Default)]
+    struct SharedBuf(std::sync::Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedBuf {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl SharedBuf {
+        fn text(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    #[test]
+    fn tee_forwards_every_call_to_both_sinks() {
+        let (a, b) = (SharedBuf::default(), SharedBuf::default());
+        let tee = Tee::new(
+            Box::new(Progress::new_with_interval_ms(a.clone(), false, 0)),
+            Box::new(Progress::new_with_interval_ms(b.clone(), false, 0)),
+        );
+        tee.set_phase(Phase::Scanning);
+        tee.set_total(4);
+        tee.set_phase(Phase::Hashing);
+        tee.advance(4);
+        tee.retotal(2);
+        tee.set_phase(Phase::Verifying);
+        tee.finish();
+
+        assert_eq!(a.text(), b.text());
+        assert!(a.text().contains("hashing: 4 of 4 (100%)"));
+        assert!(a.text().contains("verifying: 0 of 2 (0%) (4 candidates)"));
+        assert!(a.text().contains("done: 4 of 4 (100%)"));
     }
 }
