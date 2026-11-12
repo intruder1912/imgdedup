@@ -11,13 +11,13 @@
 
 use crate::apply::ActionMode;
 use crate::engine::{DuplicateGroup, HardLinkNote};
-use crate::progress::Phase;
+use crate::progress::{self, MilestoneGate, Phase, ProgressSink};
 use crate::safe_text::escape_control_chars;
 use serde::Serialize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Version of the record's *event vocabulary*. Independent of the result
@@ -540,6 +540,143 @@ fn render_ndjson(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> St
                 result_text: rendered,
             },
         ),
+    }
+}
+
+// ── Milestones ───────────────────────────────────────────────────────────
+
+struct MilestoneState {
+    phase: Phase,
+    run_total: u64,
+    phase_total: u64,
+    total_known: bool,
+    gate: MilestoneGate,
+    finished: bool,
+}
+
+/// A [`ProgressSink`] that turns the pipeline's progress notifications into
+/// coarse [`RecordEvent::Milestone`]s, at the cadence of the non-TTY progress
+/// fallback (the shared [`MilestoneGate`], AC-22). Teed alongside the
+/// terminal renderer in `main.rs`, so the record keeps its milestones under
+/// `--no-progress` and `--timings`.
+///
+/// Mirrors `progress::Progress`'s concurrency design: the numerator and the
+/// rate-limit gate are lock-free atomics, so `advance` — called once per file
+/// from rayon workers — takes no lock in the common case.
+pub struct MilestoneSink {
+    recorder: Arc<dyn RunRecorder>,
+    state: Mutex<MilestoneState>,
+    current: AtomicU64,
+    start: Instant,
+    next_check_millis: AtomicU64,
+    interval_ms: u64,
+}
+
+impl MilestoneSink {
+    pub fn new(recorder: Arc<dyn RunRecorder>) -> Self {
+        Self::with_interval_ms(recorder, progress::DEFAULT_REPAINT_INTERVAL_MS)
+    }
+
+    pub(crate) fn with_interval_ms(recorder: Arc<dyn RunRecorder>, interval_ms: u64) -> Self {
+        Self {
+            recorder,
+            state: Mutex::new(MilestoneState {
+                phase: Phase::Scanning,
+                run_total: 0,
+                phase_total: 0,
+                total_known: false,
+                gate: MilestoneGate::new(),
+                finished: false,
+            }),
+            current: AtomicU64::new(0),
+            start: Instant::now(),
+            next_check_millis: AtomicU64::new(0),
+            interval_ms,
+        }
+    }
+
+    fn now_millis(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
+    /// Record a milestone if one is due. Called with the state lock held.
+    fn emit(&self, st: &mut MilestoneState, force: bool) {
+        let now = self.now_millis();
+        if !force && now < self.next_check_millis.load(Ordering::Relaxed) {
+            return;
+        }
+        self.next_check_millis
+            .store(now.saturating_add(self.interval_ms), Ordering::Relaxed);
+
+        let raw = self.current.load(Ordering::Relaxed);
+        let current = if st.total_known {
+            raw.min(st.phase_total)
+        } else {
+            raw
+        };
+        let percent = st
+            .total_known
+            .then(|| progress::percent(current, st.phase_total));
+        if st.gate.should_emit(st.phase, percent, force) {
+            self.recorder.record(RecordEvent::Milestone {
+                phase: st.phase,
+                // An indeterminate milestone is written once, at phase entry;
+                // a count there would be a stale zero (AC-22).
+                current: if st.total_known { current } else { 0 },
+                total: st.total_known.then_some(st.phase_total),
+                percent,
+                run_total: st.run_total,
+            });
+        }
+    }
+}
+
+impl ProgressSink for MilestoneSink {
+    fn set_total(&self, total: u64) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.run_total = total;
+        st.phase_total = total;
+        st.total_known = true;
+        self.current.store(0, Ordering::Relaxed);
+    }
+
+    fn set_phase(&self, phase: Phase) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.phase = phase;
+        self.emit(&mut st, true);
+    }
+
+    fn advance(&self, n: u64) {
+        self.current.fetch_add(n, Ordering::Relaxed);
+        if self.now_millis() < self.next_check_millis.load(Ordering::Relaxed) {
+            return;
+        }
+        match self.state.try_lock() {
+            Ok(mut st) => self.emit(&mut st, false),
+            Err(std::sync::TryLockError::Poisoned(p)) => self.emit(&mut p.into_inner(), false),
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
+    }
+
+    fn retotal(&self, total: u64) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        st.phase_total = total;
+        st.total_known = true;
+        self.current.store(0, Ordering::Relaxed);
+    }
+
+    fn finish(&self) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if st.finished {
+            return;
+        }
+        st.finished = true;
+        let run_total = st.run_total;
+        st.phase = Phase::Done;
+        st.phase_total = run_total;
+        st.total_known = true;
+        self.current.store(run_total, Ordering::Relaxed);
+        self.emit(&mut st, true);
     }
 }
 
@@ -1225,5 +1362,91 @@ mod tests {
         let from_stdout: serde_json::Value = serde_json::from_str(&pretty).unwrap();
         assert_eq!(v["result"], from_stdout);
         assert_eq!(v["result"]["schema_version"], 1);
+    }
+
+    // ── MilestoneSink ────────────────────────────────────────────────────
+
+    fn milestones(drive: impl FnOnce(&MilestoneSink)) -> Vec<String> {
+        let capture = Arc::new(Capture::default());
+        let sink = MilestoneSink::with_interval_ms(capture.clone(), 0);
+        drive(&sink);
+        capture.lines()
+    }
+
+    #[test]
+    fn milestone_sink_records_phase_transitions_and_ten_percent_steps() {
+        let lines = milestones(|s| {
+            s.set_phase(Phase::Scanning);
+            s.set_total(20);
+            s.set_phase(Phase::Hashing);
+            for _ in 0..20 {
+                s.advance(1);
+            }
+            s.retotal(2);
+            s.set_phase(Phase::Verifying);
+            s.advance(2);
+            s.finish();
+        });
+        assert_eq!(
+            lines,
+            vec![
+                "[     0.0s] scanning...\n",
+                "[     0.0s] hashing: 0 of 20 (0%)\n",
+                "[     0.0s] hashing: 2 of 20 (10%)\n",
+                "[     0.0s] hashing: 4 of 20 (20%)\n",
+                "[     0.0s] hashing: 6 of 20 (30%)\n",
+                "[     0.0s] hashing: 8 of 20 (40%)\n",
+                "[     0.0s] hashing: 10 of 20 (50%)\n",
+                "[     0.0s] hashing: 12 of 20 (60%)\n",
+                "[     0.0s] hashing: 14 of 20 (70%)\n",
+                "[     0.0s] hashing: 16 of 20 (80%)\n",
+                "[     0.0s] hashing: 18 of 20 (90%)\n",
+                "[     0.0s] hashing: 20 of 20 (100%)\n",
+                "[     0.0s] verifying: 0 of 2 (0%) (20 candidates)\n",
+                "[     0.0s] verifying: 2 of 2 (100%) (20 candidates)\n",
+                "[     0.0s] done: 20 of 20 (100%)\n",
+            ]
+        );
+    }
+
+    #[test]
+    fn milestone_sink_is_bounded_not_one_line_per_file() {
+        let lines = milestones(|s| {
+            s.set_total(100_000);
+            s.set_phase(Phase::Hashing);
+            for _ in 0..100_000 {
+                s.advance(1);
+            }
+            s.finish();
+        });
+        assert!(
+            lines.len() <= 13,
+            "0%..100% in 10% steps plus done; got {}",
+            lines.len()
+        );
+    }
+
+    #[test]
+    fn milestone_sink_finish_is_idempotent() {
+        let lines = milestones(|s| {
+            s.set_total(1);
+            s.finish();
+            s.finish();
+        });
+        assert_eq!(lines, vec!["[     0.0s] done: 1 of 1 (100%)\n"]);
+    }
+
+    #[test]
+    fn milestone_sink_throttles_advance_between_checks() {
+        // With the production interval, a burst of advances inside one interval
+        // reaches the recorder at most once: the hot path stays lock-free.
+        let capture = Arc::new(Capture::default());
+        let sink = MilestoneSink::new(capture.clone());
+        sink.set_total(1_000_000);
+        sink.set_phase(Phase::Hashing); // forced: 1 line
+        for _ in 0..1_000_000 {
+            sink.advance(1);
+        }
+        assert!(capture.lines().len() <= 12, "got {}", capture.lines().len());
     }
 }
