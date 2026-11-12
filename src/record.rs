@@ -164,8 +164,18 @@ impl<W: Write + Send> FileRecord<W> {
 
 impl<W: Write + Send> RunRecorder for FileRecord<W> {
     fn record(&self, event: RecordEvent<'_>) {
+        // Checked before the mutex: once the file is unwritable every later
+        // record costs one relaxed load, even on the rayon hot path.
+        if self.degraded.load(Ordering::Relaxed) {
+            return;
+        }
         let result = {
             let mut writer = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+            // Re-checked under the lock: a thread that was waiting here when
+            // another one failed must not attempt a second write.
+            if self.degraded.load(Ordering::Relaxed) {
+                return;
+            }
             // Stamped and rendered under the lock so records are written in
             // the order their timestamps claim.
             let elapsed_ms = self.start.elapsed().as_millis() as u64;
@@ -176,16 +186,27 @@ impl<W: Write + Send> RunRecorder for FileRecord<W> {
                 Format::Human => render_human(&event, elapsed_ms, wall_secs),
                 Format::Ndjson => render_human(&event, elapsed_ms, wall_secs),
             };
-            writer.write_all(text.as_bytes())
+            let result = writer.write_all(text.as_bytes());
+            if result.is_err() {
+                self.degraded.store(true, Ordering::Relaxed);
+            }
+            result
         };
-        // Task 6 replaces this with the report-once latch.
-        let _ = result;
-        let _ = (
-            &self.target,
-            &self.degraded,
-            &self.on_failure,
-            Ordering::Relaxed,
-        );
+        // The file is left exactly as it is — partial, with no completion
+        // document — and the run carries on (ADR-0018 §7). Only one thread
+        // can observe `Err` (the flag is set under the lock above), so this
+        // runs exactly once; the message is emitted outside the lock.
+        if let Err(e) = result {
+            (self.on_failure)(&format!(
+                "error: could not write to {}: {}",
+                esc(&self.target),
+                esc(&e.to_string())
+            ));
+        }
+    }
+
+    fn is_degraded(&self) -> bool {
+        self.degraded.load(Ordering::Relaxed)
     }
 }
 
@@ -703,5 +724,80 @@ mod tests {
         let writes = writes.0.lock().unwrap();
         assert_eq!(writes.len(), 2, "one write per record");
         assert!(writes.iter().all(|w| w.ends_with(b"\n")));
+    }
+
+    // ── Write failure (ADR-0018 §7, AC-28a) ──────────────────────────────
+
+    /// Fails every write, counting attempts.
+    #[derive(Clone, Default)]
+    struct Broken(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Write for Broken {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(std::io::Error::other("No space left on device"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn broken_recorder(target: &str) -> (FileRecord<Broken>, Broken, Arc<Mutex<Vec<String>>>) {
+        let writer = Broken::default();
+        let messages: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = Arc::clone(&messages);
+        let recorder = FileRecord::new(
+            writer.clone(),
+            Format::Human,
+            target.to_owned(),
+            Box::new(move |msg| sink.lock().unwrap().push(msg.to_owned())),
+        );
+        (recorder, writer, messages)
+    }
+
+    #[test]
+    fn a_failed_write_is_reported_once_and_degrades_the_recorder() {
+        let (recorder, writer, messages) = broken_recorder("/mnt/nas/run.txt");
+        assert!(!recorder.is_degraded());
+
+        for _ in 0..5 {
+            recorder.record(RecordEvent::RunError { reason: "x" });
+        }
+
+        assert!(recorder.is_degraded());
+        assert_eq!(
+            *messages.lock().unwrap(),
+            vec!["error: could not write to /mnt/nas/run.txt: No space left on device".to_owned()]
+        );
+        assert_eq!(
+            writer.0.load(Ordering::SeqCst),
+            1,
+            "once degraded, no further write is attempted"
+        );
+    }
+
+    #[test]
+    fn the_failure_message_escapes_the_target_path() {
+        let (recorder, _writer, messages) = broken_recorder("run\u{1b}[2J.txt");
+        recorder.record(RecordEvent::RunError { reason: "x" });
+        let messages = messages.lock().unwrap();
+        assert!(!messages[0].contains('\u{1b}'), "{:?}", messages[0]);
+    }
+
+    /// Review Focus 4: rayon workers failing at the same instant.
+    #[test]
+    fn concurrent_write_failures_report_exactly_once() {
+        let (recorder, _writer, messages) = broken_recorder("run.txt");
+        std::thread::scope(|scope| {
+            for _ in 0..16 {
+                scope.spawn(|| {
+                    for _ in 0..200 {
+                        recorder.record(RecordEvent::RunError { reason: "x" });
+                    }
+                });
+            }
+        });
+        assert_eq!(messages.lock().unwrap().len(), 1);
+        assert!(recorder.is_degraded());
     }
 }
