@@ -19,6 +19,61 @@ docs pass → AI automation, batched within Claude usage limits.
   product-owner reviews dispatched at the end. FR-22 (paging) is not part of
   this unit.
 
+  **Resume point (end of window 1, 2026-11-12): plan Tasks 0–10 are done and
+  committed on the branch (11 commits, `7c097ab`..`be94d61`); the branch is
+  local only — not pushed, no PR. Task 11 is all that remains**: tester pass
+  over AC-20..AC-32 + AC-28a, product-owner guide docs (README,
+  `output-and-exit-codes.md`, `getting-started.md`; starting draft is commit
+  `13252110f81ec764acce1862083827d3d88a6cb5`, fetchable from GitHub but no
+  longer in a local clone), ADR-0018 `proposed` → `accepted` with
+  implementation notes, backlog close-out, `make validate`, architect review
+  of `git diff main...HEAD`, then push and PR (owner go-ahead needed).
+
+  State at the resume point: `cargo test` green (347 unit + 88 integration;
+  the 4 scale tests ignored as always), `cargo fmt --check`, clippy
+  `-D warnings` and `cargo deny check` clean. **`make validate` has not been
+  run on this branch yet** (Markdown lint / spell / links for the new plan
+  file were run on that file only).
+
+  Verified by hand, evidence in the commit messages of `37c1fb4` and
+  `be94d61`: (1) FR-21 routing on a real pseudo-terminal (a throwaway Python
+  `pty` harness, not kept in the repo) in four stream configurations, all
+  matching ADR-0018 §8's table; (2) AC-25 against real `SIGKILL`s on the
+  2,021-file `test-images/` corpus — header + milestones, no completion
+  banner; NDJSON all complete lines parseable; a completed run's record ends
+  byte-for-byte with its stdout.
+
+  Known gaps for the reviewers to judge, not rediscover: the two `/dev/full`
+  end-to-end tests (`tests/output_record.rs`) are Linux-only and **have never
+  executed** — CI's Linux leg is their first run; no kill has landed in the
+  verify phase on a real corpus (`test-images/` has no duplicates), so
+  "already-written groups survive a kill" rests on fixture tests; there is no
+  automated pty test.
+
+  Deviations from the plan as written, for the architect: the five design
+  decisions listed at the top of the plan (owner approved #1, the
+  elapsed-time wording; #2–#5 await the architect); the report-once latch is
+  set under the writer mutex rather than by `compare_exchange` (Task 6);
+  `enumerate.rs` records at three sites, not two (walk errors below the root
+  also warn); Task 9 landed as one commit (an unused parameter would have
+  failed clippy on its own); `json::render` is now `#[cfg(test)]` (production
+  goes through `document()` + `to_pretty()`); the existing test
+  `removals_are_streamed_as_they_happen` was replaced by
+  `removal_lines_are_not_written_when_stdout_is_not_a_terminal`, asserting the
+  opposite per FR-21; `document_to_pretty_is_byte_identical_to_render` is
+  near-tautological — the real evidence that `--json` stdout bytes did not
+  move is the unchanged json/acceptance/golden suites.
+
+  Usage, estimate vs. actual (5h window; inline implementation, no agent
+  dispatches): Tasks 0–3 est. 25–35%, actual 11%; Tasks 4–7 est. 12–18%,
+  actual 14%; Tasks 8–9 est. 7–8%, actual 9%; Task 10 est. 8–10%, actual not
+  read. Lesson for the batch plan: **inline TDD from a plan that already
+  carries the code costs roughly a third of the dispatch-based estimate**;
+  the plan's original 40–70%-per-batch figures assumed implementer
+  dispatches. Task 11 is dispatch-heavy (tester, product-owner, architect
+  ×1–2): budget 40–60% of a fresh window, and do not start the architect
+  review with less than ~35% left.
+
 - _Session 33 (TASK-0340/TASK-0341 joint design: PRD-0001 amendment + ADR-0018),
   2026-08-06 — branch `docs/prd-0001-pager-and-output-model`, fresh window
   (5h 2% → 83%)._ Design-only continuation of session 32's backlog rows.
