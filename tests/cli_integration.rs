@@ -1005,8 +1005,12 @@ fn scanning_determinate_state_appears_as_a_milestone_line_on_non_tty() {
         "expected the determinate scanning state to end at N of N (100%); \
          got:\n{stderr}"
     );
+    let closing = stderr
+        .lines()
+        .find(|l| l.starts_with("scanning: 6 of 6 (100%)"))
+        .expect("closing scanning line");
     assert!(
-        !stderr.contains("scanning: 6 of 6 (100%) ("),
+        !closing.contains("candidates)"),
         "scanning's determinate state must never carry a (N candidates) \
          suffix (AC-21a; that suffix is Verifying-only); got:\n{stderr}"
     );

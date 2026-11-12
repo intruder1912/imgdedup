@@ -31,7 +31,9 @@
 //! ## Rendering rules
 //!
 //! - **TTY:** a single line, redrawn in place (`\r` + erase-to-end-of-line;
-//!   never a newline mid-run), showing phase, `x of y`, and a percentage.
+//!   never a newline mid-run), showing phase, `x of y`, a percentage, and
+//!   the elapsed time since the run started (AC-32; the completion line
+//!   carries the run's total).
 //!   Repaints triggered by `advance` are throttled to at most one per
 //!   [`DEFAULT_REPAINT_INTERVAL_MS`] so a fast run does not flood the
 //!   terminal; phase transitions (`set_phase`) and [`ProgressSink::finish`]
@@ -49,7 +51,9 @@
 //! - **Non-TTY:** no carriage returns, no ANSI escapes, ever. Occasional
 //!   plain, newline-terminated lines at coarse milestones only — phase
 //!   transitions plus [`NON_TTY_PERCENT_STEP`]-sized percentage steps — so
-//!   redirected logs stay small and readable. `advance`-triggered checks are
+//!   redirected logs stay small and readable. Determinate milestone lines
+//!   carry elapsed time too; only the indeterminate `scanning...` line stays
+//!   bare (AC-22). `advance`-triggered checks are
 //!   also rate-limited (the same lock-free pre-check as the TTY path) so a
 //!   burst of concurrent hashing does not pay a mutex per file; phase
 //!   transitions and `finish` still always produce a line.
@@ -315,6 +319,20 @@ pub struct Progress<W: Write> {
     repaint_interval_ms: u64,
 }
 
+/// Everything one rendered status line depends on ([`Progress::line`]).
+struct LineParams {
+    phase: Phase,
+    current: u64,
+    phase_total: u64,
+    run_total: u64,
+    /// `None` while the denominator is unknown (indeterminate scanning).
+    pct: Option<u64>,
+    /// TTY-only: show the live found-so-far count in the indeterminate state.
+    show_count: bool,
+    /// Whole seconds since the run started (AC-32).
+    elapsed_secs: u64,
+}
+
 impl<W: Write> Progress<W> {
     /// Construct a new renderer writing to `writer`.
     ///
@@ -407,8 +425,11 @@ impl<W: Write> Progress<W> {
             .unwrap_or(100)
     }
 
-    /// Render one status line: `"<phase>: <x> of <y> (<p>%)"`, with a
-    /// `(N candidates)` suffix for [`Phase::Verifying`] (so the run-wide
+    /// Render one status line: `"<phase>: <x> of <y> (<p>%) (<n>s elapsed)"`
+    /// — every determinate line carries the elapsed time since the run
+    /// started, and the [`Phase::Done`] line carries it as `(<n>s total)`
+    /// (AC-32) — with a
+    /// `(N candidates)` suffix before it for [`Phase::Verifying`] (so the run-wide
     /// problem size stays visible even though the counter has been reset to
     /// the phase-local workload — see the module doc); `"<phase>... <x>
     /// file(s) found (<elapsed_secs>s elapsed)"` while the total is not yet
@@ -426,10 +447,12 @@ impl<W: Write> Progress<W> {
     /// counted — see the module doc's non-TTY repaint rules), so either value
     /// included there would render as a permanently-frozen, false "0 files
     /// found (0s elapsed)" for the rest of the phase — worse than the old
-    /// bare "scanning...", which made no claim at all. `elapsed_secs` is
-    /// otherwise unused whenever `pct.is_some()` (every phase but the
-    /// indeterminate one) or `show_count` is false — callers on those paths
-    /// may pass any value, including `0`.
+    /// bare "scanning...", which made no claim at all. That reasoning is
+    /// specific to the indeterminate state: a determinate milestone line is
+    /// written at the instant it describes, so its elapsed time is a fact,
+    /// not a stale redraw, and it is shown on TTY and non-TTY alike (AC-22's
+    /// 2026-08-06 scope note). The only line with no elapsed time is the
+    /// bare indeterminate one.
     ///
     /// Pure ASCII, deliberately: this is the only text the binary ever
     /// writes at runtime that could tempt a non-ASCII character (a
@@ -439,20 +462,13 @@ impl<W: Write> Progress<W> {
     /// separators either, for the same reason and for consistency with the
     /// unadorned integers in the `x of y` form above.
     ///
-    /// Seven parameters — one below clippy's `too_many_arguments` default
-    /// threshold (8). A future addition to this display should bundle
-    /// arguments into a small params struct instead of adding an eighth.
-    fn line(
-        phase: Phase,
-        current: u64,
-        phase_total: u64,
-        run_total: u64,
-        pct: Option<u64>,
-        show_count: bool,
-        elapsed_secs: u64,
-    ) -> String {
-        match pct {
-            None if show_count => {
+    /// Takes a [`LineParams`] rather than a parameter list: the display has
+    /// grown past what a positional signature keeps readable.
+    fn line(p: &LineParams) -> String {
+        let label = p.phase.label();
+        let (current, total, elapsed) = (p.current, p.phase_total, p.elapsed_secs);
+        match p.pct {
+            None if p.show_count => {
                 let noun = if current == 1 { "file" } else { "files" };
                 // Elapsed time (TASK-0332, AC-21b): a liveness cue for the
                 // stretch of a walk where almost nothing matches the
@@ -463,17 +479,20 @@ impl<W: Write> Progress<W> {
                 // slow trees. Deliberately not "entries visited": there is no
                 // denominator for that, so a growing number there would look
                 // like quantified progress it isn't (see the PRD amendment).
-                format!(
-                    "{}... {current} {noun} found ({elapsed_secs}s elapsed)",
-                    phase.label()
-                )
+                format!("{label}... {current} {noun} found ({elapsed}s elapsed)")
             }
-            None => format!("{}...", phase.label()),
-            Some(p) if phase == Phase::Verifying => format!(
-                "{}: {current} of {phase_total} ({p}%) ({run_total} candidates)",
-                phase.label()
+            // Non-TTY indeterminate: written once, at phase entry, so a clock
+            // here would be a permanently stale "0s" (AC-22).
+            None => format!("{label}..."),
+            Some(pct) if p.phase == Phase::Verifying => format!(
+                "{label}: {current} of {total} ({pct}%) ({} candidates) ({elapsed}s elapsed)",
+                p.run_total
             ),
-            Some(p) => format!("{}: {current} of {phase_total} ({p}%)", phase.label()),
+            // AC-32: the completion state reports the run's total.
+            Some(pct) if p.phase == Phase::Done => {
+                format!("{label}: {current} of {total} ({pct}%) ({elapsed}s total)")
+            }
+            Some(pct) => format!("{label}: {current} of {total} ({pct}%) ({elapsed}s elapsed)"),
         }
     }
 
@@ -515,22 +534,21 @@ impl<W: Write> Progress<W> {
             raw_current
         };
         let pct = st.total_known.then(|| Self::percent(current, phase_total));
-        // Only meaningful (and only ever rendered) on the TTY indeterminate
-        // branch (AC-21b) — computed unconditionally anyway since it's a
-        // cheap div on an already-loaded value, cheaper than branching around
-        // it just to skip a few nanoseconds of arithmetic no one reads.
-        let elapsed_secs = now / 1000;
+        // AC-32: every render carries elapsed time; only the non-TTY
+        // indeterminate line omits it (AC-22). `show_count` is TTY-only for
+        // the same reason (see `line`).
+        let params = LineParams {
+            phase,
+            current,
+            phase_total,
+            run_total,
+            pct,
+            show_count: self.tty,
+            elapsed_secs: now / 1000,
+        };
 
         if self.tty {
-            let line = Self::line(
-                phase,
-                current,
-                phase_total,
-                run_total,
-                pct,
-                true,
-                elapsed_secs,
-            );
+            let line = Self::line(&params);
             let mut buf = String::with_capacity(line.len() + 4);
             buf.push('\r');
             buf.push_str(&line);
@@ -546,15 +564,7 @@ impl<W: Write> Progress<W> {
                 (Some(b), shown) if shown != Some(b)
             );
             if force || phase_changed || bucket_changed {
-                let mut buf = Self::line(
-                    phase,
-                    current,
-                    phase_total,
-                    run_total,
-                    pct,
-                    false,
-                    elapsed_secs,
-                );
+                let mut buf = Self::line(&params);
                 buf.push('\n');
                 let _ = st.writer.write_all(buf.as_bytes());
                 st.last_phase_shown = Some(phase);
@@ -634,18 +644,16 @@ impl<W: Write + Send> ProgressSink for Progress<W> {
         self.current.store(run_total, Ordering::Relaxed);
 
         let pct = Some(Self::percent(run_total, run_total));
-        // show_count/elapsed_secs are both irrelevant here: pct is always
-        // Some for Phase::Done, so line()'s indeterminate branches (the only
-        // ones either parameter affects) are never reached.
-        let line = Self::line(
-            Phase::Done,
-            run_total,
-            run_total,
+        let line = Self::line(&LineParams {
+            phase: Phase::Done,
+            current: run_total,
+            phase_total: run_total,
             run_total,
             pct,
-            self.tty,
-            0,
-        );
+            show_count: self.tty,
+            // AC-32: the completion state reports the run's total elapsed time.
+            elapsed_secs: self.now_millis() / 1000,
+        });
 
         if self.tty {
             let mut buf = String::with_capacity(line.len() + 6);
@@ -828,7 +836,15 @@ mod tests {
         // isolation (no Progress/paint/clock plumbing at all), pinning
         // exactly the format string a regression to that plumbing shouldn't
         // be able to hide behind.
-        let line = Progress::<Vec<u8>>::line(Phase::Scanning, 3, 0, 0, None, true, 14);
+        let line = Progress::<Vec<u8>>::line(&LineParams {
+            phase: Phase::Scanning,
+            current: 3,
+            phase_total: 0,
+            run_total: 0,
+            pct: None,
+            show_count: true,
+            elapsed_secs: 14,
+        });
         assert_eq!(line, "scanning... 3 files found (14s elapsed)");
     }
 
@@ -1425,7 +1441,14 @@ mod tests {
         let mut last_pct: Option<u64> = None;
         let mut milestones_seen = 0;
         for line in out.lines() {
-            let Some(pct_str) = line.rsplit('(').next().and_then(|s| s.strip_suffix("%)")) else {
+            // The percentage is the parenthesised group ending in `%`; since
+            // AC-32 it is no longer the last group on the line (the elapsed
+            // time follows it).
+            let Some(pct_str) = line
+                .split('(')
+                .filter_map(|chunk| chunk.split(')').next())
+                .find_map(|group| group.strip_suffix('%'))
+            else {
                 continue;
             };
             let pct: u64 = pct_str.parse().expect("percent must parse as u64");
@@ -1649,5 +1672,49 @@ mod tests {
             "explicit finish() + SinkGuard Drop must render exactly one \
              completion line, got: {out:?}"
         );
+    }
+
+    // ── AC-32: elapsed time on every render (Amendment 2026-08-06) ─────────
+
+    #[test]
+    fn determinate_lines_carry_elapsed_time_in_every_phase() {
+        for tty in [true, false] {
+            let p = immediate_with_elapsed(tty, 12_000);
+            p.set_total(10);
+            p.set_phase(Phase::Hashing);
+            p.retotal(2);
+            p.set_phase(Phase::Verifying);
+            let out = captured(&p);
+            assert!(
+                out.contains("hashing: 0 of 10 (0%) (12s elapsed)"),
+                "tty={tty}: {out:?}"
+            );
+            assert!(
+                out.contains("verifying: 0 of 2 (0%) (10 candidates) (12s elapsed)"),
+                "tty={tty}: {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completion_line_reports_total_elapsed_time() {
+        for tty in [true, false] {
+            let p = immediate_with_elapsed(tty, 141_300);
+            p.set_total(302);
+            p.finish();
+            let out = captured(&p);
+            assert!(
+                out.contains("done: 302 of 302 (100%) (141s total)"),
+                "tty={tty}: {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_tty_indeterminate_scanning_stays_bare() {
+        // AC-22: a non-redrawn indeterminate line would record a stale clock.
+        let p = immediate_with_elapsed(false, 12_000);
+        p.set_phase(Phase::Scanning);
+        assert_eq!(captured(&p), "scanning...\n");
     }
 }
