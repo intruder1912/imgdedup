@@ -265,6 +265,12 @@ impl JsonReport {
 }
 
 /// Render the pipeline outcome as the stable JSON document (FR-14).
+///
+/// `#[cfg(test)]`-only: production renders through [`document`] +
+/// [`JsonReport::to_pretty`] so it can also hand the document, as a value,
+/// to the run record. This wrapper is exactly that composition, kept for the
+/// tests that assert on the rendered string.
+#[cfg(test)]
 pub fn render(
     outcome: &DedupOutcome,
     enumerate_warnings: &[EnumerateWarning],

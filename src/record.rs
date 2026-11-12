@@ -5,10 +5,6 @@
 //! as a complete, newline-terminated unit and writes it with one unbuffered
 //! `write_all`, so everything recorded survives the process dying.
 
-// Temporary: nothing calls this module until `main.rs` is wired to it in the
-// `--output` step of the same unit of work.
-#![allow(dead_code)]
-
 use crate::apply::ActionMode;
 use crate::engine::{DuplicateGroup, HardLinkNote};
 use crate::progress::{self, MilestoneGate, Phase, ProgressSink};

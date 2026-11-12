@@ -736,13 +736,11 @@ impl Drop for SinkGuard {
 /// terminal renderer and the run record's milestones from the one observer
 /// the pipeline already calls (ADR-0018 §2), so the record keeps its
 /// milestones under `--no-progress` and `--timings`.
-#[allow(dead_code)] // composed in main.rs by the --output wiring step
 pub struct Tee {
     first: Box<dyn ProgressSink>,
     second: Box<dyn ProgressSink>,
 }
 
-#[allow(dead_code)]
 impl Tee {
     pub fn new(first: Box<dyn ProgressSink>, second: Box<dyn ProgressSink>) -> Self {
         Self { first, second }

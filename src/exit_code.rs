@@ -46,7 +46,8 @@ pub const DUPLICATES_FOUND: i32 = 3;
 /// # Arguments
 ///
 /// - `run_level_error` — `true` when there is at least one run-level error
-///   (non-empty `CandidateSet.root_errors`, ADR-0008). A run-level error always
+///   (non-empty `CandidateSet.root_errors`, ADR-0008), or the `--output`
+///   record could not be written (ADR-0018 §7). A run-level error always
 ///   exits `ERROR` (1), taking precedence over `--exit-code`.
 /// - `exit_code_flag` — `true` when the `--exit-code` CLI flag was supplied
 ///   (FR-18). Without this flag a successful run always returns `SUCCESS` (0),

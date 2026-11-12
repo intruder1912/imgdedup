@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::io::IsTerminal;
 use std::process;
+use std::sync::Arc;
 
 mod apply;
 mod cli;
@@ -24,6 +25,33 @@ fn main() {
     process::exit(code);
 }
 
+/// The invocation as the run record's header reports it (FR-20).
+fn invocation(args: &cli::Cli, output: &std::path::Path) -> record::Invocation {
+    record::Invocation {
+        roots: args
+            .paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        keep: match args.keep {
+            cli::KeepRule::Shortest => "shortest",
+            cli::KeepRule::Oldest => "oldest",
+            cli::KeepRule::Newest => "newest",
+        },
+        apply: args.apply,
+        delete: args.delete,
+        json: args.json,
+        no_recurse: args.no_recurse,
+        hidden: args.hidden,
+        follow_symlinks: args.follow_symlinks,
+        ext: args.ext.clone(),
+        exit_code: args.exit_code,
+        no_progress: args.no_progress,
+        timings: args.timings,
+        output: output.to_string_lossy().into_owned(),
+    }
+}
+
 /// Top-level dispatch.
 ///
 /// Runs post-parse validation, then the enumeration stage (TASK-0302), then
@@ -38,6 +66,65 @@ fn run(args: cli::Cli) -> i32 {
         eprintln!("error: {msg}");
         return exit_code::USAGE;
     }
+
+    // FR-21 (ADR-0018 §8): decided once, from facts probed once. In the
+    // default mode progress goes to stdout when stdout is an interactive
+    // terminal and to stderr otherwise; under `--json` it always goes to
+    // stderr. `--no-progress` and `--timings` suppress it (AC-23, ADR-0017).
+    let routing = streams::route(
+        args.json,
+        args.no_progress,
+        args.timings,
+        std::io::stdout().is_terminal(),
+        std::io::stderr().is_terminal(),
+    );
+
+    // The run record (FR-20, ADR-0018). Opened before anything is scanned, so
+    // an unwritable path is a usage-level failure now rather than a surprise
+    // hours in (AC-28). `File::create` truncates an existing file — `--output`
+    // behaves like the `>` it stands in for (ADR-0018 §6). The file is written
+    // unbuffered: this function's caller ends in `process::exit`, which runs
+    // no destructors, so nothing may sit in a user-space buffer.
+    let recorder: Arc<dyn record::RunRecorder> = match &args.output {
+        None => Arc::new(record::NoRecord),
+        Some(path) => {
+            let shown = path.display().to_string();
+            let file = match std::fs::File::create(path) {
+                Ok(file) => file,
+                Err(e) => {
+                    eprintln!(
+                        "error: cannot write to {}: {}",
+                        safe_text::escape_control_chars(&shown),
+                        safe_text::escape_control_chars(&e.to_string())
+                    );
+                    return exit_code::USAGE;
+                }
+            };
+            // A write failure mid-run is the one stderr writer that can fire
+            // while a live progress line is being redrawn; a leading newline
+            // puts the message on a clean line (ADR-0018 §7).
+            let live_line = routing.progress.is_some_and(|t| t.tty);
+            let format = if args.json {
+                record::Format::Ndjson
+            } else {
+                record::Format::Human
+            };
+            let file_record = record::FileRecord::new(
+                file,
+                format,
+                shown,
+                Box::new(move |message| {
+                    if live_line {
+                        eprintln!();
+                    }
+                    eprintln!("{message}");
+                }),
+            );
+            let recorder: Arc<dyn record::RunRecorder> = Arc::new(file_record);
+            recorder.record(record::RecordEvent::Header(&invocation(&args, path)));
+            recorder
+        }
+    };
 
     // Performance instrumentation (ADR-0017, TASK-0338). `--timings`
     // installs a minimal `tracing-subscriber` `fmt` consumer over this run's
@@ -94,24 +181,22 @@ fn run(args: cli::Cli) -> i32 {
     // is fully flushed *before* the stdout report — AC-20, which `Drop`
     // alone cannot guarantee the ordering of) does not double-render the
     // completion line when `Drop` runs afterwards.
-    // FR-21 (ADR-0018 §8): decided once, from facts probed once. In the
-    // default mode progress goes to stdout when stdout is an interactive
-    // terminal and to stderr otherwise; under `--json` it always goes to
-    // stderr. `--no-progress` and `--timings` suppress it (AC-23, ADR-0017).
-    let routing = streams::route(
-        args.json,
-        args.no_progress,
-        args.timings,
-        std::io::stdout().is_terminal(),
-        std::io::stderr().is_terminal(),
-    );
-    let sink: progress::SinkGuard = progress::SinkGuard::new(match routing.progress {
+    let terminal_sink: Box<dyn progress::ProgressSink> = match routing.progress {
         None => Box::new(progress::NoProgress),
         Some(target) => Box::new(progress::Progress::new(
             streams::ProgressStream::open(target.stream),
             target.tty,
         )),
-    });
+    };
+    // Milestones reach the record through the same observer the pipeline
+    // already calls — independently of `--no-progress` and `--timings`, which
+    // only ever silence the terminal half (ADR-0018 §2).
+    let record_sink: Box<dyn progress::ProgressSink> = if recorder.is_active() {
+        Box::new(record::MilestoneSink::new(Arc::clone(&recorder)))
+    } else {
+        Box::new(progress::NoProgress)
+    };
+    let sink = progress::SinkGuard::new(Box::new(progress::Tee::new(terminal_sink, record_sink)));
     sink.set_phase(progress::Phase::Scanning);
 
     // Build scope options from parsed CLI flags (FR-1, FR-2, FR-6).
@@ -132,8 +217,7 @@ fn run(args: cli::Cli) -> i32 {
     // `sink` as each candidate is found (TASK-0317) so the Scanning phase
     // set above shows a live, growing count rather than a static
     // "scanning..." for the whole enumeration sub-phase.
-    let candidate_set =
-        enumerate::enumerate_with_progress(&args.paths, &scope, &*sink, &record::NoRecord);
+    let candidate_set = enumerate::enumerate_with_progress(&args.paths, &scope, &*sink, &*recorder);
 
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
     // Hand the enumerated candidates (path + size) to the sniff predicate.
@@ -174,7 +258,7 @@ fn run(args: cli::Cli) -> i32 {
         sink.set_phase(progress::Phase::Scanning);
     }
     let (confirmed, sniff_warnings) =
-        sniff::filter_candidates_with_progress(candidate_set.candidates, &*sink, &record::NoRecord);
+        sniff::filter_candidates_with_progress(candidate_set.candidates, &*sink, &*recorder);
     if scanned_count > 0 {
         sink.set_phase(progress::Phase::Scanning);
     }
@@ -194,7 +278,7 @@ fn run(args: cli::Cli) -> i32 {
         confirmed,
         keeper::build_comparator(args.keep),
         &*sink,
-        &record::NoRecord,
+        &*recorder,
     );
 
     // Progress must be finished — and therefore fully written to whichever
@@ -244,11 +328,13 @@ fn run(args: cli::Cli) -> i32 {
             // for did not happen. That is a poor basis for an irreversible
             // action — most often it is a typo in one of several paths — so the
             // run reports and exits rather than acting on a partial view.
-            eprintln!(
-                "error: not applying: {} scan root(s) could not be read; \
+            let reason = format!(
+                "not applying: {} scan root(s) could not be read; \
                  re-run once the paths are correct",
                 candidate_set.root_errors.len()
             );
+            eprintln!("error: {reason}");
+            recorder.record(record::RecordEvent::RunError { reason: &reason });
             return exit_code::ERROR;
         }
 
@@ -274,6 +360,11 @@ fn run(args: cli::Cli) -> i32 {
             remover.as_ref(),
             &mut |event| match event {
                 apply::Event::Removed(path) => {
+                    recorder.record(record::RecordEvent::Action {
+                        mode,
+                        path,
+                        skipped: None,
+                    });
                     // Routine status (FR-21): stdout when stdout is an
                     // interactive terminal in the default mode, otherwise
                     // not written at all — the result document's `actions`
@@ -286,10 +377,16 @@ fn run(args: cli::Cli) -> i32 {
                     }
                 }
                 apply::Event::Skipped(path, reason) => {
+                    let reason = reason.to_string();
+                    recorder.record(record::RecordEvent::Action {
+                        mode,
+                        path,
+                        skipped: Some(&reason),
+                    });
                     eprintln!(
                         "warning: {}: {}",
                         safe_text::escape_control_chars(&path.display().to_string()),
-                        safe_text::escape_control_chars(&reason.to_string())
+                        safe_text::escape_control_chars(&reason)
                     )
                 }
             },
@@ -316,42 +413,58 @@ fn run(args: cli::Cli) -> i32 {
     // print `render`'s line at the very end of `run()` — after the stdout
     // document had already been printed — with a `time.idle` covering that
     // print. See the same note in `engine.rs`.
-    let rendered = {
+    let (rendered, document) = {
         let render_span = tracing::info_span!(
             "render",
             format = if args.json { "json" } else { "human" },
             bytes = tracing::field::Empty,
         );
         let _render_guard = render_span.enter();
-        let rendered = if args.json {
-            json::render(
+        let (rendered, document) = if args.json {
+            let document = json::document(
                 &dedup,
                 &candidate_set.warnings,
                 &sniff_warnings,
                 &candidate_set.root_errors,
                 mode,
                 &applied,
-            )
+            );
+            (document.to_pretty(), Some(document))
         } else {
-            report::render(
-                &dedup,
-                &candidate_set.warnings,
-                &sniff_warnings,
-                mode,
-                &applied,
+            (
+                report::render(
+                    &dedup,
+                    &candidate_set.warnings,
+                    &sniff_warnings,
+                    mode,
+                    &applied,
+                ),
+                None,
             )
         };
         render_span.record("bytes", rendered.len());
-        rendered
+        (rendered, document)
     };
     print!("{rendered}");
+
+    // The completion document: the same `rendered` string stdout just
+    // received (byte-identical in the human record, AC-26; the same document
+    // compacted onto one line under `--json`, AC-27). Its presence is what
+    // tells a reader the run finished.
+    recorder.record(record::RecordEvent::Result {
+        rendered: &rendered,
+        json: document.as_ref(),
+    });
 
     // Stage 5 — Exit code (ADR-0008 §exit-code, TASK-0311).
     // A run-level error (non-empty root_errors) → 1. The --exit-code flag
     // returning 3 when duplicates are found → 3. All other successful runs → 0.
     // Per-file warnings alone never change the code from 0 (NFR-6).
+    // A record that could not be written is a run-level failure even though
+    // the scan (and any apply) succeeded: the user asked for a durable record
+    // and did not get one (ADR-0018 §7, AC-28a).
     exit_code::compute(
-        !candidate_set.root_errors.is_empty(),
+        !candidate_set.root_errors.is_empty() || recorder.is_degraded(),
         args.exit_code,
         !dedup.groups.is_empty(),
     )
