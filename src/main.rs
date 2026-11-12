@@ -13,6 +13,7 @@ mod progress;
 mod report;
 mod safe_text;
 mod sniff;
+mod streams;
 #[cfg(test)]
 mod trace_test_support;
 
