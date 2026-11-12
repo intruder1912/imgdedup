@@ -3,10 +3,6 @@
 //! One pure function decides which stream carries progress and apply-time
 //! status. TTY-ness is probed exactly once, in `main.rs`, and passed in.
 
-// Temporary: nothing calls this module until `main.rs` is wired to it in the
-// FR-21 routing step of the same unit of work.
-#![allow(dead_code)]
-
 use std::io::{self, Write};
 
 /// One of the process's two output streams.

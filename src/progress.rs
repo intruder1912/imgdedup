@@ -1,9 +1,10 @@
 //! Live progress indication (FR-19, TASK-0315, PRD-0001 Amendment 2026-07-19).
 //!
 //! While a scan runs, the pipeline notifies a [`ProgressSink`] as candidate
-//! files reach their final disposition. This module never touches stdout —
-//! it renders exclusively to whatever writer it is constructed with (in
-//! production, stderr), and is a **pure output concern**: nothing here
+//! files reach their final disposition. It renders exclusively to the writer
+//! it is constructed with — in production the stream `streams::route` selects
+//! (FR-21: stdout on an interactive terminal in the default mode, stderr
+//! otherwise) — and is a **pure output concern**: nothing here
 //! influences what is scanned, grouped, or removed (AC-24).
 //!
 //! ## Design
@@ -14,8 +15,9 @@
 //! - [`Progress<W>`] is the real renderer, generic over its output stream so
 //!   tests can capture into a `Vec<u8>` instead of needing a real terminal.
 //!   TTY-ness is **injected** as a `bool` at construction — never probed
-//!   inside this module. The probe (`std::io::stderr().is_terminal()`)
-//!   happens exactly once, in `main.rs`. This is what makes the TTY (AC-21)
+//!   inside this module. Both streams are probed (`is_terminal()`) exactly
+//!   once, in `main.rs`, and `streams::route` binds each target stream to its
+//!   own TTY-ness. This is what makes the TTY (AC-21)
 //!   and non-TTY (AC-22) rendering paths unit-testable without a real
 //!   terminal.
 //! - The sink is shared behind `&dyn ProgressSink` and called concurrently
@@ -85,14 +87,18 @@
 //! resting state after *any* run — with or without a verify phase — shows
 //! the problem size and a real completion state.
 //!
-//! ## Nothing else may write to stderr while a TTY progress line is live
+//! ## Nothing else may write to the progress stream's terminal while a TTY line is live
 //!
 //! On a TTY the progress line is redrawn in place and left un-terminated
 //! (no trailing newline) between repaints, by design (AC-21). Any other
-//! write to stderr while that line is live — e.g. `eprintln!` for a
+//! write to the terminal while that line is live — e.g. `eprintln!` for a
 //! diagnostic — lands in the *middle* of it, corrupting what the user sees
-//! (`scanning...error: ...`). `main.rs` enforces the ordering half of this
-//! (every other stderr writer runs strictly after [`ProgressSink::finish`]
+//! (`scanning...error: ...`). Because Rust's `Stdout` is line-buffered, the
+//! `flush()` after every in-place repaint is load-bearing when progress is on
+//! stdout: a `\r`-terminated frame would otherwise never appear (pinned by
+//! `tty_repaints_are_flushed_so_a_line_buffered_stdout_shows_them`).
+//! `main.rs` enforces the ordering half of this
+//! (every other terminal writer runs strictly after [`ProgressSink::finish`]
 //! returns, which always leaves the cursor on a fresh line) — but ordering
 //! alone is only as durable as every future edit to `run()`; an early
 //! `return` added by later work (e.g. TASK-0309/TASK-0310's apply/delete
@@ -1858,5 +1864,41 @@ mod tests {
         assert!(a.text().contains("hashing: 4 of 4 (100%)"));
         assert!(a.text().contains("verifying: 0 of 2 (0%) (4 candidates)"));
         assert!(a.text().contains("done: 4 of 4 (100%)"));
+    }
+
+    /// Records how many bytes had been written at each `flush` call.
+    #[derive(Default)]
+    struct FlushProbe {
+        bytes: Vec<u8>,
+        flushed_at: Vec<usize>,
+    }
+
+    impl Write for FlushProbe {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushed_at.push(self.bytes.len());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn tty_repaints_are_flushed_so_a_line_buffered_stdout_shows_them() {
+        // ADR-0018 §8: with progress on stdout (a LineWriter), this flush is
+        // what makes a `\r`-terminated repaint visible at all.
+        let p = Progress::new_with_interval_ms(FlushProbe::default(), true, 0);
+        p.set_phase(Phase::Scanning);
+        p.advance(1);
+        p.finish();
+
+        let st = p.state.lock().unwrap();
+        assert_eq!(
+            st.writer.flushed_at.last().copied(),
+            Some(st.writer.bytes.len()),
+            "every byte written must have been flushed"
+        );
+        assert!(st.writer.flushed_at.len() >= 3, "one flush per repaint");
     }
 }

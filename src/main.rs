@@ -77,8 +77,9 @@ fn run(args: cli::Cli) -> i32 {
     // timing line written while the TTY progress line is live would corrupt
     // it mid-redraw (`progress.rs`'s module doc), so the two are mutually
     // exclusive and `--timings` always wins — no error, no second flag
-    // needed. Otherwise progress always targets stderr, and TTY-ness is
-    // probed exactly once here — never inside `progress::Progress` itself —
+    // needed. Which stream carries progress is `streams::route`'s decision
+    // (FR-21); the TTY-ness of both streams is probed exactly once, just
+    // below — never inside `progress::Progress` itself —
     // so the renderer stays unit-testable with an injected boolean (AC-21 /
     // AC-22). `Box<dyn ProgressSink>` lets both arms share one call site
     // below regardless of which concrete sink was built.
@@ -92,12 +93,23 @@ fn run(args: cli::Cli) -> i32 {
     // is fully flushed *before* the stdout report — AC-20, which `Drop`
     // alone cannot guarantee the ordering of) does not double-render the
     // completion line when `Drop` runs afterwards.
-    let progress_enabled = !args.no_progress && !args.timings;
-    let stderr_is_tty = std::io::stderr().is_terminal();
-    let sink: progress::SinkGuard = progress::SinkGuard::new(if !progress_enabled {
-        Box::new(progress::NoProgress)
-    } else {
-        Box::new(progress::Progress::new(std::io::stderr(), stderr_is_tty))
+    // FR-21 (ADR-0018 §8): decided once, from facts probed once. In the
+    // default mode progress goes to stdout when stdout is an interactive
+    // terminal and to stderr otherwise; under `--json` it always goes to
+    // stderr. `--no-progress` and `--timings` suppress it (AC-23, ADR-0017).
+    let routing = streams::route(
+        args.json,
+        args.no_progress,
+        args.timings,
+        std::io::stdout().is_terminal(),
+        std::io::stderr().is_terminal(),
+    );
+    let sink: progress::SinkGuard = progress::SinkGuard::new(match routing.progress {
+        None => Box::new(progress::NoProgress),
+        Some(target) => Box::new(progress::Progress::new(
+            streams::ProgressStream::open(target.stream),
+            target.tty,
+        )),
     });
     sink.set_phase(progress::Phase::Scanning);
 
@@ -182,9 +194,11 @@ fn run(args: cli::Cli) -> i32 {
         &*sink,
     );
 
-    // Progress must be finished — and therefore fully written to stderr —
-    // strictly before the stdout report/JSON is printed below, so progress
-    // output can never interleave with stdout in any mode (AC-20).
+    // Progress must be finished — and therefore fully written to whichever
+    // stream carries it — strictly before the stdout report/JSON is printed
+    // below (AC-20). Under FR-21 that stream can be stdout itself (default
+    // mode on an interactive terminal), so this ordering is correctness, not
+    // tidiness: the completion line must land before the report's first byte.
     sink.finish();
 
     // Run-level errors (an unscannable root) must be *visible*, not just
@@ -213,10 +227,9 @@ fn run(args: cli::Cli) -> i32 {
     // Stage 4 — Destructive actions (TASK-0309 trash / TASK-0310 delete).
     //
     // Runs *before* the report so the output can describe what actually
-    // happened rather than what was intended (FR-14). Progress and per-file
-    // skips have already gone to stderr, so a run that dies mid-apply still
-    // told the user something; stdout stays reserved for the one report/JSON
-    // document (the S2 purity contract).
+    // happened rather than what was intended (FR-14). Per-file skips go to
+    // stderr as they happen (genuine failures, ADR-0018 §9 #7); removal lines
+    // follow FR-21's routing for routine status (see the closure below).
     //
     // Every candidate is re-validated immediately before its own removal
     // (FR-16) — the scan alone never authorizes anything — and a removal
@@ -247,10 +260,10 @@ fn run(args: cli::Cli) -> i32 {
             )
         };
 
-        // Stream both outcomes as they happen. Removals matter most: if the
-        // process is killed partway through a permanent delete, the report
-        // below never prints, and without this the user would have no record of
-        // what was destroyed.
+        // Report both outcomes as they happen. If the process is killed
+        // partway through a permanent delete the report below never prints;
+        // the durable ledger for that case is the `--output` record (FR-20),
+        // not a terminal line.
         let verb = mode.past_tense();
         let outcome = apply::apply(
             &dedup.groups,
@@ -258,10 +271,16 @@ fn run(args: cli::Cli) -> i32 {
             remover.as_ref(),
             &mut |event| match event {
                 apply::Event::Removed(path) => {
-                    eprintln!(
-                        "{verb}: {}",
-                        safe_text::escape_control_chars(&path.display().to_string())
-                    )
+                    // Routine status (FR-21): stdout when stdout is an
+                    // interactive terminal in the default mode, otherwise
+                    // not written at all — the result document's `actions`
+                    // and `--output` cover it (ADR-0018 §9 #6). Never stderr.
+                    if routing.status.is_some() {
+                        println!(
+                            "{verb}: {}",
+                            safe_text::escape_control_chars(&path.display().to_string())
+                        );
+                    }
                 }
                 apply::Event::Skipped(path, reason) => {
                     eprintln!(

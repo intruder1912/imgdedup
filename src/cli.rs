@@ -90,10 +90,11 @@ pub struct Cli {
     #[arg(long, action = ArgAction::SetTrue)]
     pub exit_code: bool,
 
-    /// Disable the live progress indicator (FR-19). Progress is shown on
-    /// stderr by default (auto-adapting to whether stderr is a terminal);
-    /// this flag turns it off completely — nothing progress-related is
-    /// written to any stream, and stdout is unaffected either way (AC-23).
+    /// Disable the live progress indicator (FR-19). Progress is shown by
+    /// default on the terminal — on stdout when stdout is an interactive
+    /// terminal, otherwise on stderr; under `--json` always on stderr. This
+    /// flag turns it off completely: nothing progress-related is written to
+    /// any stream, and the report is unaffected either way (AC-23).
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_progress: bool,
 
@@ -102,7 +103,7 @@ pub struct Cli {
     ///
     /// Writes one line per pipeline stage to stderr as that stage finishes,
     /// with the time it took. Implies `--no-progress`: timing lines and the
-    /// live progress indicator cannot share stderr, so `--timings` wins, and
+    /// live progress indicator cannot share a terminal, so `--timings` wins, and
     /// passing both is not an error. Off by default; stdout is never
     /// changed, so `--timings --json` is the way to measure a scripted run.
     /// The output is diagnostic, not a stable interface (ADR-0017).
