@@ -7,9 +7,17 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-06
+**Last updated:** 2026-11-12
 
 ## In progress
+
+- _Session 34 (TASK-0340/TASK-0341 implementation, slice 1: FR-20 + FR-21 +
+  FR-19 elapsed time), 2026-11-12 — branch
+  `feat/output-record-and-stream-routing`._ Executing
+  [the implementation plan](../superpowers/plans/2026-11-12-output-record-and-stream-routing.md)
+  in usage-budgeted batches, implemented inline with the architect/tester/
+  product-owner reviews dispatched at the end. FR-22 (paging) is not part of
+  this unit.
 
 - _Session 33 (TASK-0340/TASK-0341 joint design: PRD-0001 amendment + ADR-0018),
   2026-08-06 — branch `docs/prd-0001-pager-and-output-model`, fresh window
@@ -83,7 +91,7 @@ docs pass → AI automation, batched within Claude usage limits.
   only named one of the four routine `SkipReason` variants) — fixed directly
   (`48b5700`), widening the hedge to all four with the concrete evidence from
   `apply.rs`, decision unchanged. This unit is now **PRD-0001 Amendment
-  2026-08-06 + ADR-0018 only**, architect-reviewed, ready to open its PR;
+  2026-08-06 + ADR-0018 only**, architect-reviewed, merged as PR #98 (2026-08-06);
   TASK-0340/0341's backlog rows point at the reverted guide-doc draft for
   reuse. Implementation (TDD, both FR-20/FR-21 first, FR-22 paging as a later
   slice, guide docs riding that PR per precedent) is the rest of this backlog
