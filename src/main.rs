@@ -10,6 +10,7 @@ mod exit_code;
 mod json;
 mod keeper;
 mod progress;
+mod record;
 mod report;
 mod safe_text;
 mod sniff;

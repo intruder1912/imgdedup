@@ -130,7 +130,7 @@ struct JsonTotals {
 }
 
 #[derive(Debug, Serialize)]
-struct JsonReport {
+pub(crate) struct JsonReport {
     schema_version: u32,
     mode: &'static str,
     groups: Vec<JsonGroup>,
