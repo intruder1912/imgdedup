@@ -83,6 +83,9 @@ use crate::enumerate::Candidate;
 #[cfg(test)]
 use crate::progress::NoProgress;
 use crate::progress::ProgressSink;
+#[cfg(test)]
+use crate::record::NoRecord;
+use crate::record::{RecordEvent, RunRecorder};
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::Read;
@@ -198,7 +201,7 @@ pub fn confirm_image(path: &Path) -> bool {
 pub(crate) fn filter_candidates(
     candidates: Vec<Candidate>,
 ) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
-    filter_candidates_with_progress(candidates, &NoProgress)
+    filter_candidates_with_progress(candidates, &NoProgress, &NoRecord)
 }
 
 /// Like [`filter_candidates`], additionally notifying `sink` once per
@@ -248,6 +251,7 @@ pub(crate) fn filter_candidates(
 pub fn filter_candidates_with_progress(
     candidates: Vec<Candidate>,
     sink: &dyn ProgressSink,
+    recorder: &dyn RunRecorder,
 ) -> (Vec<ConfirmedFile>, Vec<SniffWarning>) {
     // ADR-0017 (TASK-0338): this stage's own span. `candidates` is known
     // before consuming the input; `confirmed`/`rejected` are only known once
@@ -288,6 +292,15 @@ pub fn filter_candidates_with_progress(
             };
             // Every candidate is examined exactly once here, confirmed or
             // rejected alike (AC-21a) — the count must not depend on outcome.
+            // A rejection is recorded here, when it happens (FR-20); the
+            // recorder is thread-safe and output-only.
+            if let Err(w) = &result {
+                recorder.record(RecordEvent::Warning {
+                    stage: "sniff",
+                    path: &w.path,
+                    reason: &w.reason,
+                });
+            }
             sink.advance(1);
             result
         })
@@ -839,6 +852,7 @@ mod tests {
                 candidate(missing_path.clone()),
             ],
             &sink,
+            &NoRecord,
         );
 
         assert_eq!(confirmed.len(), 1);
@@ -854,7 +868,7 @@ mod tests {
     #[test]
     fn filter_candidates_with_progress_advances_zero_times_for_an_empty_input() {
         let sink = CountingSink::default();
-        let (confirmed, warnings) = filter_candidates_with_progress(Vec::new(), &sink);
+        let (confirmed, warnings) = filter_candidates_with_progress(Vec::new(), &sink, &NoRecord);
         assert!(confirmed.is_empty());
         assert!(warnings.is_empty());
         assert_eq!(
@@ -906,7 +920,7 @@ mod tests {
                 .num_threads(threads)
                 .build()
                 .unwrap()
-                .install(|| filter_candidates_with_progress(candidates, &sink));
+                .install(|| filter_candidates_with_progress(candidates, &sink, &NoRecord));
             (
                 confirmed,
                 warnings,
@@ -977,6 +991,7 @@ mod tests {
             let _ = filter_candidates_with_progress(
                 vec![candidate(real_path), candidate(fake_path)],
                 &NoProgress,
+                &NoRecord,
             );
         });
 
@@ -987,5 +1002,31 @@ mod tests {
         assert!(out.contains("candidates=2"), "got:\n{out}");
         assert!(out.contains("confirmed=1"), "got:\n{out}");
         assert!(out.contains("rejected=1"), "got:\n{out}");
+    }
+
+    #[test]
+    fn a_rejected_candidate_is_recorded_as_a_sniff_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("notes.jpg");
+        std::fs::write(&fake, b"just text").unwrap();
+        let candidates = vec![Candidate {
+            path: fake.clone(),
+            size: 9,
+            mtime: None,
+        }];
+
+        let capture = crate::record::Capture::default();
+        let (confirmed, warnings) =
+            filter_candidates_with_progress(candidates, &NoProgress, &capture);
+
+        assert!(confirmed.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            capture.lines(),
+            vec![format!(
+                "[     0.0s] warning: sniff: {}: content not recognized as a supported image format\n",
+                fake.display()
+            )]
+        );
     }
 }

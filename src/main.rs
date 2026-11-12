@@ -132,7 +132,8 @@ fn run(args: cli::Cli) -> i32 {
     // `sink` as each candidate is found (TASK-0317) so the Scanning phase
     // set above shows a live, growing count rather than a static
     // "scanning..." for the whole enumeration sub-phase.
-    let candidate_set = enumerate::enumerate_with_progress(&args.paths, &scope, &*sink);
+    let candidate_set =
+        enumerate::enumerate_with_progress(&args.paths, &scope, &*sink, &record::NoRecord);
 
     // Stage 2 — Magic-byte confirmation (ADR-0008, FR-3, NFR-2, TASK-0303).
     // Hand the enumerated candidates (path + size) to the sniff predicate.
@@ -173,7 +174,7 @@ fn run(args: cli::Cli) -> i32 {
         sink.set_phase(progress::Phase::Scanning);
     }
     let (confirmed, sniff_warnings) =
-        sniff::filter_candidates_with_progress(candidate_set.candidates, &*sink);
+        sniff::filter_candidates_with_progress(candidate_set.candidates, &*sink, &record::NoRecord);
     if scanned_count > 0 {
         sink.set_phase(progress::Phase::Scanning);
     }
@@ -193,6 +194,7 @@ fn run(args: cli::Cli) -> i32 {
         confirmed,
         keeper::build_comparator(args.keep),
         &*sink,
+        &record::NoRecord,
     );
 
     // Progress must be finished — and therefore fully written to whichever
