@@ -11,10 +11,46 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 36 (feat: `--output` overwrite safety net, TASK-0342, plus two
+  owner-requested riders), 2026-11-13 — branch
+  `feat/output-overwrite-safety-net`._ Brainstormed with the owner the same
+  day ([design](../superpowers/specs/2026-11-13-output-overwrite-safety-net-design.md),
+  [plan](../superpowers/plans/2026-11-13-output-overwrite-safety-net.md)).
+  Owner rulings: a dedup tool must not destroy **any** file unasked; replace
+  only the tool's own records without a flag; keep what is replaced as
+  `.bak`, one generation; exit `1` when the report cannot be written to
+  stdout.
+
+  **Resume point: plan Tasks 1–4 (all code) are done and committed on the
+  branch, which is local only. Task 5 remains**: the product-owner pass
+  (PRD-0001 FR-20 amendment and acceptance criteria, message wording, guide
+  and README), the architect's code review of `git diff main...HEAD`
+  including the ADR-0018 amendment drafted here, then push and PR.
+
+  - **Overwrite rule** (`src/output_file.rs`, `--overwrite-output`): an
+    earlier record is moved to `<file>.bak` and replaced; an empty file is
+    written; any other existing file is refused with exit `2` before
+    scanning unless the flag is given. A foreign `.bak` blocks the run with
+    or without the flag. A symlinked target is backed up by copy.
+  - **Closed stderr / stdout** (rider): `main.rs` no longer uses `eprintln!`
+    or `println!`; a diagnostic to a closed stderr is dropped, and a report
+    that cannot be written exits `1` after the record is completed. This was
+    the PR #107 review's follow-up F5.
+  - **Not yet done, and the user docs still describe the old behavior**
+    until the product-owner pass: the guide and README say an existing file
+    is overwritten.
+
+  State: `cargo test` green (367 unit + 103 integration on macOS), clippy
+  and fmt clean. Tests were written before the code for the wiring and the
+  closed-pipe fix; `output_file.rs`'s unit tests and implementation were
+  written together.
+
 - _Session 35 (fix: FR-20/FR-21 close-out tail — TASK-0343, TASK-0344 and
   review follow-ups), 2026-11-13 — branch `fix/output-record-close-out-tail`._
   One owner-requested collective PR for the small items left over from
-  PR #107, three in product code and four chores:
+  PR #107, three in product code and four chores. **Merged 2026-11-13 as
+  PR #108 (squash `310fc6c`)**, including the later-added rewording of the
+  startup error to `cannot open output file`:
 
   - **TASK-0344 (done).** The human-readable record header gains a third
     `# invocation:` line (`json=`, `no-progress=`, `timings=`, `output=`), so
@@ -49,8 +85,7 @@ docs pass → AI automation, batched within Claude usage limits.
     plan's steps are ticked; ADR-0018 gains implementation notes 10 to 12.
 
   Not in this unit, by decision: `eprintln!` panicking when stderr is a
-  closed pipe (predates this work, needs its own unit); TASK-0342 (needs an
-  owner brainstorm).
+  closed pipe, and TASK-0342 — both picked up in session 36.
 
 - _Session 34 (TASK-0340/TASK-0341 implementation, slice 1: FR-20 + FR-21 +
   FR-19 elapsed time), 2026-11-12 — branch
