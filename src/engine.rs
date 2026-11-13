@@ -32,6 +32,9 @@
 #[cfg(test)]
 use crate::progress::NoProgress;
 use crate::progress::{Phase, ProgressSink};
+#[cfg(test)]
+use crate::record::NoRecord;
+use crate::record::{RecordEvent, RunRecorder};
 use crate::sniff::ConfirmedFile;
 use rayon::prelude::*;
 use same_file::Handle;
@@ -274,11 +277,12 @@ pub fn find_duplicates_with_progress<K>(
     files: Vec<ConfirmedFile>,
     keeper_order: K,
     sink: &dyn ProgressSink,
+    recorder: &dyn RunRecorder,
 ) -> DedupOutcome
 where
     K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
-    dedup_core_with_sink(files, keeper_order, hash_file, true, sink)
+    dedup_core_with_sink(files, keeper_order, hash_file, true, sink, recorder)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -300,7 +304,14 @@ where
     H: Fn(&Path) -> io::Result<[u8; 32]> + Sync,
     K: Fn(&FileRec, &FileRec) -> Ordering + Sync,
 {
-    dedup_core_with_sink(files, keeper_order, hasher, size_prefilter, &NoProgress)
+    dedup_core_with_sink(
+        files,
+        keeper_order,
+        hasher,
+        size_prefilter,
+        &NoProgress,
+        &NoRecord,
+    )
 }
 
 /// Core pipeline, additionally notifying `sink` as each candidate file
@@ -361,6 +372,10 @@ where
 /// test asserting hashing advances arrive incrementally rather than in one
 /// bulk jump.
 ///
+/// `recorder` is told about each warning and each verified group at the moment
+/// it is decided (FR-20, ADR-0018 §2). It is output-only: nothing it does can
+/// change the returned [`DedupOutcome`].
+///
 /// Before returning, the outcome is **canonically sorted** (ADR-0010): groups
 /// by keeper path, files within each group by the keeper order, warnings by
 /// path, hard-link notes by representative path. This canonical sort is the
@@ -372,6 +387,7 @@ fn dedup_core_with_sink<H, K>(
     hasher: H,
     size_prefilter: bool,
     sink: &dyn ProgressSink,
+    recorder: &dyn RunRecorder,
 ) -> DedupOutcome
 where
     H: Fn(&Path) -> io::Result<[u8; 32]> + Sync,
@@ -524,6 +540,13 @@ where
                             path: cf.path,
                             reason: format!("could not hash file: {e}"),
                         });
+                        if let Some(w) = outcome.warnings.last() {
+                            recorder.record(RecordEvent::Warning {
+                                stage: "engine",
+                                path: &w.path,
+                                reason: &w.reason,
+                            });
+                        }
                     }
                 }
             }
@@ -576,7 +599,15 @@ where
                 // the time it returns, regardless of which internal branch
                 // (all-anchor group, verify pass/fail, ...) was taken.
                 let group_len = group.len() as u64;
+                let before = (
+                    outcome.groups.len(),
+                    outcome.hard_link_notes.len(),
+                    outcome.warnings.len(),
+                );
                 process_hash_group(group, &keeper_order, &mut outcome);
+                if recorder.is_active() {
+                    record_decided(recorder, &outcome, before, &keeper_order);
+                }
                 sink.advance(group_len);
             }
         }
@@ -630,6 +661,53 @@ where
     outcome
         .hard_link_notes
         .sort_by(|a, b| a.representative.cmp(&b.representative));
+}
+
+/// Hand the run record whatever one `process_hash_group` call just decided:
+/// its warnings, and either its duplicate group (with that group's hard-link
+/// notes) or its already-deduplicated sets.
+///
+/// A group's **membership** is final here (ADR-0018 §1): the candidate set
+/// closed before grouping began, a group cannot span size cohorts or hash
+/// groups, and nothing later revisits it. Its position among the groups and
+/// every run total are *not* final, so neither is recorded. Member order is
+/// only fixed by `sort_canonical` later, so a copy is sorted here with the
+/// same comparator — `sort_by` is stable and the order total, so this equals
+/// the final order.
+fn record_decided<K>(
+    recorder: &dyn RunRecorder,
+    outcome: &DedupOutcome,
+    (groups_before, notes_before, warnings_before): (usize, usize, usize),
+    keeper_order: &K,
+) where
+    K: Fn(&FileRec, &FileRec) -> Ordering,
+{
+    for w in &outcome.warnings[warnings_before..] {
+        recorder.record(RecordEvent::Warning {
+            stage: "engine",
+            path: &w.path,
+            reason: &w.reason,
+        });
+    }
+    let mut notes = outcome.hard_link_notes[notes_before..].to_vec();
+    notes.sort_by(|a, b| a.representative.cmp(&b.representative));
+    match outcome.groups[groups_before..].first() {
+        Some(group) => {
+            let mut group = group.clone();
+            group.removable.sort_by(keeper_order);
+            group.protected.sort_by(keeper_order);
+            recorder.record(RecordEvent::Group {
+                group: &group,
+                notes: &notes,
+            });
+        }
+        // No group emitted: any notes are all-anchor, already-deduplicated sets.
+        None => {
+            for note in &notes {
+                recorder.record(RecordEvent::AlreadyDeduplicated(note));
+            }
+        }
+    }
 }
 
 /// Group hashed records by their digest, dropping any digest with only one file.
@@ -2422,7 +2500,7 @@ mod tests {
 
         let sink = RecordingSink::default();
         let shortest_order = crate::keeper::build_comparator(crate::cli::KeepRule::Shortest);
-        let outcome = find_duplicates_with_progress(files, shortest_order, &sink);
+        let outcome = find_duplicates_with_progress(files, shortest_order, &sink, &NoRecord);
 
         assert_eq!(
             outcome.groups.len(),
@@ -2463,7 +2541,7 @@ mod tests {
         let expected_total = files.len() as u64;
 
         let sink = RecordingSink::default();
-        let _ = find_duplicates_with_progress(files, lex_order, &sink);
+        let _ = find_duplicates_with_progress(files, lex_order, &sink, &NoRecord);
 
         assert_eq!(
             sink.set_total_calls
@@ -2495,7 +2573,7 @@ mod tests {
         }
 
         let sink = RecordingSink::default();
-        let _ = find_duplicates_with_progress(files, lex_order, &sink);
+        let _ = find_duplicates_with_progress(files, lex_order, &sink, &NoRecord);
 
         let calls = sink
             .hashing_advance_calls
@@ -2522,7 +2600,7 @@ mod tests {
         let files = vec![cf(&a), cf(&b), cf(&c), cf(&d)];
         let sink = RecordingSink::default();
         let lex = lex_order;
-        let _ = find_duplicates_with_progress(files, lex, &sink);
+        let _ = find_duplicates_with_progress(files, lex, &sink, &NoRecord);
 
         assert_eq!(
             *sink.phases.lock().unwrap(),
@@ -2549,7 +2627,7 @@ mod tests {
         let files = vec![cf(&solo), cf(&u1), cf(&u2)];
 
         let sink = RecordingSink::default();
-        let outcome = find_duplicates_with_progress(files, lex_order, &sink);
+        let outcome = find_duplicates_with_progress(files, lex_order, &sink, &NoRecord);
 
         assert!(
             outcome.groups.is_empty(),
@@ -2577,7 +2655,7 @@ mod tests {
         // `ProgressSink::finish` can still render its terminal `done: 0 of 0
         // (100%)` line, but no phase is ever entered by the engine itself.
         let sink = RecordingSink::default();
-        let outcome = find_duplicates_with_progress(Vec::new(), lex_order, &sink);
+        let outcome = find_duplicates_with_progress(Vec::new(), lex_order, &sink, &NoRecord);
 
         assert!(outcome.groups.is_empty());
         assert!(
@@ -2619,12 +2697,14 @@ mod tests {
             files.clone(),
             crate::keeper::build_comparator(crate::cli::KeepRule::Shortest),
             &real_sink,
+            &NoRecord,
         );
 
         let with_no_progress = find_duplicates_with_progress(
             files,
             crate::keeper::build_comparator(crate::cli::KeepRule::Shortest),
             &crate::progress::NoProgress,
+            &NoRecord,
         );
 
         assert_eq!(
@@ -2742,5 +2822,98 @@ mod tests {
             "the `verify` span must fire even with nothing to verify; got:\n{out}"
         );
         assert!(out.contains("files_verified=0"), "got:\n{out}");
+    }
+
+    #[test]
+    fn each_verified_group_is_recorded_in_canonical_member_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, bytes: &[u8]| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, bytes).unwrap();
+            p
+        };
+        // Two groups; the first has three members so member order is observable.
+        let a = write("a.png", b"same-content-1");
+        let b = write("b.png", b"same-content-1");
+        let c = write("c.png", b"same-content-1");
+        let x = write("x.png", b"same-content-2");
+        let y = write("y.png", b"same-content-2");
+        // Fed in reverse so emit-time sorting, not input order, is what's tested.
+        let files = [&y, &x, &c, &b, &a].into_iter().map(|p| cf(p)).collect();
+
+        let capture = crate::record::Capture::default();
+        let outcome = find_duplicates_with_progress(files, lex_order, &NoProgress, &capture);
+
+        assert_eq!(outcome.groups.len(), 2);
+        let recorded = capture.lines();
+        let groups: Vec<&String> = recorded
+            .iter()
+            .filter(|l| l.contains("] group ("))
+            .collect();
+        assert_eq!(
+            groups.len(),
+            2,
+            "one record per verified group: {recorded:?}"
+        );
+
+        // Each recorded block lists exactly the final group's members, in the
+        // final (canonical) order, with no index.
+        for group in &outcome.groups {
+            let mut expected = format!("              KEEP    {}\n", group.keeper.path.display());
+            for r in &group.removable {
+                expected.push_str(&format!("              REMOVE  {}\n", r.path.display()));
+            }
+            assert!(
+                groups.iter().any(|block| block.ends_with(&expected)),
+                "no recorded block matches {expected:?} in {recorded:?}"
+            );
+        }
+        assert!(!recorded.iter().any(|l| l.contains("Group ")));
+    }
+
+    #[test]
+    fn a_hash_failure_is_recorded_as_an_engine_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.png");
+        let b = dir.path().join("b.png");
+        std::fs::write(&a, b"12345").unwrap();
+        std::fs::write(&b, b"12345").unwrap();
+        let files = vec![cf(&a), cf(&b)];
+
+        let capture = crate::record::Capture::default();
+        let failing = |p: &Path| -> io::Result<[u8; 32]> {
+            if p == a {
+                Err(io::Error::other("boom"))
+            } else {
+                hash_file(p)
+            }
+        };
+        let outcome = dedup_core_with_sink(files, lex_order, failing, true, &NoProgress, &capture);
+
+        assert_eq!(outcome.warnings.len(), 1);
+        assert_eq!(
+            capture.lines(),
+            vec![format!(
+                "[     0.0s] warning: engine: {}: could not hash file: boom\n",
+                a.display()
+            )]
+        );
+    }
+
+    #[test]
+    fn recording_never_changes_the_outcome() {
+        // The AC-24 principle for the record: output-only.
+        let dir = tempfile::tempdir().unwrap();
+        let mut files: Vec<ConfirmedFile> = Vec::new();
+        for name in ["a.png", "b.png", "c.png"] {
+            let p = dir.path().join(name);
+            std::fs::write(&p, b"identical").unwrap();
+            files.push(cf(&p));
+        }
+        let capture = crate::record::Capture::default();
+        let recorded =
+            find_duplicates_with_progress(files.clone(), lex_order, &NoProgress, &capture);
+        let plain = find_duplicates_with_progress(files, lex_order, &NoProgress, &NoRecord);
+        assert_eq!(recorded, plain);
     }
 }

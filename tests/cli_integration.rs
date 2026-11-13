@@ -306,10 +306,15 @@ fn a_scan_root_that_cannot_be_read_blocks_the_apply() {
     assert!(u.exists());
 }
 
-/// Removals are streamed to stderr as they happen, so a run killed partway
-/// through a permanent delete still leaves the user a record of what went.
+/// FR-21 (ADR-0018 §9 #6): an apply-time removal line is routine status, not
+/// a failure. With stdout not an interactive terminal — as here, and always
+/// under `--json` — it is written to **neither** stream: stderr is reserved
+/// for genuine failures, and stdout must stay exactly the report. The report's
+/// performed-actions section remains the authoritative record of the removal
+/// (and `--output` captures each one as it happens, for a run that is killed
+/// partway through).
 #[test]
-fn removals_are_streamed_as_they_happen() {
+fn removal_lines_are_not_written_when_stdout_is_not_a_terminal() {
     let (dir, _a, b, _u) = duplicate_tree();
 
     let out = cmd()
@@ -320,12 +325,40 @@ fn removals_are_streamed_as_they_happen() {
         .output()
         .expect("run");
     let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
 
     assert!(
-        stderr.contains("deleted: ") && stderr.contains("b.png"),
-        "each removal must appear on stderr as it happens; stderr:\n{stderr}"
+        !stderr.contains("deleted: "),
+        "apply-time removal lines are routine status: with stdout not a \
+         terminal they are written to neither stream; got stderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("b.png"),
+        "the report's performed-actions section remains the authoritative \
+         record of the removal; got stdout:\n{stdout}"
     );
     assert!(!b.exists());
+}
+
+/// AC-29's other half, observable without a pty: with nothing going wrong,
+/// an `--apply` run with `--no-progress` leaves stderr completely empty —
+/// stderr carries genuine failures only (FR-21).
+#[test]
+fn clean_apply_run_writes_nothing_to_stderr_without_progress() {
+    let (dir, _a, _b, _u) = duplicate_tree();
+
+    let out = cmd()
+        .arg(dir.path())
+        .args(["--apply", "--delete", "--no-progress"])
+        .output()
+        .expect("imgdedup must spawn");
+
+    assert!(out.status.success());
+    assert!(
+        out.stderr.is_empty(),
+        "expected an empty stderr; got:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// AC-5 (FR-12): re-running `--apply` on an already-deduplicated tree takes
@@ -962,6 +995,41 @@ fn piped_stderr_has_no_redraw_or_ansi_and_bounded_line_count() {
     );
 }
 
+/// AC-32 (FR-19 amended 2026-08-06) end to end, on the plain-line path:
+/// every determinate progress line carries the elapsed time, and the
+/// completion line carries the run's total. The one exempt line is the bare
+/// non-TTY `scanning...` entry (AC-22: a clock there would be stale).
+#[test]
+fn non_tty_progress_lines_carry_elapsed_time_and_the_completion_line_a_total() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    let determinate: Vec<&str> = stderr.lines().filter(|l| l.contains(" of ")).collect();
+    assert!(!determinate.is_empty(), "positive control; got:\n{stderr}");
+    for line in &determinate {
+        let ok = if line.starts_with("done:") {
+            line.ends_with("s total)")
+        } else {
+            line.ends_with("s elapsed)")
+        };
+        assert!(ok, "AC-32: no elapsed time on {line:?}; all:\n{stderr}");
+    }
+    assert!(
+        stderr
+            .lines()
+            .any(|l| l.starts_with("done: 6 of 6 (100%) (") && l.ends_with("s total)")),
+        "the completion line reports the run total; got:\n{stderr}"
+    );
+    assert!(
+        stderr.lines().any(|l| l == "scanning..."),
+        "the non-TTY indeterminate line stays bare (AC-22); got:\n{stderr}"
+    );
+}
+
 // ── AC-21a (FR-19, scanning's determinate second state, TASK-0328) ────────
 
 /// AC-21a end to end: once the walk finds `N > 0` candidates, scanning
@@ -1005,8 +1073,12 @@ fn scanning_determinate_state_appears_as_a_milestone_line_on_non_tty() {
         "expected the determinate scanning state to end at N of N (100%); \
          got:\n{stderr}"
     );
+    let closing = stderr
+        .lines()
+        .find(|l| l.starts_with("scanning: 6 of 6 (100%)"))
+        .expect("closing scanning line");
     assert!(
-        !stderr.contains("scanning: 6 of 6 (100%) ("),
+        !closing.contains("candidates)"),
         "scanning's determinate state must never carry a (N candidates) \
          suffix (AC-21a; that suffix is Verifying-only); got:\n{stderr}"
     );

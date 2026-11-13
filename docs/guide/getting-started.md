@@ -162,9 +162,37 @@ Group 1/1 (2 files, 1024 bytes reclaimable):
 A skipped file never changes the exit code on its own (see
 [Output and exit codes](output-and-exit-codes.md)).
 
+## Watching a long run
+
+While the scan works, a live progress line shows the current phase, how far
+along it is, and how long the run has been going — for example
+`hashing: 1200 of 28450 (4%) (12s elapsed)` — on your terminal, ahead of the
+report it eventually prints, and finishes on a `done:` line with the run's
+total time. If you redirect the report to a file
+(`imgdedup ./photos > report.txt`), the progress line moves to standard error
+instead, so it still shows on your terminal while the file stays a clean
+report.
+
+A long run is also worth recording. `--output` writes what the run produces to
+a file **as it goes** — progress milestones, each duplicate group as it is
+confirmed, warnings, and finally the full report — so a scan you interrupt, or
+that dies, still leaves what it had found:
+
+```sh
+imgdedup --output run.txt ./photos
+```
+
+A record that ends with a `===== RESULT` banner and the report is from a run
+that finished; one without it is from a run that did not. Groups are confirmed
+near the end of a run, after hashing, so a run stopped early may have recorded
+progress but no groups yet. An existing file at that path is overwritten.
+See [`--output`: a durable record of the run](output-and-exit-codes.md#--output-file-a-durable-record-of-the-run)
+for everything that lands in the file and what survives an interrupted run.
+
 ## Where to go next
 
 - Control what gets scanned → [Scanning and scope](scanning-and-scope.md)
 - Decide which copy is kept → [Choosing what to keep](choosing-what-to-keep.md)
 - Actually reclaim space → [Removing duplicates safely](removing-duplicates-safely.md)
 - Script against the output → [Output and exit codes](output-and-exit-codes.md)
+- Keep a durable record of a long run → [`--output`](output-and-exit-codes.md#--output-file-a-durable-record-of-the-run)

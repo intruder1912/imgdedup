@@ -286,7 +286,13 @@ User stories:
     rationale is that a run whose durable record is incomplete has failed at
     something the user explicitly asked for, and a script must be able to see
     that; aborting the scan instead would throw away completed work to punish a
-    reporting problem.
+    reporting problem. After a reported write failure the file is not a
+    reliable finished/unfinished signal (clarified 2026-11-13, ADR-0018
+    implementation note 9): in the human-readable format it may end with part
+    of the completion document (its banner and a truncated report) when the
+    failing write was the completion document itself. The exit code `1` and
+    the single error message are the signal. NDJSON is unaffected, since a
+    partial final line does not parse.
   - `--output` is **output-only**: it never changes what is scanned, grouped,
     or removed, and a run with and without it produces the same stdout bytes.
     Its only effect outside the file is the exit code in the write-failure case
@@ -675,7 +681,9 @@ Behavior:
   report/JSON are exactly what they would have been without `--output`; the
   failure is reported **exactly once**, not once per subsequent failed write;
   and the process exits **`1`** (FR-15's run-level failure code) despite the
-  deduplication work itself having succeeded.
+  deduplication work itself having succeeded; and the file does not contain a
+  *complete* completion document (in the human-readable format it may contain
+  a partial one; see FR-20).
 - **AC-29 (FR-21, interactive stdout):** Given the default (non-`--json`) mode
   with stdout an interactive terminal, when a scan runs, then progress —
   including elapsed time — and apply-time status lines appear on **stdout**,

@@ -64,6 +64,9 @@ use crate::keeper;
 #[cfg(test)]
 use crate::progress::NoProgress;
 use crate::progress::ProgressSink;
+#[cfg(test)]
+use crate::record::NoRecord;
+use crate::record::{RecordEvent, RunRecorder};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -259,7 +262,7 @@ impl ScopeOptions {
 /// though today only this module's own tests call it.
 #[cfg(test)]
 pub(crate) fn enumerate(paths: &[PathBuf], opts: &ScopeOptions) -> CandidateSet {
-    enumerate_with_progress(paths, opts, &NoProgress)
+    enumerate_with_progress(paths, opts, &NoProgress, &NoRecord)
 }
 
 /// Like [`enumerate`], additionally notifying `sink` as each candidate file
@@ -290,6 +293,7 @@ pub fn enumerate_with_progress(
     paths: &[PathBuf],
     opts: &ScopeOptions,
     sink: &dyn ProgressSink,
+    recorder: &dyn RunRecorder,
 ) -> CandidateSet {
     // ADR-0017 (TASK-0338): this stage's own span, opened by the function
     // that owns the stage. `roots` is the raw input root count, known up
@@ -315,7 +319,7 @@ pub fn enumerate_with_progress(
     let mut root_scopes: Vec<RootScope> = Vec::new();
     for root in &dedupe_roots(paths, opts) {
         let start = result.candidates.len();
-        let saw_symlink = enumerate_root(root, opts, &mut result, sink);
+        let saw_symlink = enumerate_root(root, opts, &mut result, sink, recorder);
         root_scopes.push(RootScope {
             root: root.clone(),
             start,
@@ -707,6 +711,7 @@ fn enumerate_root(
     opts: &ScopeOptions,
     out: &mut CandidateSet,
     sink: &dyn ProgressSink,
+    recorder: &dyn RunRecorder,
 ) -> bool {
     // Determine max depth: depth 1 = immediate children only (no-recurse).
     // walkdir depth 0 is the root itself; depth 1 includes direct children.
@@ -745,9 +750,11 @@ fn enumerate_root(
                 if e.depth() == 0 {
                     out.root_errors
                         .push(EnumerateWarning::new(path, e.to_string()));
+                    record_last_root_error(out, recorder);
                 } else {
                     out.warnings
                         .push(EnumerateWarning::new(path, e.to_string()));
+                    record_last_warning(out, recorder);
                 }
             }
             Ok(entry) => {
@@ -796,6 +803,7 @@ fn enumerate_root(
                             path.clone(),
                             format!("could not read metadata: {e}"),
                         ));
+                        record_last_warning(out, recorder);
                         continue;
                     }
                 };
@@ -816,6 +824,29 @@ fn enumerate_root(
     }
 
     saw_symlink
+}
+
+/// Tell the run record about the root error just pushed (FR-20). Written when
+/// it happens: unlike stderr, the record has no live progress line to
+/// corrupt, so it does not wait for `finish()` (ADR-0018 §2).
+fn record_last_root_error(out: &CandidateSet, recorder: &dyn RunRecorder) {
+    if let Some(e) = out.root_errors.last() {
+        recorder.record(RecordEvent::RootError {
+            path: &e.path,
+            reason: &e.reason,
+        });
+    }
+}
+
+/// Tell the run record about the per-entry warning just pushed (FR-20).
+fn record_last_warning(out: &CandidateSet, recorder: &dyn RunRecorder) {
+    if let Some(w) = out.warnings.last() {
+        recorder.record(RecordEvent::Warning {
+            stage: "enumerate",
+            path: &w.path,
+            reason: &w.reason,
+        });
+    }
 }
 
 /// Return `true` if any path component of `path` that is *below* `root`
@@ -2308,7 +2339,7 @@ mod tests {
 
         let opts = ScopeOptions::default_scope();
         let sink = CountingSink::default();
-        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink, &NoRecord);
 
         assert_eq!(result.candidates.len(), 3, "3 images pass the scope rules");
         assert_eq!(
@@ -2351,7 +2382,7 @@ mod tests {
 
         let opts = ScopeOptions::default_scope();
         let sink = RecordingSink::default();
-        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink, &NoRecord);
 
         assert_eq!(result.candidates.len(), 1, "only the .jpg is a candidate");
 
@@ -2396,7 +2427,7 @@ mod tests {
 
         let opts = ScopeOptions::default_scope();
         let sink = RecordingSink::default();
-        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink);
+        let result = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &sink, &NoRecord);
 
         fs::set_permissions(&bad_dir, fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -2448,7 +2479,8 @@ mod tests {
         let opts = ScopeOptions::default_scope();
 
         let out = capture(|| {
-            let _ = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress);
+            let _ =
+                enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress, &NoRecord);
         });
 
         assert!(
@@ -2471,6 +2503,7 @@ mod tests {
                 &[PathBuf::from("/does/not/exist/at/all")],
                 &opts,
                 &NoProgress,
+                &NoRecord,
             );
         });
 
@@ -2494,7 +2527,8 @@ mod tests {
             ..ScopeOptions::default_scope()
         };
         let out = capture(|| {
-            let _ = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress);
+            let _ =
+                enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress, &NoRecord);
         });
 
         assert!(
@@ -2517,13 +2551,33 @@ mod tests {
             ..ScopeOptions::default_scope()
         };
         let out = capture(|| {
-            let _ = enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress);
+            let _ =
+                enumerate_with_progress(&[dir.path().to_path_buf()], &opts, &NoProgress, &NoRecord);
         });
 
         assert!(
             !out.contains("symlink_alias_dedupe"),
             "the conditional span must not fire when no root's walk saw a \
              symlink (the cheap common case); got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_root_error_is_recorded_when_it_happens() {
+        let capture = crate::record::Capture::default();
+        let missing = PathBuf::from("/definitely/not/here-imgdedup");
+        let result = enumerate_with_progress(
+            std::slice::from_ref(&missing),
+            &ScopeOptions::default_scope(),
+            &NoProgress,
+            &capture,
+        );
+        assert_eq!(result.root_errors.len(), 1);
+        let lines = capture.lines();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].starts_with("[     0.0s] error: /definitely/not/here-imgdedup: "),
+            "{lines:?}"
         );
     }
 }

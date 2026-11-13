@@ -7,9 +7,124 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-08-06
+**Last updated:** 2026-11-13
 
 ## In progress
+
+- _Session 34 (TASK-0340/TASK-0341 implementation, slice 1: FR-20 + FR-21 +
+  FR-19 elapsed time), 2026-11-12 — branch
+  `feat/output-record-and-stream-routing`._ Executing
+  [the implementation plan](../superpowers/plans/2026-11-12-output-record-and-stream-routing.md)
+  in usage-budgeted batches, implemented inline with the architect/tester/
+  product-owner reviews dispatched at the end. FR-22 (paging) is not part of
+  this unit.
+
+  **State (end of window 2, 2026-11-13): PR #107 is open, CI is green
+  (`checks`, `ci-gate`, `security`, Rust on Ubuntu and Windows) and the
+  architect's confirmation pass is done; the PR awaits the owner's merge.**
+  Window 1 (2026-11-12) landed plan
+  Tasks 0–10 inline; window 2 ran Task 11: the tester pass, the product-owner
+  guide docs, the ADR-0018 / backlog close-out, the architect's code review on
+  the branch diff, and product-owner acceptance.
+
+  Window 2 outcomes:
+
+  - **Tester** (AC-20..AC-32 + AC-28a): no product defect. Four tests added —
+    AC-32 for scanning's determinate state and for the `(Ns elapsed)` /
+    `(Ns total)` suffixes end to end, and two AC-28a tests that force a real
+    `EFBIG` through `ulimit -f` so the continue / report-once / exit-1 path
+    runs on macOS as well as through the Linux-only `/dev/full` tests.
+    `make scale` passes. `--output` adds no measurable wall time on the
+    2,021-file corpus (about 500 ms with or without it).
+  - **Product-owner docs:** README, `output-and-exit-codes.md`,
+    `getting-started.md` and the guide index, built from the reverted
+    2026-08-06 draft with its review findings applied and every example taken
+    from the built binary. The draft's "two clarity gaps" were never itemized
+    anywhere, so they were addressed by best guess.
+  - **Architect review: code converged, docs changes required and applied.**
+    All five plan decisions, the latch-under-mutex variant and the other
+    recorded deviations were approved. Findings fixed on the branch: (M1) a
+    failed write of the completion document can leave the `===== RESULT`
+    banner and a cut-short report in the human record — reproduced by the
+    architect; documented in the guide and in ADR-0018 implementation note 9
+    rather than changed in code, because an end trailer would break AC-26;
+    (M2) the ADR index still said `proposed`; (M3) two inaccurate
+    implementation notes; (S1) the `ulimit` test assumed the failure lands
+    before the result write, which holds only for long temporary paths — it
+    now asserts the record does not end with the complete report; (S2) the
+    record-failure message is written to stderr in one call so a progress
+    repaint cannot split it.
+  - **ADR-0018 §6 overclaimed.** It says the record "contains every scanned
+    path"; the record holds the roots, group and hard-link-set members, warned
+    files, error paths and action paths. The architect ruled the narrower
+    record correct per FR-20; implementation note 8 and the guide say so.
+
+  - **Product-owner acceptance: FR-21 and the FR-19 amendment accepted; FR-20
+    accepted on one condition, met in this PR** — a PRD-0001 wording fold-in
+    (FR-20's write-failure bullet and AC-28a) saying that after a reported
+    write failure the human record may hold a partial completion document and
+    that exit code `1` plus the error message are the signal. Follow-ups
+    raised as backlog rows: TASK-0342 (safety net for `--output` naming an
+    existing image or scan root, P2, needs an owner brainstorm), TASK-0343
+    (byte-pinned `--json` golden test, P2), TASK-0344 (record-header and
+    `--help` polish, P3). Declined as follow-ups: a "stopped" marker for a
+    refused `--apply`, and rewording `cannot write to` / `could not write to`.
+
+  State: `make validate` passes; `cargo test` green (348 unit + 91
+  integration on macOS, 93 on CI's Ubuntu leg, which also runs the two
+  Linux-only tests; the 4 scale tests ignored as always); clippy `-D warnings`,
+  `cargo fmt --check` and `cargo deny check` clean. The architect also built
+  `main` and compared stdout byte for byte against this branch, with and
+  without `--output`, in default and `--json` modes and under
+  `--apply --delete`: identical.
+
+  Verified by hand, evidence in the commit messages of `37c1fb4` and
+  `be94d61`: (1) FR-21 routing on a real pseudo-terminal (a throwaway Python
+  `pty` harness, not kept in the repo) in four stream configurations, all
+  matching ADR-0018 §8's table; (2) AC-25 against real `SIGKILL`s on the
+  2,021-file `test-images/` corpus — header + milestones, no completion
+  banner; NDJSON all complete lines parseable; a completed run's record ends
+  byte-for-byte with its stdout.
+
+  Known gaps for the reviewers to judge, not rediscover: the two `/dev/full`
+  end-to-end tests (`tests/output_record.rs`) are Linux-only; they ran for the
+  first time on CI's Ubuntu leg for PR #107 and passed; no kill has landed in the
+  verify phase on a real corpus (`test-images/` has no duplicates), so
+  "already-written groups survive a kill" rests on fixture tests; there is no
+  automated pty test.
+
+  Deviations from the plan as written, for the architect: the five design
+  decisions listed at the top of the plan (owner approved #1, the
+  elapsed-time wording; #2–#5 await the architect); the report-once latch is
+  set under the writer mutex rather than by `compare_exchange` (Task 6);
+  `enumerate.rs` records at three sites, not two (walk errors below the root
+  also warn); Task 9 landed as one commit (an unused parameter would have
+  failed clippy on its own); `json::render` is now `#[cfg(test)]` (production
+  goes through `document()` + `to_pretty()`); the existing test
+  `removals_are_streamed_as_they_happen` was replaced by
+  `removal_lines_are_not_written_when_stdout_is_not_a_terminal`, asserting the
+  opposite per FR-21; `document_to_pretty_is_byte_identical_to_render` is
+  near-tautological — the real evidence that `--json` stdout bytes did not
+  move is the unchanged json/acceptance/golden suites.
+
+  Usage, estimate vs. actual (5h window; inline implementation, no agent
+  dispatches): Tasks 0–3 est. 25–35%, actual 11%; Tasks 4–7 est. 12–18%,
+  actual 14%; Tasks 8–9 est. 7–8%, actual 9%; Task 10 est. 8–10%, actual not
+  read. Lesson for the batch plan: **inline TDD from a plan that already
+  carries the code costs roughly a third of the dispatch-based estimate**;
+  the plan's original 40–70%-per-batch figures assumed implementer
+  dispatches. Task 11 is dispatch-heavy (tester, product-owner, architect
+  ×1–2): budget 40–60% of a fresh window, and do not start the architect
+  review with less than ~35% left.
+
+  Window 2 (2026-11-13; fresh 5h window, weekly at 12% at the start): four
+  agent dispatches — tester, product-owner docs, architect review,
+  product-owner acceptance — about 490k subagent tokens in total, the docs
+  pass and the architect review about 195k each. Estimate 40–60% of the
+  window; actual **42%** at the point the PR was opened (owner's `/usage`
+  reading; the weekly figure was not read). The low end of the estimate
+  held: a dispatch-heavy close-out of this size costs roughly 10% of a
+  window per full-depth agent pass.
 
 - _Session 33 (TASK-0340/TASK-0341 joint design: PRD-0001 amendment + ADR-0018),
   2026-08-06 — branch `docs/prd-0001-pager-and-output-model`, fresh window
@@ -83,7 +198,7 @@ docs pass → AI automation, batched within Claude usage limits.
   only named one of the four routine `SkipReason` variants) — fixed directly
   (`48b5700`), widening the hedge to all four with the concrete evidence from
   `apply.rs`, decision unchanged. This unit is now **PRD-0001 Amendment
-  2026-08-06 + ADR-0018 only**, architect-reviewed, ready to open its PR;
+  2026-08-06 + ADR-0018 only**, architect-reviewed, merged as PR #98 (2026-08-06);
   TASK-0340/0341's backlog rows point at the reverted guide-doc draft for
   reuse. Implementation (TDD, both FR-20/FR-21 first, FR-22 paging as a later
   slice, guide docs riding that PR per precedent) is the rest of this backlog

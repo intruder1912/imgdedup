@@ -1,6 +1,7 @@
 # ADR-0018: Durable run record (`--output`) & output-stream routing
 
-- **Status:** proposed
+- **Status:** accepted (implemented 2026-11; see
+  [Implementation notes](#implementation-notes-2026-11))
 - **Date:** 2026-08-06
 - **Deciders:** architect, human owner
 - **Related:** [PRD-0001](../prd/PRD-0001-exact-image-deduplication.md) —
@@ -796,6 +797,68 @@ nothing here depends on its answers.
   which gates implementation. (h) FR-22 (paging) is a separate slice and a
   separate ADR question — including the `$PAGER`-through-a-shell security
   question, untouched here.
+
+## Implementation notes (2026-11)
+
+FR-20, FR-21 and the FR-19 elapsed-time amendment were implemented on
+`feat/output-record-and-stream-routing` (TASK-0340/TASK-0341, slice 1) from
+[the implementation plan](../superpowers/plans/2026-11-12-output-record-and-stream-routing.md).
+The decision above stands as written. Where the implementation settled
+something this ADR left open, or differs from its illustrations, the code is
+authoritative and the difference is recorded here:
+
+1. **Elapsed-time wording.** Determinate progress lines end with
+   `(<n>s elapsed)`; the completion line ends with `(<n>s total)` — for
+   example `hashing: 1200 of 28450 (4%) (12s elapsed)` and
+   `done: 302 of 302 (100%) (141s total)`. The suffix is always last. The
+   non-terminal indeterminate `scanning...` line stays bare (AC-22).
+2. **A run-scoped `error` event.** The `not applying: N scan root(s) could not
+   be read` refusal is recorded as an `error` with `scope: "run"` and no
+   `path` — an additive extension of §4b's `error` vocabulary, needed for
+   FR-20's "every error".
+3. **`MilestoneSink` is its own type.** §2 sketched `FileRecord` implementing
+   `ProgressSink` directly. The implementation instead wraps an
+   `Arc<dyn RunRecorder>` in a separate `MilestoneSink`, teed with the terminal
+   renderer and sharing the same `MilestoneGate` cadence. `FileRecord` keeps
+   one job, and milestones are unit-tested against a capturing recorder.
+4. **Record order is occurrence order.** The `done` milestone therefore
+   precedes apply-time `trashed:` / `deleted:` lines; §4a's example shows the
+   reverse and is illustrative only.
+5. **Two defaulted `RunRecorder` methods.** `is_active()` lets the engine skip
+   a per-group clone when `--output` is absent; `is_degraded()` feeds the exit
+   code after a record-write failure (§7).
+6. **Report-once latch.** §7's "exactly one message" is enforced by a flag set
+   under the record writer's mutex, not by an atomic `compare_exchange`: the
+   failing write already holds that mutex, so the latch needs no second
+   synchronization primitive.
+7. **Three recording sites in enumeration.** `enumerate.rs` records a scan
+   root that cannot be read (an `error`), a walk error below a root and a
+   metadata failure (both warnings). §2's table listed fewer sites.
+8. **What paths the record holds.** §6 says the record "contains every scanned
+   path". It does not: no event lists every scanned file. The record holds the
+   scan roots, the members of each duplicate group and of each
+   already-deduplicated hard-link set, the files warned about, the paths of
+   `error` events, the paths acted on and — in the NDJSON header's
+   `invocation` — the `--output` path itself. The guide states that
+   narrower set; §6's advice to choose the record's location with care on a
+   shared machine stands.
+9. **A failed write of the completion document can leave part of it.** §7
+   says a mid-run write failure "leaves a file with no completion document".
+   That holds when an earlier record fails, because every later write is then
+   skipped. When the failing write is the completion document itself —
+   the largest single write, so the likeliest to hit a nearly full disk —
+   `write_all` may have written part of it before the error: the human record
+   can then end with the `===== RESULT` banner and a cut-short report. Exit
+   code `1` and the stderr message are the signal; the guide says so. An
+   end-of-record trailer was rejected because it would break AC-26 (the record
+   ends with the exact stdout bytes), and truncating back contradicts §7's
+   "no truncate". NDJSON is unaffected: a partial `result` line does not parse.
+
+Verification beyond the automated suite, recorded in the commit messages of
+`37c1fb4` and `be94d61`: the §8 routing table was exercised on a real
+pseudo-terminal in four stream configurations, and AC-25 against real
+`SIGKILL`s on a 2,021-file corpus (header and milestones present, no
+completion banner; every complete NDJSON line parseable).
 
 ## Pros and cons of the options
 

@@ -85,7 +85,7 @@ impl JsonFile {
 }
 
 #[derive(Debug, Serialize)]
-struct JsonHardLinkSet {
+pub(crate) struct JsonHardLinkSet {
     representative: String,
     siblings: Vec<String>,
 }
@@ -100,7 +100,7 @@ impl JsonHardLinkSet {
 }
 
 #[derive(Debug, Serialize)]
-struct JsonGroup {
+pub(crate) struct JsonGroup {
     keeper: JsonFile,
     removable: Vec<JsonFile>,
     protected: Vec<JsonFile>,
@@ -109,14 +109,14 @@ struct JsonGroup {
 }
 
 #[derive(Debug, Serialize)]
-struct JsonWarning {
+pub(crate) struct JsonWarning {
     stage: &'static str,
     path: String,
     reason: String,
 }
 
 #[derive(Debug, Serialize)]
-struct JsonRootError {
+pub(crate) struct JsonRootError {
     path: String,
     reason: String,
 }
@@ -130,7 +130,7 @@ struct JsonTotals {
 }
 
 #[derive(Debug, Serialize)]
-struct JsonReport {
+pub(crate) struct JsonReport {
     schema_version: u32,
     mode: &'static str,
     groups: Vec<JsonGroup>,
@@ -157,7 +157,7 @@ struct JsonSkip {
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
-/// Render the pipeline outcome as the stable JSON document (FR-14).
+/// Build the pipeline outcome as the stable JSON document (FR-14).
 ///
 /// Mirrors [`crate::report::render`]'s note-partitioning: a [`HardLinkNote`]
 /// whose representative appears among a group's paths (keeper, removable, or
@@ -165,14 +165,14 @@ struct JsonSkip {
 /// remaining notes are all-anchor "already deduplicated" sets, surfaced
 /// top-level and excluded from totals — identical semantics to the human
 /// report (parity, TASK-0308).
-pub fn render(
+pub(crate) fn document(
     outcome: &DedupOutcome,
     enumerate_warnings: &[EnumerateWarning],
     sniff_warnings: &[SniffWarning],
     root_errors: &[EnumerateWarning],
     mode: ActionMode,
     applied: &ApplyOutcome,
-) -> String {
+) -> JsonReport {
     let mut attached: HashSet<usize> = HashSet::new();
 
     let groups: Vec<JsonGroup> = outcome
@@ -239,7 +239,7 @@ pub fn render(
             .collect(),
     };
 
-    let report = JsonReport {
+    JsonReport {
         schema_version: SCHEMA_VERSION,
         mode: mode.as_str(),
         groups,
@@ -248,14 +248,76 @@ pub fn render(
         actions,
         warnings,
         root_errors,
-    };
+    }
+}
 
-    // Serialization of these derive-only types cannot fail; a pretty document
-    // is friendlier to humans piping to files and equally parseable.
-    let mut out = serde_json::to_string_pretty(&report)
-        .expect("JSON serialization of plain structs cannot fail");
-    out.push('\n');
-    out
+impl JsonReport {
+    /// The document as stdout prints it: pretty-printed, newline-terminated.
+    pub(crate) fn to_pretty(&self) -> String {
+        // Serialization of these derive-only types cannot fail; a pretty
+        // document is friendlier to humans piping to files and equally
+        // parseable.
+        let mut out = serde_json::to_string_pretty(self)
+            .expect("JSON serialization of plain structs cannot fail");
+        out.push('\n');
+        out
+    }
+}
+
+/// Render the pipeline outcome as the stable JSON document (FR-14).
+///
+/// `#[cfg(test)]`-only: production renders through [`document`] +
+/// [`JsonReport::to_pretty`] so it can also hand the document, as a value,
+/// to the run record. This wrapper is exactly that composition, kept for the
+/// tests that assert on the rendered string.
+#[cfg(test)]
+pub fn render(
+    outcome: &DedupOutcome,
+    enumerate_warnings: &[EnumerateWarning],
+    sniff_warnings: &[SniffWarning],
+    root_errors: &[EnumerateWarning],
+    mode: ActionMode,
+    applied: &ApplyOutcome,
+) -> String {
+    document(
+        outcome,
+        enumerate_warnings,
+        sniff_warnings,
+        root_errors,
+        mode,
+        applied,
+    )
+    .to_pretty()
+}
+
+// ── Payloads for the run record's NDJSON lines (ADR-0018 §4b) ────────────
+//
+// The record's `group`, `already_deduplicated`, `warning` and `error` lines
+// are built from the very types the document uses, so a field added or
+// renamed here reaches both surfaces at once.
+
+/// One group, with the hard-link notes among `notes` that belong to it.
+pub(crate) fn group_payload(group: &DuplicateGroup, notes: &[HardLinkNote]) -> JsonGroup {
+    json_group(group, notes, &mut HashSet::new())
+}
+
+pub(crate) fn hard_link_set_payload(note: &HardLinkNote) -> JsonHardLinkSet {
+    JsonHardLinkSet::from_note(note)
+}
+
+pub(crate) fn warning_payload(stage: &'static str, path: &Path, reason: &str) -> JsonWarning {
+    JsonWarning {
+        stage,
+        path: lossy(path),
+        reason: reason.to_owned(),
+    }
+}
+
+pub(crate) fn root_error_payload(path: &Path, reason: &str) -> JsonRootError {
+    JsonRootError {
+        path: lossy(path),
+        reason: reason.to_owned(),
+    }
 }
 
 /// Build one `JsonGroup`, attaching the hard-link notes whose representative
@@ -647,5 +709,36 @@ mod tests {
             v["actions"]["skipped"][0]["reason"], "content changed since the scan",
             "the reason string must match what the human report shows"
         );
+    }
+
+    #[test]
+    fn document_to_pretty_is_byte_identical_to_render() {
+        let dir = TempDir::new().unwrap();
+        let outcome = outcome_from(&dir, &[("a.png", b"same"), ("b.png", b"same")]);
+        let applied = ApplyOutcome::default();
+        let pretty = document(&outcome, &[], &[], &[], ActionMode::DryRun, &applied).to_pretty();
+        assert_eq!(
+            pretty,
+            render(&outcome, &[], &[], &[], ActionMode::DryRun, &applied)
+        );
+    }
+
+    #[test]
+    fn group_payload_equals_the_group_inside_the_document() {
+        // The anti-drift rule (ADR-0018 §4b): a record `group` line is built by
+        // the same code as the document's group, not a parallel copy.
+        let dir = TempDir::new().unwrap();
+        let outcome = outcome_from(&dir, &[("a.png", b"same"), ("b.png", b"same")]);
+        let doc = document(
+            &outcome,
+            &[],
+            &[],
+            &[],
+            ActionMode::DryRun,
+            &ApplyOutcome::default(),
+        );
+        let from_doc = serde_json::to_value(&doc).unwrap()["groups"][0].clone();
+        let payload = group_payload(&outcome.groups[0], &outcome.hard_link_notes);
+        assert_eq!(serde_json::to_value(&payload).unwrap(), from_doc);
     }
 }

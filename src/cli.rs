@@ -90,19 +90,33 @@ pub struct Cli {
     #[arg(long, action = ArgAction::SetTrue)]
     pub exit_code: bool,
 
-    /// Disable the live progress indicator (FR-19). Progress is shown on
-    /// stderr by default (auto-adapting to whether stderr is a terminal);
-    /// this flag turns it off completely — nothing progress-related is
-    /// written to any stream, and stdout is unaffected either way (AC-23).
+    /// Disable the live progress indicator (FR-19). Progress is shown by
+    /// default on the terminal — on stdout when stdout is an interactive
+    /// terminal, otherwise on stderr; under `--json` always on stderr. This
+    /// flag turns it off completely: nothing progress-related is written to
+    /// any stream, and the report is unaffected either way (AC-23).
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_progress: bool,
+
+    /// Write a durable record of the run to FILE, continuously (FR-20).
+    ///
+    /// The file is written as the run progresses — a header, progress
+    /// milestones with elapsed time, each duplicate group as it is verified,
+    /// every warning and error, and each `--apply` action — and ends with the
+    /// complete report once the run finishes. If the run is interrupted, the
+    /// file keeps everything recorded up to that point and has no final
+    /// report. With `--json` the file is NDJSON (one JSON object per line).
+    /// An existing FILE is overwritten. This is in addition to the normal
+    /// output, which is unchanged.
+    #[arg(long, value_name = "FILE")]
+    pub output: Option<PathBuf>,
 
     // ── Diagnostics (ADR-0017, TASK-0338) ──────────────────────────────────
     /// Print per-stage timing lines to stderr (diagnostic).
     ///
     /// Writes one line per pipeline stage to stderr as that stage finishes,
     /// with the time it took. Implies `--no-progress`: timing lines and the
-    /// live progress indicator cannot share stderr, so `--timings` wins, and
+    /// live progress indicator cannot share a terminal, so `--timings` wins, and
     /// passing both is not an error. Off by default; stdout is never
     /// changed, so `--timings --json` is the way to measure a scripted run.
     /// The output is diagnostic, not a stable interface (ADR-0017).
@@ -489,5 +503,24 @@ mod tests {
             rendered,
             format!("imgdedup {}\n", env!("CARGO_PKG_VERSION"))
         );
+    }
+
+    // ── --output (FR-20) ──────────────────────────────────────────────────
+
+    #[test]
+    fn output_defaults_to_none() {
+        assert_eq!(try_parse(&["imgdedup", "."]).unwrap().output, None);
+    }
+
+    #[test]
+    fn output_takes_a_path() {
+        let cli = try_parse(&["imgdedup", ".", "--output", "run.txt"]).unwrap();
+        assert_eq!(cli.output, Some(PathBuf::from("run.txt")));
+    }
+
+    #[test]
+    fn output_requires_a_value() {
+        let err = try_parse(&["imgdedup", ".", "--output"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidValue);
     }
 }
