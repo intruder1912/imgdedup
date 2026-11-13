@@ -230,7 +230,10 @@ fn unwritable_output_path_fails_before_scanning() {
         );
         assert!(out.stdout.is_empty(), "no report is written");
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.starts_with("error: cannot write to "), "{stderr}");
+        assert!(
+            stderr.starts_with("error: cannot open output file "),
+            "{stderr}"
+        );
         assert!(
             !stderr.contains("scanning"),
             "must fail before scanning starts: {stderr}"

@@ -95,7 +95,7 @@ fn run(args: cli::Cli) -> i32 {
                 Ok(file) => file,
                 Err(e) => {
                     eprintln!(
-                        "error: cannot write to {}: {}",
+                        "error: cannot open output file {}: {}",
                         safe_text::escape_control_chars(&shown),
                         safe_text::escape_control_chars(&e.to_string())
                     );

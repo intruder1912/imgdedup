@@ -904,7 +904,7 @@ still hashing has not found any groups yet, so its record has none.
 - **A path that cannot be written fails immediately.** If the file cannot be
   created — the path is a directory, its parent folder does not exist, or you
   cannot write there — `imgdedup` prints
-  `error: cannot write to <path>: <reason>` and exits `2` **before scanning
+  `error: cannot open output file <path>: <reason>` and exits `2` **before scanning
   anything**, with no report, rather than failing hours in.
 - **A write failure partway through does not stop the run.** If the file
   becomes unwritable while the run is working — a full disk, a dropped network

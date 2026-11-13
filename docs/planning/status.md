@@ -38,8 +38,15 @@ docs pass → AI automation, batched within Claude usage limits.
     NDJSON `result` line "does not parse"; a write that fails on exactly the
     final newline leaves a parseable line, so the text now adds that a
     finished line ends with a newline.
+  - **Distinct `--output` errors (owner decision, added after the PR
+    opened).** The startup failure now reads `error: cannot open output file
+    <path>: <reason>` instead of `cannot write to`, which was one word away
+    from the mid-run `could not write to`. The product-owner's acceptance of
+    PR #107 had declined this rewording; the owner asked for it. The mid-run
+    message, which PRD-0001 and the tests pin, is unchanged (ADR-0018
+    implementation note 12).
   - **Planning.** Session 34's entry records the merge; the implementation
-    plan's steps are ticked; ADR-0018 gains implementation notes 10 and 11.
+    plan's steps are ticked; ADR-0018 gains implementation notes 10 to 12.
 
   Not in this unit, by decision: `eprintln!` panicking when stderr is a
   closed pipe (predates this work, needs its own unit); TASK-0342 (needs an

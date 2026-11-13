@@ -864,6 +864,11 @@ authoritative and the difference is recorded here:
     break is written only while a progress line is live; once progress has
     finished (a failed apply-time or result write) the message is written
     without it.
+12. **The two `--output` errors no longer read alike.** The startup failure
+    (exit `2`, before scanning) says `error: cannot open output file <path>:
+    <reason>`; it used to say `cannot write to`, one word away from the
+    mid-run `error: could not write to <path>: <reason>` (exit `1`), which is
+    unchanged. Owner decision, 2026-11-13.
 
 Verification beyond the automated suite, recorded in the commit messages of
 `37c1fb4` and `be94d61`: the §8 routing table was exercised on a real
