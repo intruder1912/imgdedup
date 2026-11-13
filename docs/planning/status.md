@@ -19,9 +19,10 @@ docs pass → AI automation, batched within Claude usage limits.
   product-owner reviews dispatched at the end. FR-22 (paging) is not part of
   this unit.
 
-  **State (end of window 2, 2026-11-13): the plan is complete through Task 11
-  Step 6; what remains is Step 7 — push, open the PR, CI, the architect's
-  confirmation pass, and the owner's merge.** Window 1 (2026-11-12) landed plan
+  **State (end of window 2, 2026-11-13): PR #107 is open, CI is green
+  (`checks`, `ci-gate`, `security`, Rust on Ubuntu and Windows) and the
+  architect's confirmation pass is done; the PR awaits the owner's merge.**
+  Window 1 (2026-11-12) landed plan
   Tasks 0–10 inline; window 2 ran Task 11: the tester pass, the product-owner
   guide docs, the ADR-0018 / backlog close-out, the architect's code review on
   the branch diff, and product-owner acceptance.
@@ -70,7 +71,8 @@ docs pass → AI automation, batched within Claude usage limits.
     refused `--apply`, and rewording `cannot write to` / `could not write to`.
 
   State: `make validate` passes; `cargo test` green (348 unit + 91
-  integration; the 4 scale tests ignored as always); clippy `-D warnings`,
+  integration on macOS, 93 on CI's Ubuntu leg, which also runs the two
+  Linux-only tests; the 4 scale tests ignored as always); clippy `-D warnings`,
   `cargo fmt --check` and `cargo deny check` clean. The architect also built
   `main` and compared stdout byte for byte against this branch, with and
   without `--output`, in default and `--json` modes and under
@@ -85,9 +87,8 @@ docs pass → AI automation, batched within Claude usage limits.
   byte-for-byte with its stdout.
 
   Known gaps for the reviewers to judge, not rediscover: the two `/dev/full`
-  end-to-end tests (`tests/output_record.rs`) are Linux-only and **have never
-  executed** — CI's Linux leg is their first run (the tester and the architect
-  both read them and expect them to pass); no kill has landed in the
+  end-to-end tests (`tests/output_record.rs`) are Linux-only; they ran for the
+  first time on CI's Ubuntu leg for PR #107 and passed; no kill has landed in the
   verify phase on a real corpus (`test-images/` has no duplicates), so
   "already-written groups survive a kill" rests on fixture tests; there is no
   automated pty test.

@@ -188,8 +188,9 @@ impl<W: Write + Send> RunRecorder for FileRecord<W> {
             }
             result
         };
-        // The file is left exactly as it is — partial, with no completion
-        // document — and the run carries on (ADR-0018 §7). Only one thread
+        // The file is left exactly as it is — partial, possibly with a
+        // cut-short completion document (ADR-0018 implementation note 9) —
+        // and the run carries on (ADR-0018 §7). Only one thread
         // can observe `Err` (the flag is set under the lock above), so this
         // runs exactly once; the message is emitted outside the lock.
         if let Err(e) = result {
