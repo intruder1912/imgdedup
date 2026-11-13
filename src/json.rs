@@ -62,6 +62,13 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
 
+/// The `stage` labels of a warning, shared by the `--json` document and the
+/// run record's `warning` lines so the two surfaces cannot drift apart
+/// (ADR-0018 §4b).
+pub(crate) const STAGE_ENUMERATE: &str = "enumerate";
+pub(crate) const STAGE_SNIFF: &str = "sniff";
+pub(crate) const STAGE_ENGINE: &str = "engine";
+
 /// Current schema version. Bump only on breaking changes to the contract.
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -199,15 +206,15 @@ pub(crate) fn document(
     // Enumerate/sniff warnings arrive in traversal order; sort by path for
     // determinism (NFR-3). Engine warnings are already canonically sorted.
     let mut warnings: Vec<JsonWarning> = Vec::new();
-    collect_sorted(&mut warnings, "enumerate", enumerate_warnings, |w| {
+    collect_sorted(&mut warnings, STAGE_ENUMERATE, enumerate_warnings, |w| {
         (&w.path, &w.reason)
     });
-    collect_sorted(&mut warnings, "sniff", sniff_warnings, |w| {
+    collect_sorted(&mut warnings, STAGE_SNIFF, sniff_warnings, |w| {
         (&w.path, &w.reason)
     });
     for w in &outcome.warnings {
         warnings.push(JsonWarning {
-            stage: "engine",
+            stage: STAGE_ENGINE,
             path: lossy(&w.path),
             reason: w.reason.clone(),
         });
@@ -708,18 +715,6 @@ mod tests {
         assert_eq!(
             v["actions"]["skipped"][0]["reason"], "content changed since the scan",
             "the reason string must match what the human report shows"
-        );
-    }
-
-    #[test]
-    fn document_to_pretty_is_byte_identical_to_render() {
-        let dir = TempDir::new().unwrap();
-        let outcome = outcome_from(&dir, &[("a.png", b"same"), ("b.png", b"same")]);
-        let applied = ApplyOutcome::default();
-        let pretty = document(&outcome, &[], &[], &[], ActionMode::DryRun, &applied).to_pretty();
-        assert_eq!(
-            pretty,
-            render(&outcome, &[], &[], &[], ActionMode::DryRun, &applied)
         );
     }
 

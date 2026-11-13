@@ -87,13 +87,13 @@ Cut lines if a batch trends over: A may stop after Task 3 (Task 4 moves to B); B
 - Modify: `docs/planning/status.md` (the "In progress" section, top entry)
 - Modify: `docs/planning/backlog.md` (rows `TASK-0340`, `TASK-0341`)
 
-- [ ] **Step 1: Create the branch**
+- [x] **Step 1: Create the branch**
 
 ```bash
 git switch -c feat/output-record-and-stream-routing
 ```
 
-- [ ] **Step 2: Fix the stale status entry**
+- [x] **Step 2: Fix the stale status entry**
 
 In `docs/planning/status.md`, the session 33 entry still says the unit is "ready to open its PR". Replace that closing clause with "merged as PR #98 (2026-08-06)" and add a new first entry under `## In progress`:
 
@@ -107,11 +107,11 @@ In `docs/planning/status.md`, the session 33 entry still says the unit is "ready
 
 Update `**Last updated:**` to `2026-11-12`.
 
-- [ ] **Step 3: Mark the backlog rows in progress**
+- [x] **Step 3: Mark the backlog rows in progress**
 
 In `docs/planning/backlog.md`, set the Status cell of `TASK-0340` and `TASK-0341` to `in-progress`.
 
-- [ ] **Step 4: Commit (plan file included)**
+- [x] **Step 4: Commit (plan file included)**
 
 ```bash
 git add docs/planning/status.md docs/planning/backlog.md docs/superpowers/plans/2026-11-12-output-record-and-stream-routing.md
@@ -137,7 +137,7 @@ git commit -m "docs(planning): start FR-20/FR-21 implementation (TASK-0340/0341)
   - `pub fn route(json: bool, no_progress: bool, timings: bool, stdout_tty: bool, stderr_tty: bool) -> Routing`
   - `pub enum ProgressStream` with `pub fn open(stream: Stream) -> ProgressStream`, implementing `std::io::Write`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/streams.rs` with only the tests and the type declarations they need to name:
 
@@ -239,12 +239,12 @@ mod tests {
 
 Add `mod streams;` to `src/main.rs` after `mod sniff;`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup streams::`
 Expected: compile error — `cannot find type Target`, `cannot find function route`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Insert above the test module in `src/streams.rs`:
 
@@ -332,12 +332,12 @@ impl Write for ProgressStream {
 
 `ProgressStream` is unused until Task 4; add `#[allow(dead_code)]` on the enum and its `impl` blocks now and remove it in Task 4.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --bin imgdedup streams:: && cargo clippy --all-targets -- -D warnings`
 Expected: 5 passed; clippy clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/streams.rs src/main.rs
@@ -358,7 +358,7 @@ git commit -m "feat(streams): pure output-stream routing decision (FR-21)"
 - Consumes: nothing new.
 - Produces: `struct LineParams` (private to `progress.rs`); the rendered line format in decision 1 above.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `src/progress.rs`'s test module, after the TASK-0332 tests:
 
@@ -408,12 +408,12 @@ fn non_tty_indeterminate_scanning_stays_bare() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup progress::tests::determinate_lines progress::tests::completion_line`
 Expected: FAIL — output lacks `(12s elapsed)` / `(141s total)`. (`non_tty_indeterminate_scanning_stays_bare` already passes; it pins behavior that must not change.)
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `Progress::line`'s seven-parameter signature with a params struct. Above `impl<W: Write> Progress<W>`:
 
@@ -490,7 +490,7 @@ let line = Self::line(&LineParams {
 });
 ```
 
-- [ ] **Step 4: Update the assertions that pin the old exact lines**
+- [x] **Step 4: Update the assertions that pin the old exact lines**
 
 Run: `cargo test --bin imgdedup progress::`
 
@@ -510,16 +510,16 @@ assert!(
 );
 ```
 
-- [ ] **Step 5: Update the module doc**
+- [x] **Step 5: Update the module doc**
 
 In `src/progress.rs`'s module doc, in "Rendering rules", add to the TTY bullet: "Every render carries the elapsed time since the run started, and the completion line carries the total (AC-32)." and to the Non-TTY bullet: "Determinate milestone lines carry elapsed time too; only the indeterminate `scanning...` line stays bare (AC-22)."
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/progress.rs tests/cli_integration.rs
@@ -546,7 +546,7 @@ A behavior-preserving refactor plus one new combinator. No rendered byte changes
   - `pub(crate) struct MilestoneGate` with `pub(crate) fn new() -> Self` and `pub(crate) fn should_emit(&mut self, phase: Phase, pct: Option<u64>, force: bool) -> bool`
   - `pub struct Tee` with `pub fn new(first: Box<dyn ProgressSink>, second: Box<dyn ProgressSink>) -> Self`, implementing `ProgressSink`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the test module:
 
@@ -617,12 +617,12 @@ fn tee_forwards_every_call_to_both_sinks() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup progress::tests::milestone_gate progress::tests::tee`
 Expected: compile error — `MilestoneGate` and `Tee` not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 1. Change `const DEFAULT_REPAINT_INTERVAL_MS` to `pub(crate) const`, and `fn label` on `Phase` to `pub(crate) fn label`.
 2. Move `Progress::percent` out of the `impl` to a free function with the same body and doc, `pub(crate) fn percent(current: u64, total: u64) -> u64`; replace `Self::percent(` with `percent(` at its two call sites (`paint`, `finish`).
@@ -722,12 +722,12 @@ impl ProgressSink for Tee {
 
 `Tee`, `MilestoneGate::new` and the `pub(crate)` items are unused outside tests until Tasks 8 and 10; add `#[allow(dead_code)]` to `Tee` and its `impl Tee` only, and remove it in Task 10.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
 
 Run: `cargo test && cargo clippy --all-targets -- -D warnings`
 Expected: all pass, including every pre-existing non-TTY milestone test unchanged — that is the evidence the refactor preserved behavior.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/progress.rs
@@ -751,7 +751,7 @@ git commit -m "refactor(progress): extract MilestoneGate and percent; add Tee si
 - Consumes: `streams::route`, `streams::ProgressStream::open`, `streams::Routing` (Task 1).
 - Produces: a `routing: streams::Routing` local in `run()` that Task 10 reads (`routing.progress.is_some_and(|t| t.tty)`).
 
-- [ ] **Step 1: Write the failing regression test for the load-bearing flush**
+- [x] **Step 1: Write the failing regression test for the load-bearing flush**
 
 Rust's `Stdout` is line-buffered; an in-place repaint ends in `\x1b[K`, not `\n`, so without an explicit flush it would never appear. Add to `src/progress.rs`'s test module:
 
@@ -796,7 +796,7 @@ fn tty_repaints_are_flushed_so_a_line_buffered_stdout_shows_them() {
 Run: `cargo test --bin imgdedup progress::tests::tty_repaints_are_flushed`
 Expected: PASS already (the flush exists). This is a pin, not a red test — confirm it goes red by temporarily deleting `let _ = st.writer.flush();` from `paint`'s TTY branch, then restore the line.
 
-- [ ] **Step 2: Write the failing integration tests**
+- [x] **Step 2: Write the failing integration tests**
 
 In `tests/cli_integration.rs`, find the test around line 325 that asserts `stderr.contains("deleted: ") && stderr.contains("b.png")`. Under FR-21 a removal line is routine status and, with stdout piped (as `assert_cmd` always runs it), is written to **neither** stream. Replace that assertion with:
 
@@ -845,12 +845,12 @@ fn clean_apply_run_writes_nothing_to_stderr_without_progress() {
 }
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `cargo test --test cli_integration clean_apply_run_writes_nothing`
 Expected: FAIL — stderr contains `deleted: …` lines. The edited test near line 325 fails the same way.
 
-- [ ] **Step 4: Implement the routing in `main.rs`**
+- [x] **Step 4: Implement the routing in `main.rs`**
 
 Replace the block from `let progress_enabled = …` through the `SinkGuard::new(…)` statement with:
 
@@ -898,7 +898,7 @@ Leave the `Skipped` arm on `eprintln!` (ADR-0018 §9 #7). Update the Stage 4 com
 
 Remove the `#[allow(dead_code)]` attributes from `ProgressStream` in `src/streams.rs`.
 
-- [ ] **Step 5: Refresh the stale text**
+- [x] **Step 5: Refresh the stale text**
 
 `src/progress.rs` module doc: replace "This module never touches stdout — it renders exclusively to whatever writer it is constructed with (in production, stderr)" with "It renders exclusively to the writer it is constructed with — in production the stream `streams::route` selects (FR-21)". Retitle the section "Nothing else may write to stderr while a TTY progress line is live" to "Nothing else may write to the progress stream while a TTY line is live" and replace "stderr" with "the progress stream" in its body where it refers to the stream being redrawn.
 
@@ -914,12 +914,12 @@ Remove the `#[allow(dead_code)]` attributes from `ProgressStream` in `src/stream
 
 and in `--timings`' help replace "cannot share stderr" with "cannot share a terminal".
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
 Expected: all pass. If another integration test asserts `trashed:`/`deleted:` on stderr, apply the same replacement as Step 2.
 
-- [ ] **Step 7: Manual check on a real terminal (cannot be automated without a pty)**
+- [x] **Step 7: Manual check on a real terminal (cannot be automated without a pty)**
 
 ```bash
 cargo build --release
@@ -931,7 +931,7 @@ cargo build --release
 
 Expected: as annotated. Record the four observations in the commit body.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/main.rs src/progress.rs src/streams.rs src/cli.rs tests/cli_integration.rs
@@ -963,7 +963,7 @@ git commit -m "feat(output): route progress and apply status to stdout on a term
   - `pub(crate) fn rfc3339_utc(secs_since_epoch: u64) -> String`
   - test-only: `pub(crate) struct Capture` (a `RunRecorder` that stores each event's human rendering) with `pub(crate) fn lines(&self) -> Vec<String>`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/record.rs` containing the module doc and this test module (types come in Step 3):
 
@@ -1246,12 +1246,12 @@ mod tests {
 
 Add `mod record;` to `src/main.rs`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup record::`
 Expected: compile error — `Invocation`, `RecordEvent`, `render_human`, `FileRecord`, `NoRecord`, `rfc3339_utc` not found.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Insert between the module doc and the test module:
 
@@ -1584,12 +1584,12 @@ impl RunRecorder for Capture {
 
 The module is not yet called from `main.rs`; put `#![allow(dead_code)]` as the first line of `src/record.rs` (below the module doc) and remove it in Task 10.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --bin imgdedup record:: && cargo clippy --all-targets -- -D warnings`
 Expected: 10 passed; clippy clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/record.rs src/main.rs src/json.rs
@@ -1609,7 +1609,7 @@ git commit -m "feat(record): run-record events, FileRecord and the human-readabl
 - Consumes: `FileRecord` (Task 5).
 - Produces: `FileRecord::is_degraded()` returns `true` after the first failed write; `on_failure` is called exactly once with `error: could not write to <target>: <reason>` (both escaped).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `src/record.rs`'s test module:
 
@@ -1692,12 +1692,12 @@ fn concurrent_write_failures_report_exactly_once() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup record::tests::a_failed_write record::tests::concurrent record::tests::the_failure_message`
 Expected: FAIL — `is_degraded()` is `false`, no message recorded.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `impl<W: Write + Send> RunRecorder for FileRecord<W>` with:
 
@@ -1753,12 +1753,12 @@ impl<W: Write + Send> RunRecorder for FileRecord<W> {
 
 This sets the latch under the writer mutex rather than with ADR-0018 §7's `compare_exchange`; the guarantee is the same (exactly one reporter) and it additionally stops queued threads from retrying the write. Note it for the architect review.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --bin imgdedup record::`
 Expected: 13 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/record.rs
@@ -1786,7 +1786,7 @@ git commit -m "feat(record): continue and report once when the record cannot be 
   - `pub(crate) fn warning_payload(stage: &'static str, path: &Path, reason: &str) -> JsonWarning`
   - `pub(crate) fn root_error_payload(path: &Path, reason: &str) -> JsonRootError`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `src/json.rs`'s test module add (using its existing `outcome_from` fixture helper):
 
@@ -1980,12 +1980,12 @@ fn ndjson_result_wraps_the_document_compactly() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup json::tests::document_to_pretty json::tests::group_payload record::tests::ndjson`
 Expected: compile error — `document`, `group_payload`, `render_ndjson` not found.
 
-- [ ] **Step 3: Implement in `json.rs`**
+- [x] **Step 3: Implement in `json.rs`**
 
 1. Change `struct` to `pub(crate) struct` for `JsonHardLinkSet`, `JsonGroup`, `JsonWarning`, `JsonRootError` (their fields stay private; `JsonReport` was done in Task 5).
 2. Rename the existing `pub fn render` to `pub(crate) fn document`, change its return type to `JsonReport`, and replace its last five lines (from the `// Serialization of these derive-only types cannot fail` comment through `out`) with returning the struct: end the function with the `JsonReport { … }` expression instead of binding it to `report`. Update its doc comment's first line to "Build the pipeline outcome as the stable JSON document (FR-14)."
@@ -2041,7 +2041,7 @@ pub(crate) fn root_error_payload(path: &Path, reason: &str) -> JsonRootError {
 }
 ```
 
-- [ ] **Step 4: Implement in `record.rs`**
+- [x] **Step 4: Implement in `record.rs`**
 
 Add below `render_human`:
 
@@ -2193,12 +2193,12 @@ fn render_ndjson(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> St
 
 In `FileRecord::record`, change the second match arm to `Format::Ndjson => render_ndjson(&event, elapsed_ms, wall_secs),`.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cargo test && cargo clippy --all-targets -- -D warnings`
 Expected: all pass — in particular every pre-existing `json.rs` and golden-set test, which is the evidence `--json`'s stdout bytes did not move.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/json.rs src/record.rs
@@ -2218,7 +2218,7 @@ git commit -m "feat(record): NDJSON record format sharing json.rs's schema types
 - Consumes: `progress::{ProgressSink, Phase, MilestoneGate, percent, DEFAULT_REPAINT_INTERVAL_MS}` (Task 3); `RunRecorder`, `RecordEvent::Milestone`, `Capture` (Task 5).
 - Produces: `pub struct MilestoneSink` with `pub fn new(recorder: Arc<dyn RunRecorder>) -> Self`, implementing `ProgressSink`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `src/record.rs`'s test module:
 
@@ -2306,12 +2306,12 @@ fn milestone_sink_throttles_advance_between_checks() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup record::tests::milestone_sink`
 Expected: compile error — `MilestoneSink` not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `src/record.rs` (extend the `use` lines with `crate::progress::{self, MilestoneGate, ProgressSink}`, `std::sync::Arc`, `std::sync::atomic::AtomicU64`):
 
@@ -2448,14 +2448,14 @@ impl ProgressSink for MilestoneSink {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test --bin imgdedup record::`
 Expected: all pass.
 
 If `milestone_sink_records_phase_transitions_and_ten_percent_steps` shows a different line list, compare against `progress::Progress` driven the same way in non-TTY mode with interval 0 — the two must produce the same sequence of milestones (modulo the elapsed suffix and the stamp). A difference means `emit` has drifted from `Progress::paint`; fix `emit`, not the expectation.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/record.rs
@@ -2482,7 +2482,7 @@ git commit -m "feat(record): MilestoneSink feeds progress milestones into the re
   - `sniff::filter_candidates_with_progress(candidates: Vec<Candidate>, sink: &dyn ProgressSink, recorder: &dyn RunRecorder) -> (Vec<ConfirmedFile>, Vec<SniffWarning>)`
   - `engine::find_duplicates_with_progress<K>(files: Vec<ConfirmedFile>, keeper_order: K, sink: &dyn ProgressSink, recorder: &dyn RunRecorder) -> DedupOutcome`
 
-- [ ] **Step 1: Thread the parameter through, with no behavior change**
+- [x] **Step 1: Thread the parameter through, with no behavior change**
 
 Add `recorder: &dyn RunRecorder` as the last parameter of the three functions above and of the private `enumerate_root` and `dedup_core_with_sink`. Import `crate::record::{RecordEvent, RunRecorder}` in each module (plus `#[cfg(test)] use crate::record::NoRecord;` where the `#[cfg(test)]` wrappers live). Update the callers:
 
@@ -2503,7 +2503,7 @@ git add src/enumerate.rs src/sniff.rs src/engine.rs src/main.rs
 git commit -m "refactor(pipeline): thread a RunRecorder through enumerate, sniff and the engine"
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `src/enumerate.rs` test module:
 
@@ -2640,12 +2640,12 @@ fn recording_never_changes_the_outcome() {
 }
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `cargo test --bin imgdedup a_root_error_is_recorded a_rejected_candidate_is_recorded each_verified_group_is_recorded a_hash_failure_is_recorded`
 Expected: FAIL — `capture.lines()` is empty in each. (`recording_never_changes_the_outcome` passes already and must keep passing.)
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `enumerate.rs`, at the root-error push (`:744-748`) — record immediately after the existing `out.root_errors.push(…)`:
 
@@ -2767,12 +2767,12 @@ fn record_decided<K>(
 
 Update `dedup_core_with_sink`'s doc comment with one paragraph: "`recorder` is told about each warning and each verified group at the moment it is decided (FR-20, ADR-0018 §2). It is output-only: nothing it does can change the returned `DedupOutcome`."
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/enumerate.rs src/sniff.rs src/engine.rs
@@ -2797,7 +2797,7 @@ git commit -m "feat(record): record warnings, root errors and groups as they are
 - Consumes: everything from Tasks 1–9.
 - Produces: the user-visible feature.
 
-- [ ] **Step 1: Write the failing CLI unit tests**
+- [x] **Step 1: Write the failing CLI unit tests**
 
 Add to `src/cli.rs`'s test module:
 
@@ -2825,7 +2825,7 @@ fn output_requires_a_value() {
 Run: `cargo test --bin imgdedup cli::tests::output`
 Expected: compile error — no field `output`.
 
-- [ ] **Step 2: Add the flag**
+- [x] **Step 2: Add the flag**
 
 In `src/cli.rs`, in the Output section after `no_progress`:
 
@@ -2847,7 +2847,7 @@ pub output: Option<PathBuf>,
 Run: `cargo test --bin imgdedup cli::`
 Expected: PASS. If `output_requires_a_value` reports a different `ErrorKind`, assert the kind clap actually returns — the behavior under test is "this is a parse error".
 
-- [ ] **Step 3: Write the failing integration tests**
+- [x] **Step 3: Write the failing integration tests**
 
 Create `tests/output_record.rs`:
 
@@ -3225,12 +3225,12 @@ fn a_failed_record_never_interrupts_an_apply() {
 
 `materialize` may reject a `rel_path` containing a newline or may not create parent directories for it; if `record_cannot_be_forged_by_a_newline_in_a_filename` fails in fixture setup rather than in an assertion, write those two files with `std::fs::write` directly instead.
 
-- [ ] **Step 4: Run the tests to verify they fail**
+- [x] **Step 4: Run the tests to verify they fail**
 
 Run: `cargo test --test output_record`
 Expected: every test fails — `--output` is parsed but nothing writes the file (`No such file or directory` on read, or exit code 0 where 2 / 1 is expected).
 
-- [ ] **Step 5: Wire `main.rs`**
+- [x] **Step 5: Wire `main.rs`**
 
 Add `use std::sync::Arc;` at the top. Add this helper above `run`:
 
@@ -3432,12 +3432,12 @@ Update `exit_code::compute`'s doc for `run_level_error`: append "…or the `--ou
 
 Remove `#![allow(dead_code)]` from `src/record.rs` and the `#[allow(dead_code)]` attributes on `Tee` in `src/progress.rs`. If `json::render` is now unused outside tests, mark it `#[cfg(test)]` (it remains the entry point the existing `json.rs` and golden tests use).
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
 Expected: all pass (the two `/dev/full` tests are compiled out on macOS; they run in CI's Linux leg).
 
-- [ ] **Step 7: Verify AC-25 against a real kill**
+- [x] **Step 7: Verify AC-25 against a real kill**
 
 ```bash
 cargo build --release
@@ -3447,7 +3447,7 @@ tail -5 /tmp/killed.txt; grep -c '===== RESULT' /tmp/killed.txt
 
 Expected: the file exists, starts with `# imgdedup`, has milestone lines, and the `grep -c` prints `0`. If the run finishes before the kill lands, repeat with a shorter sleep; record the observed tail in the commit body. Then repeat with `--json --output /tmp/killed.ndjson` and check `while read -r l; do echo "$l" | jq -e . >/dev/null || echo BAD; done < <(sed '$d' /tmp/killed.ndjson)` prints nothing (every complete line parses; the possibly-truncated last line is dropped by `sed '$d'`).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/cli.rs src/main.rs src/record.rs src/progress.rs src/json.rs src/exit_code.rs tests/output_record.rs
@@ -3464,11 +3464,11 @@ git commit -m "feat(output): --output writes a durable, continuously-updated run
 - Modify: `claude-plugin/` skill text only if it tells the agent to read `trashed:`/`deleted:` lines from stderr (`grep -rn 'trashed\|deleted:\|stderr' claude-plugin`)
 - Modify: `docs/adr/0018-durable-run-record-and-output-stream-routing.md` (status), `docs/planning/status.md`, `docs/planning/backlog.md`, `docs/planning/tasks/` (close-out)
 
-- [ ] **Step 1: Tester pass (`tester` agent)**
+- [x] **Step 1: Tester pass (`tester` agent)**
 
 Brief: verify AC-20..AC-32 + AC-28a against the branch, one row per criterion (test name or manual evidence). Known gaps to judge rather than rediscover: AC-29's stdout-TTY case and AC-21's in-place rendering on stdout have no automated pty test (covered by `streams::route`'s table, the flush pin, and Task 4 Step 7's manual check); AC-25 is covered by `records_are_visible_without_drop_or_flush` plus Task 10 Step 7's manual kill. Add tests for any criterion found uncovered. Run `make scale` as a regression check, then time the release binary on `test-images/` with and without `--output` and report whether the record adds measurable wall time.
 
-- [ ] **Step 2: User docs (`product-owner` agent)**
+- [x] **Step 2: User docs (`product-owner` agent)**
 
 Start from the reverted draft — still on GitHub though no longer in the local clone:
 
@@ -3487,26 +3487,26 @@ and apply its six review findings (recorded in `docs/planning/status.md`, sessio
 - Exit code `1` when the record could not be written; exit code `2` when `--output` cannot be opened.
 - Elapsed time on progress lines.
 
-- [ ] **Step 3: Planning and ADR close-out**
+- [x] **Step 3: Planning and ADR close-out**
 
 - ADR-0018: `Status: proposed` → `accepted`; add a short "Implementation notes (2026-11)" section listing the plan's five decisions (top of this document) as implemented, or as amended by review.
 - `docs/planning/backlog.md`: TASK-0341 → `done (this PR)`; TASK-0340 → stays open for FR-22 only, description updated to say so.
 - `docs/planning/status.md`: session entry with per-batch estimate vs. actual usage.
 
-- [ ] **Step 4: Local validation**
+- [x] **Step 4: Local validation**
 
 Run: `make validate && cargo deny check`
 Expected: `✓ local validation passed`; deny clean. Fix every finding before continuing.
 
-- [ ] **Step 5: Architect review on the branch diff (`architect` agent)**
+- [x] **Step 5: Architect review on the branch diff (`architect` agent)**
 
 Brief: heavyweight code review of `git diff main...HEAD` against ADR-0018 and this plan. Ask specifically for a ruling on the five decisions at the top of this document, on the latch-under-mutex variant in Task 6, and a security read of: the new file-creating code path, escaping in both record formats, and the mid-run stderr writer. Iterate until converged; do not open the PR before that.
 
-- [ ] **Step 6: Product-owner acceptance**
+- [x] **Step 6: Product-owner acceptance**
 
 Brief: accept FR-20 / FR-21 / the FR-19 amendment against the built binary and the docs from Step 2.
 
-- [ ] **Step 7: Push and open the PR (needs the owner's go-ahead)**
+- [x] **Step 7: Push and open the PR (needs the owner's go-ahead)**
 
 ```bash
 git push -u origin feat/output-record-and-stream-routing

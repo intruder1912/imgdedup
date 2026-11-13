@@ -842,7 +842,7 @@ fn record_last_root_error(out: &CandidateSet, recorder: &dyn RunRecorder) {
 fn record_last_warning(out: &CandidateSet, recorder: &dyn RunRecorder) {
     if let Some(w) = out.warnings.last() {
         recorder.record(RecordEvent::Warning {
-            stage: "enumerate",
+            stage: crate::json::STAGE_ENUMERATE,
             path: &w.path,
             reason: &w.reason,
         });

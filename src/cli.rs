@@ -38,6 +38,10 @@ const LONG_VERSION: &str = concat!(
 #[derive(Debug, Parser)]
 #[command(name = "imgdedup", version, long_version = LONG_VERSION, about, long_about = None)]
 pub struct Cli {
+    // `///` comments on the fields below are the `--help` text. They are
+    // user-facing: internal identifiers (FR-/AC-/ADR-/TASK-) belong in `//`
+    // comments, never in the doc comment (TASK-0344; pinned by the
+    // `help_text_cites_no_internal_identifiers` integration test).
     /// One or more paths to scan for duplicate images.
     #[arg(required = true, value_name = "PATH")]
     pub paths: Vec<PathBuf>,
@@ -76,29 +80,33 @@ pub struct Cli {
     pub apply: bool,
 
     /// Permanently delete non-keepers instead of trashing them. Only valid
-    /// together with `--apply`; exits 2 without it (AC-12).
+    /// together with `--apply`; exits 2 without it.
+    // AC-12.
     #[arg(long)]
     pub delete: bool,
 
     // ── Output ─────────────────────────────────────────────────────────────
-    /// Emit machine-readable JSON output (FR-14).
+    /// Emit machine-readable JSON output.
+    // FR-14.
     #[arg(long, action = ArgAction::SetTrue)]
     pub json: bool,
 
-    /// Exit 3 if duplicate groups were found, 0 if none (FR-18, ADR-0008).
+    /// Exit 3 if duplicate groups were found, 0 if none.
     /// Without this flag, a successful run always exits 0.
+    // FR-18, ADR-0008.
     #[arg(long, action = ArgAction::SetTrue)]
     pub exit_code: bool,
 
-    /// Disable the live progress indicator (FR-19). Progress is shown by
+    /// Disable the live progress indicator. Progress is shown by
     /// default on the terminal — on stdout when stdout is an interactive
     /// terminal, otherwise on stderr; under `--json` always on stderr. This
     /// flag turns it off completely: nothing progress-related is written to
-    /// any stream, and the report is unaffected either way (AC-23).
+    /// any stream, and the report is unaffected either way.
+    // FR-19, AC-23.
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_progress: bool,
 
-    /// Write a durable record of the run to FILE, continuously (FR-20).
+    /// Write a durable record of the run to FILE, continuously.
     ///
     /// The file is written as the run progresses — a header, progress
     /// milestones with elapsed time, each duplicate group as it is verified,
@@ -108,6 +116,7 @@ pub struct Cli {
     /// report. With `--json` the file is NDJSON (one JSON object per line).
     /// An existing FILE is overwritten. This is in addition to the normal
     /// output, which is unchanged.
+    // FR-20, ADR-0018.
     #[arg(long, value_name = "FILE")]
     pub output: Option<PathBuf>,
 
@@ -119,7 +128,8 @@ pub struct Cli {
     /// live progress indicator cannot share a terminal, so `--timings` wins, and
     /// passing both is not an error. Off by default; stdout is never
     /// changed, so `--timings --json` is the way to measure a scripted run.
-    /// The output is diagnostic, not a stable interface (ADR-0017).
+    /// The output is diagnostic, not a stable interface.
+    // ADR-0017.
     #[arg(long, action = ArgAction::SetTrue)]
     pub timings: bool,
 }

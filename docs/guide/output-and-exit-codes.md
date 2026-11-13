@@ -699,7 +699,8 @@ record grow from another terminal with `tail -f run.txt`.
 In the order things actually happened:
 
 1. A **header** — the tool version, the start time (UTC), and the invocation:
-   the scan roots and the flags that shape the result.
+   the scan roots and the flags the run was started with, including the
+   record's own path.
 2. **Progress milestones**, each stamped with the time since the run started,
    at the same coarse granularity as the plain-log progress fallback (phase
    changes and roughly every 10%) — never one line per file. They are written
@@ -720,6 +721,7 @@ A quick run over a small `photos` folder holding two pairs of duplicates
 # started:    2026-11-13T17:18:35Z
 # invocation: roots=[photos] keep=shortest apply=false delete=false hidden=false
 #             recurse=true follow-symlinks=false ext=<default> exit-code=false
+#             json=false no-progress=false timings=false output=run.txt
 [     0.0s] scanning...
 [     0.0s] scanning: 0 of 6 (0%)
 [     0.0s] scanning: 6 of 6 (100%)
@@ -781,7 +783,8 @@ failure struck while the result itself was being written, the default-format
 record can end with the banner followed by a report that is cut short — so the
 banner alone does not prove the record is complete. The exit status `1` and the
 message on standard error are the signal then. The `--json` form does not have
-this ambiguity: a cut-short `result` line is not valid JSON.
+this ambiguity: a cut-short `result` line is not valid JSON, and a finished
+one ends with a newline.
 
 ### When groups appear
 
@@ -901,7 +904,7 @@ still hashing has not found any groups yet, so its record has none.
 - **A path that cannot be written fails immediately.** If the file cannot be
   created — the path is a directory, its parent folder does not exist, or you
   cannot write there — `imgdedup` prints
-  `error: cannot write to <path>: <reason>` and exits `2` **before scanning
+  `error: cannot open output file <path>: <reason>` and exits `2` **before scanning
   anything**, with no report, rather than failing hours in.
 - **A write failure partway through does not stop the run.** If the file
   becomes unwritable while the run is working — a full disk, a dropped network

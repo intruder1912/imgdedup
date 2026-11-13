@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "mode": "dry-run",
+  "groups": [
+    {
+      "keeper": {
+        "path": "photos/a.png",
+        "size": 64,
+        "mtime": 1600000000
+      },
+      "removable": [
+        {
+          "path": "photos/2019/a-copy.png",
+          "size": 64,
+          "mtime": 1600000010
+        },
+        {
+          "path": "photos/2019/trip/a-copy-2.png",
+          "size": 64,
+          "mtime": 1600000020
+        }
+      ],
+      "protected": [],
+      "hard_link_sets": [],
+      "reclaimable_bytes": 128
+    },
+    {
+      "keeper": {
+        "path": "photos/b.jpg",
+        "size": 96,
+        "mtime": 1600000001
+      },
+      "removable": [
+        {
+          "path": "photos/backup/b.jpg",
+          "size": 96,
+          "mtime": 1600000002
+        }
+      ],
+      "protected": [
+        {
+          "path": "photos/b-link.jpg",
+          "size": 96,
+          "mtime": 1600000001
+        }
+      ],
+      "hard_link_sets": [
+        {
+          "representative": "photos/b.jpg",
+          "siblings": [
+            "photos/b-link.jpg"
+          ]
+        }
+      ],
+      "reclaimable_bytes": 96
+    }
+  ],
+  "already_deduplicated": [
+    {
+      "representative": "photos/c.gif",
+      "siblings": [
+        "photos/c-link.gif"
+      ]
+    }
+  ],
+  "totals": {
+    "duplicate_groups": 2,
+    "removable_files": 3,
+    "reclaimable_bytes": 224,
+    "already_deduplicated_sets": 1
+  },
+  "actions": {
+    "removed": [],
+    "skipped": []
+  },
+  "warnings": [
+    {
+      "stage": "sniff",
+      "path": "photos/notes.png",
+      "reason": "content not recognized as a supported image format"
+    }
+  ],
+  "root_errors": []
+}

@@ -2,6 +2,7 @@ use clap::Parser;
 use std::io::IsTerminal;
 use std::process;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod apply;
 mod cli;
@@ -85,6 +86,7 @@ fn run(args: cli::Cli) -> i32 {
     // behaves like the `>` it stands in for (ADR-0018 §6). The file is written
     // unbuffered: this function's caller ends in `process::exit`, which runs
     // no destructors, so nothing may sit in a user-space buffer.
+    let line_is_live = Arc::new(AtomicBool::new(routing.progress.is_some_and(|t| t.tty)));
     let recorder: Arc<dyn record::RunRecorder> = match &args.output {
         None => Arc::new(record::NoRecord),
         Some(path) => {
@@ -93,7 +95,7 @@ fn run(args: cli::Cli) -> i32 {
                 Ok(file) => file,
                 Err(e) => {
                     eprintln!(
-                        "error: cannot write to {}: {}",
+                        "error: cannot open output file {}: {}",
                         safe_text::escape_control_chars(&shown),
                         safe_text::escape_control_chars(&e.to_string())
                     );
@@ -102,8 +104,10 @@ fn run(args: cli::Cli) -> i32 {
             };
             // A write failure mid-run is the one stderr writer that can fire
             // while a live progress line is being redrawn; a leading newline
-            // puts the message on a clean line (ADR-0018 §7).
-            let live_line = routing.progress.is_some_and(|t| t.tty);
+            // puts the message on a clean line (ADR-0018 §7). `line_is_live`
+            // is cleared once progress has finished, so a failure after that
+            // point (an apply-time or result write) leaves no blank line.
+            let line_is_live = Arc::clone(&line_is_live);
             let format = if args.json {
                 record::Format::Ndjson
             } else {
@@ -114,13 +118,10 @@ fn run(args: cli::Cli) -> i32 {
                 format,
                 shown,
                 Box::new(move |message| {
-                    // One write, so a concurrent progress repaint cannot
-                    // land between the line break and the message.
-                    if live_line {
-                        eprint!("\n{message}\n");
-                    } else {
-                        eprintln!("{message}");
-                    }
+                    eprint!(
+                        "{}",
+                        streams::interrupting_line(message, line_is_live.load(Ordering::Relaxed))
+                    );
                 }),
             );
             let recorder: Arc<dyn record::RunRecorder> = Arc::new(file_record);
@@ -290,6 +291,7 @@ fn run(args: cli::Cli) -> i32 {
     // mode on an interactive terminal), so this ordering is correctness, not
     // tidiness: the completion line must land before the report's first byte.
     sink.finish();
+    line_is_live.store(false, Ordering::Relaxed);
 
     // Run-level errors (an unscannable root) must be *visible*, not just
     // reflected in the exit code (resilience review 2026-07, finding F1).

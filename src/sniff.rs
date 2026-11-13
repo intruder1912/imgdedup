@@ -296,7 +296,7 @@ pub fn filter_candidates_with_progress(
             // recorder is thread-safe and output-only.
             if let Err(w) = &result {
                 recorder.record(RecordEvent::Warning {
-                    stage: "sniff",
+                    stage: crate::json::STAGE_SNIFF,
                     path: &w.path,
                     reason: &w.reason,
                 });

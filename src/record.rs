@@ -259,7 +259,8 @@ fn render_human(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> Str
                 "# imgdedup {version} run record\n\
                  # started:    {started}\n\
                  # invocation: roots=[{roots}] keep={keep} apply={apply} delete={delete} hidden={hidden}\n\
-                 #             recurse={recurse} follow-symlinks={follow} ext={ext} exit-code={exit_code}\n",
+                 #             recurse={recurse} follow-symlinks={follow} ext={ext} exit-code={exit_code}\n\
+                 #             json={json} no-progress={no_progress} timings={timings} output={output}\n",
                 version = env!("CARGO_PKG_VERSION"),
                 started = rfc3339_utc(wall_secs),
                 keep = inv.keep,
@@ -269,6 +270,10 @@ fn render_human(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> Str
                 recurse = !inv.no_recurse,
                 follow = inv.follow_symlinks,
                 exit_code = inv.exit_code,
+                json = inv.json,
+                no_progress = inv.no_progress,
+                timings = inv.timings,
+                output = esc(&inv.output),
             )
         }
         RecordEvent::Milestone {
@@ -769,10 +774,23 @@ mod tests {
             "# imgdedup {} run record\n\
              # started:    2026-08-06T11:22:33Z\n\
              # invocation: roots=[/photos] keep=shortest apply=false delete=false hidden=false\n\
-             #             recurse=true follow-symlinks=false ext=<default> exit-code=false\n",
+             #             recurse=true follow-symlinks=false ext=<default> exit-code=false\n\
+             #             json=false no-progress=false timings=false output=run.txt\n",
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(text, expected);
+    }
+
+    #[test]
+    fn human_header_escapes_control_characters_in_the_output_path() {
+        // The `--output` path is user-controlled text like any other path in
+        // the record: a newline must not forge a header line, ESC must not
+        // reach a terminal that later displays the file.
+        let mut inv = invocation();
+        inv.output = "run\n# forged\u{1b}[2J.txt".to_owned();
+        let text = render_human(&RecordEvent::Header(&inv), 0, 0);
+        assert_eq!(text.lines().count(), 5, "no extra line: {text}");
+        assert!(!text.contains('\u{1b}'), "no raw ESC: {text:?}");
     }
 
     #[test]

@@ -398,6 +398,79 @@ fn json_output_is_byte_identical_across_runs() {
     assert!(!first.stdout.is_empty(), "--json stdout must not be empty");
 }
 
+/// Byte-level pin of the `--json` document (TASK-0343).
+///
+/// The scenarios above compare parsed values, so they would not notice a
+/// change in key order, indentation, number formatting or the trailing
+/// newline — all of which a consumer of `schema_version: 1` may rely on, and
+/// all of which the `--output` work (ADR-0018) had to leave untouched. This
+/// test compares stdout to a checked-in file byte for byte.
+///
+/// The scan root is passed as a relative path from inside the tree, so the
+/// document contains no temporary-directory path. Unix only: the separator in
+/// `path` values is the platform's, and hard links are part of the fixture.
+///
+/// If the format changes on purpose, that is a schema decision (ADR-0008,
+/// ADR-0016's plugin): regenerate `tests/golden/json_dry_run.json` by running
+/// this test once with `IMGDEDUP_BLESS_GOLDEN=1`, review the diff, and say why
+/// in the commit.
+#[cfg(unix)]
+#[test]
+fn json_stdout_bytes_match_the_checked_in_golden_document() {
+    let tree = tempfile::tempdir().unwrap();
+    let png = image_bytes(ImageFormat::Png, 1, 64);
+    let jpeg = image_bytes(ImageFormat::Jpeg, 2, 96);
+    let gif = image_bytes(ImageFormat::Gif89a, 3, 80);
+    materialize(
+        tree.path(),
+        &[
+            // Group 1: keeper by depth, two removable copies.
+            spec("photos/a.png", png.clone(), T),
+            spec("photos/2019/a-copy.png", png.clone(), T + 10),
+            spec("photos/2019/trip/a-copy-2.png", png, T + 20),
+            // Group 2: one removable, plus a hard link to the keeper.
+            spec("photos/b.jpg", jpeg.clone(), T + 1),
+            spec("photos/backup/b.jpg", jpeg, T + 2),
+            // An already-deduplicated hard-link set and no other copy.
+            spec("photos/c.gif", gif, T + 3),
+            // A warning: image extension, not image content.
+            spec("photos/notes.png", b"not an image".to_vec(), T + 4),
+        ],
+        &[
+            LinkSpec {
+                existing: "photos/b.jpg".to_owned(),
+                new: "photos/b-link.jpg".to_owned(),
+            },
+            LinkSpec {
+                existing: "photos/c.gif".to_owned(),
+                new: "photos/c-link.gif".to_owned(),
+            },
+        ],
+    );
+
+    let output = assert_cmd::Command::cargo_bin("imgdedup")
+        .unwrap()
+        .current_dir(tree.path())
+        .args(["photos", "--json", "--no-progress"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let golden =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/json_dry_run.json");
+    if std::env::var_os("IMGDEDUP_BLESS_GOLDEN").is_some() {
+        std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+        std::fs::write(&golden, &output.stdout).unwrap();
+    }
+    let expected = std::fs::read(&golden).unwrap_or_default();
+    assert!(
+        output.stdout == expected,
+        "--json stdout differs from {} byte for byte.\n--- actual ---\n{}",
+        golden.display(),
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
 /// AC: the generator itself is deterministic and seed-distinct — equal
 /// inputs give byte-identical output, differing seeds give differing bytes,
 /// and the requested length is honored exactly, for every format.

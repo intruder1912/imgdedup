@@ -134,6 +134,33 @@ fn short_version_flag_prints_exactly_one_line_and_exits_0() {
 
 // ── --help surface (TASK-0301 AC) ─────────────────────────────────────────
 
+/// `--help` and `-h` are user-facing text: they must not cite the project's
+/// internal requirement, criterion, decision or task identifiers (TASK-0344).
+#[test]
+fn help_text_cites_no_internal_identifiers() {
+    for flag in ["--help", "-h"] {
+        let output = cmd().arg(flag).output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("--output"), "{flag} printed the help text");
+        for prefix in ["FR-", "AC-", "NFR-", "ADR-", "TASK-", "PRD-"] {
+            let hit = stdout.lines().find(|line| {
+                line.match_indices(prefix).any(|(i, _)| {
+                    let before_ok = !line[..i]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_ascii_alphanumeric());
+                    let after_digit = line[i + prefix.len()..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_digit());
+                    before_ok && after_digit
+                })
+            });
+            assert_eq!(hit, None, "{flag} cites an internal `{prefix}` id");
+        }
+    }
+}
+
 /// `--help` lists every PRD §8 flag.
 /// Maps to: "imgdedup --help lists every PRD §8 flag".
 #[test]
