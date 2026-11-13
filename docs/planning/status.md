@@ -120,8 +120,10 @@ docs pass → AI automation, batched within Claude usage limits.
   agent dispatches — tester, product-owner docs, architect review,
   product-owner acceptance — about 490k subagent tokens in total, the docs
   pass and the architect review about 195k each. Estimate 40–60% of the
-  window; actual: to be read from `/usage` by the owner and recorded with
-  the merge.
+  window; actual **42%** at the point the PR was opened (owner's `/usage`
+  reading; the weekly figure was not read). The low end of the estimate
+  held: a dispatch-heavy close-out of this size costs roughly 10% of a
+  window per full-depth agent pass.
 
 - _Session 33 (TASK-0340/TASK-0341 joint design: PRD-0001 amendment + ADR-0018),
   2026-08-06 — branch `docs/prd-0001-pager-and-output-model`, fresh window
