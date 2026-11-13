@@ -161,6 +161,26 @@ fn help_text_cites_no_internal_identifiers() {
     }
 }
 
+/// `--overwrite-output` only means something next to `--output` (TASK-0342).
+#[test]
+fn overwrite_output_without_output_is_a_usage_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = cmd()
+        .arg(dir.path())
+        .arg("--overwrite-output")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--overwrite-output requires --output"),
+        "{stderr}"
+    );
+    let help = cmd().arg("--help").output().unwrap();
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--overwrite-output"));
+}
+
 /// `--help` lists every PRD §8 flag.
 /// Maps to: "imgdedup --help lists every PRD §8 flag".
 #[test]
@@ -1496,4 +1516,166 @@ fn timings_stage_close_lines_are_written_in_pipeline_order() {
          stage's end (innermost first, parents after their children); got \
          stderr:\n{stderr}"
     );
+}
+
+// ── A reader that has gone away must not abort or panic a run ─────────────
+
+/// A stream whose reader has already gone: every write to it fails with a
+/// broken pipe. (Rust programs ignore `SIGPIPE`, so the failure arrives as an
+/// error, which `print!` / `eprintln!` turn into a panic.)
+#[cfg(unix)]
+fn broken_pipe() -> std::process::Stdio {
+    let (reader, writer) = std::io::pipe().expect("pipe");
+    drop(reader);
+    writer.into()
+}
+
+#[cfg(unix)]
+fn raw_cmd() -> std::process::Command {
+    std::process::Command::new(env!("CARGO_BIN_EXE_imgdedup"))
+}
+
+/// The architect's PR #107 finding: a diagnostic written to a closed stderr
+/// panicked, which could abort an `--apply` partway through. The first
+/// removal here fails (and is reported on stderr); the second must still
+/// happen, and the run must end the way it does with stderr open.
+#[cfg(unix)]
+#[test]
+fn a_closed_stderr_does_not_abort_an_apply() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Stdio;
+
+    let build = || {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bytes = image_bytes(ImageFormat::Png, 31, 64);
+        let locked = dir.path().join("sub");
+        let open = dir.path().join("zzz");
+        fs::create_dir(&locked).unwrap();
+        fs::create_dir(&open).unwrap();
+        fs::write(dir.path().join("a.png"), &bytes).unwrap();
+        fs::write(locked.join("b.png"), &bytes).unwrap();
+        fs::write(open.join("c.png"), &bytes).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        dir
+    };
+    let run = |dir: &std::path::Path, stderr: Stdio| {
+        let record = dir.join("run.ndjson");
+        let out = raw_cmd()
+            .arg(dir)
+            .args(["--apply", "--delete", "--json", "--no-progress", "--output"])
+            .arg(&record)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(stderr)
+            .output()
+            .expect("run");
+        fs::set_permissions(dir.join("sub"), fs::Permissions::from_mode(0o755)).unwrap();
+        (out, fs::read_to_string(&record).unwrap())
+    };
+
+    let reference_dir = build();
+    let (reference, _) = run(reference_dir.path(), Stdio::piped());
+    assert!(
+        String::from_utf8_lossy(&reference.stderr).contains("warning: "),
+        "the fixture must produce a stderr diagnostic during the apply"
+    );
+
+    let dir = build();
+    let (out, record) = run(dir.path(), broken_pipe());
+
+    assert_eq!(out.status.code(), reference.status.code(), "same exit code");
+    assert!(
+        !dir.path().join("zzz/c.png").exists(),
+        "the removal after the failed one still happened"
+    );
+    assert!(dir.path().join("sub/b.png").exists());
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("stdout JSON");
+    assert_eq!(doc["actions"]["removed"].as_array().unwrap().len(), 1);
+    assert_eq!(doc["actions"]["skipped"].as_array().unwrap().len(), 1);
+    let last: serde_json::Value = serde_json::from_str(record.lines().last().unwrap()).unwrap();
+    assert_eq!(last["type"], "result", "the record is complete");
+}
+
+/// Review finding: `--timings` writes its lines through `tracing-subscriber`,
+/// which by default reports a failed write with its own `eprintln!` — and so
+/// panicked on the same closed stderr.
+#[cfg(unix)]
+#[test]
+fn a_closed_stderr_does_not_abort_a_timings_run() {
+    use std::process::Stdio;
+    let (dir, _a, b, _u) = duplicate_tree();
+    let out_dir = tempfile::tempdir().unwrap();
+    let record = out_dir.path().join("run.ndjson");
+    let out = raw_cmd()
+        .arg(dir.path())
+        .args(["--timings", "--apply", "--delete", "--json", "--output"])
+        .arg(&record)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(broken_pipe())
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(0));
+    assert!(!b.exists(), "the removal happened");
+    let text = fs::read_to_string(&record).unwrap();
+    let last: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    assert_eq!(last["type"], "result", "the record is complete");
+}
+
+/// `imgdedup photos | head -1`: the reader stops reading. No panic, and the
+/// exit code says the report was not delivered.
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_does_not_panic_and_exits_1() {
+    use std::process::Stdio;
+    let (dir, ..) = duplicate_tree();
+    let out = raw_cmd()
+        .arg(dir.path())
+        .arg("--no-progress")
+        .stdin(Stdio::null())
+        .stdout(broken_pipe())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_still_completes_the_record() {
+    use std::process::Stdio;
+    let (dir, ..) = duplicate_tree();
+    let out_dir = tempfile::tempdir().unwrap();
+    let record = out_dir.path().join("run.txt");
+    let out = raw_cmd()
+        .arg(dir.path())
+        .args(["--no-progress", "--output"])
+        .arg(&record)
+        .stdin(Stdio::null())
+        .stdout(broken_pipe())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(1));
+    let text = fs::read_to_string(&record).unwrap();
+    assert!(text.contains("===== RESULT"), "{text}");
+    assert!(text.contains("Summary: 1 duplicate group"), "{text}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_closed_stdout_exits_1_even_with_exit_code_flag() {
+    use std::process::Stdio;
+    let (dir, ..) = duplicate_tree();
+    let out = raw_cmd()
+        .arg(dir.path())
+        .args(["--no-progress", "--exit-code"])
+        .stdin(Stdio::null())
+        .stdout(broken_pipe())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(1), "not 3: the report was lost");
 }

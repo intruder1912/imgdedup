@@ -342,7 +342,8 @@ Two rules follow from that table:
 - **Standard error is for failures.** Concretely, apart from progress (when it
   falls back there) and `--timings`, standard error carries:
   - usage errors, such as an unknown flag, `--delete` without `--apply`, or an
-    `--output` file that cannot be created (exit code `2`);
+    `--output` file that cannot be created or that the tool refuses to replace
+    (exit code `2`);
   - a scan root that could not be read (`error: <path>: <reason>`), and the
     `error: not applying: …` refusal when `--apply` is combined with one;
   - apply-time skips (`warning: <path>: <reason>`), one per file you approved
@@ -692,7 +693,9 @@ imgdedup --output run.txt ./photos > report.txt
 ```
 
 Because each entry reaches the file the moment it is written, you can watch a
-record grow from another terminal with `tail -f run.txt`.
+record grow from another terminal with `tail -f run.txt` (or `tail -F`, which
+picks up the new file when you re-run with the same path and the old one
+becomes `run.txt.bak`).
 
 ### What the record contains
 
@@ -721,7 +724,8 @@ A quick run over a small `photos` folder holding two pairs of duplicates
 # started:    2026-11-13T17:18:35Z
 # invocation: roots=[photos] keep=shortest apply=false delete=false hidden=false
 #             recurse=true follow-symlinks=false ext=<default> exit-code=false
-#             json=false no-progress=false timings=false output=run.txt
+#             json=false no-progress=false timings=false
+#             overwrite-output=false output=run.txt
 [     0.0s] scanning...
 [     0.0s] scanning: 0 of 6 (0%)
 [     0.0s] scanning: 6 of 6 (100%)
@@ -817,7 +821,7 @@ dies mid-write, every *complete* line still parses on its own, so even a partial
 record is machine-readable. The same run as above produces:
 
 ```text
-{"type":"header","elapsed_ms":0,"record_version":1,"tool":"imgdedup","tool_version":"0.1.0","started_at":"2026-11-13T17:18:35Z","invocation":{"roots":["photos"],"keep":"shortest","apply":false,"delete":false,"json":true,"no_recurse":false,"hidden":false,"follow_symlinks":false,"ext":null,"exit_code":false,"no_progress":false,"timings":false,"output":"run.ndjson"}}
+{"type":"header","elapsed_ms":0,"record_version":1,"tool":"imgdedup","tool_version":"0.1.0","started_at":"2026-11-13T17:18:35Z","invocation":{"roots":["photos"],"keep":"shortest","apply":false,"delete":false,"json":true,"no_recurse":false,"hidden":false,"follow_symlinks":false,"ext":null,"exit_code":false,"no_progress":false,"timings":false,"overwrite_output":false,"output":"run.ndjson"}}
 {"type":"milestone","elapsed_ms":0,"phase":"scanning","current":0,"total":null,"percent":null,"run_total":0}
 {"type":"milestone","elapsed_ms":0,"phase":"scanning","current":0,"total":6,"percent":0,"run_total":0}
 {"type":"milestone","elapsed_ms":1,"phase":"scanning","current":6,"total":6,"percent":100,"run_total":0}
@@ -895,12 +899,60 @@ nothing held back in a buffer waiting for a tidy shutdown. So:
 And remember [when groups appear](#when-groups-appear): a run killed while it is
 still hashing has not found any groups yet, so its record has none.
 
+### If the file already exists
+
+`imgdedup` never destroys a file you did not ask it to. `--output` replaces
+only its **own** earlier records, and keeps the one it replaces:
+
+| What is at the `--output` path | What happens |
+|---|---|
+| Nothing | The record is created. |
+| An empty file | The record is written there. |
+| A record from an earlier `imgdedup` run | It is renamed to `<file>.bak` (for example `run.txt.bak`), and the new record is written. No flag needed. |
+| Any other file | The run is **refused** before anything is scanned (exit `2`), and the file is left exactly as it was. |
+
+So re-running the same command just works, and the previous run's record is
+still there next to the new one:
+
+```sh
+imgdedup --output run.txt ./photos   # creates run.txt
+imgdedup --output run.txt ./photos   # run.txt is the new record; the old one is run.txt.bak
+```
+
+A mistyped path that lands on a photo, or on any file that is not an
+`imgdedup` record, stops the run instead:
+
+```text
+$ imgdedup --output photos/a/ixus50-1_385.JPG photos
+error: output file photos/a/ixus50-1_385.JPG already exists and is not an imgdedup run record; choose another path, or pass --overwrite-output to replace it (it will be kept as photos/a/ixus50-1_385.JPG.bak)
+```
+
+If you really do want to replace that file, pass **`--overwrite-output`**. The
+file is still not lost: it becomes `<file>.bak`, just like an earlier record.
+`--overwrite-output` only works together with `--output`; on its own it is a
+usage error.
+
+Only **one** backup is kept. The next run replaces `<file>.bak` with the record
+it just moved aside, so the run before last is gone. That only happens when
+`<file>.bak` is empty or is itself an `imgdedup` record: if something else
+already sits at that name, the run is refused — even with
+`--overwrite-output`, which gives permission to replace the file you named,
+not one you never mentioned:
+
+```text
+error: cannot back up run.txt: run.txt.bak already exists and is not an imgdedup run record; move run.txt.bak away or choose another output path
+```
+
+Move that file out of the way, or choose another `--output` path. Making a
+backup prints nothing; the `.bak` file is the only sign of it. If `--output`
+names a symbolic link, the link stays in place and the file it points to
+receives the new record; `<file>.bak` is a plain copy of what was there.
+
+The record is never appended to an existing file: an old run's result
+followed by a new, partial transcript would read as a finished run.
+
 ### Practical notes
 
-- **An existing file is overwritten**, exactly as `> file` would overwrite it —
-  so a mistyped `--output` path clobbers a file the same way a mistyped `>`
-  does. It is never appended to: an old run's result followed by a new, partial
-  transcript would read as a finished run.
 - **A path that cannot be written fails immediately.** If the file cannot be
   created — the path is a directory, its parent folder does not exist, or you
   cannot write there — `imgdedup` prints
@@ -921,7 +973,9 @@ still hashing has not found any groups yet, so its record has none.
   duplicate group or an already-deduplicated hard-link set, and every file
   warned about, removed, or skipped. It is
   created with your usual default file permissions, just as `>` would create
-  it, so on a shared machine choose where you put it accordingly.
+  it, so on a shared machine choose where you put it accordingly. Each run
+  writes a fresh file, so permissions you set on an earlier record stay with
+  its `.bak`, not with the new one.
 - **Putting the record inside a folder you are scanning is safe.** The record is
   never an image, so it can never be grouped, trashed, or deleted. If its name
   has an image extension (or you widen the allow-list with `--ext`), it is
@@ -966,9 +1020,20 @@ imgdedup --exit-code ./photos
 | Code | Meaning |
 |---|---|
 | `0` | Success. With `--exit-code`, also means no duplicates were found. |
-| `1` | Run-level error — e.g. an input path could not be scanned, or an [`--output`](#--output-file-a-durable-record-of-the-run) record could not be written while the run was in progress (the run itself still completed). Takes precedence over `3`. |
-| `2` | Usage error — invalid arguments, or an `--output` file that cannot be created (checked before anything is scanned). |
+| `1` | Run-level error — e.g. an input path could not be scanned, an [`--output`](#--output-file-a-durable-record-of-the-run) record could not be written while the run was in progress, or the report could not be written to standard output because whatever was reading it had gone away (in both of the last two cases the run itself still completed). Takes precedence over `3`. |
+| `2` | Usage error — invalid arguments, an `--output` file that cannot be created, or an existing `--output` file the tool [will not replace](#if-the-file-already-exists) (all checked before anything is scanned). |
 | `3` | Duplicates were found. Only emitted when `--exit-code` is passed. |
+
+A note on pipes: when the program reading standard output stops before the
+report has been written — `imgdedup ./photos | head -5` on a long report, for
+example — `imgdedup` does not crash. It finishes the run (including any
+`--output` record, which still gets its result), prints nothing more, and
+exits `1`, because the report did not reach its reader. A report short enough
+to be written in full before the reader stops counts as delivered, so the same
+pipe can exit `0` on a small run. If a script runs with `set -o pipefail`,
+expect that `1`. A diagnostic that cannot be written to standard error is
+simply dropped: it never stops a run, interrupts an `--apply`, or changes the
+exit code.
 
 ## Next
 

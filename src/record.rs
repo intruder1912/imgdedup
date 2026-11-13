@@ -36,6 +36,7 @@ pub struct Invocation {
     pub exit_code: bool,
     pub no_progress: bool,
     pub timings: bool,
+    pub overwrite_output: bool,
     pub output: String,
 }
 
@@ -121,6 +122,33 @@ impl RunRecorder for NoRecord {
 pub enum Format {
     Human,
     Ndjson,
+}
+
+/// A real header line of `format`, for tests elsewhere that must recognize
+/// what this module writes (`output_file`'s record detection).
+#[cfg(test)]
+pub(crate) fn header_for_tests(format: Format) -> String {
+    let invocation = Invocation {
+        roots: vec!["/photos".to_owned()],
+        keep: "shortest",
+        apply: false,
+        delete: false,
+        json: matches!(format, Format::Ndjson),
+        no_recurse: false,
+        hidden: false,
+        follow_symlinks: false,
+        ext: None,
+        exit_code: false,
+        no_progress: false,
+        timings: false,
+        overwrite_output: false,
+        output: "run.txt".to_owned(),
+    };
+    let event = RecordEvent::Header(&invocation);
+    match format {
+        Format::Human => render_human(&event, 0, 0),
+        Format::Ndjson => render_ndjson(&event, 0, 0),
+    }
 }
 
 /// The single writer to the record file.
@@ -260,7 +288,8 @@ fn render_human(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> Str
                  # started:    {started}\n\
                  # invocation: roots=[{roots}] keep={keep} apply={apply} delete={delete} hidden={hidden}\n\
                  #             recurse={recurse} follow-symlinks={follow} ext={ext} exit-code={exit_code}\n\
-                 #             json={json} no-progress={no_progress} timings={timings} output={output}\n",
+                 #             json={json} no-progress={no_progress} timings={timings}\n\
+                 #             overwrite-output={overwrite_output} output={output}\n",
                 version = env!("CARGO_PKG_VERSION"),
                 started = rfc3339_utc(wall_secs),
                 keep = inv.keep,
@@ -273,6 +302,7 @@ fn render_human(event: &RecordEvent<'_>, elapsed_ms: u64, wall_secs: u64) -> Str
                 json = inv.json,
                 no_progress = inv.no_progress,
                 timings = inv.timings,
+                overwrite_output = inv.overwrite_output,
                 output = esc(&inv.output),
             )
         }
@@ -752,6 +782,7 @@ mod tests {
             exit_code: false,
             no_progress: false,
             timings: false,
+            overwrite_output: false,
             output: "run.txt".to_owned(),
         }
     }
@@ -775,7 +806,8 @@ mod tests {
              # started:    2026-08-06T11:22:33Z\n\
              # invocation: roots=[/photos] keep=shortest apply=false delete=false hidden=false\n\
              #             recurse=true follow-symlinks=false ext=<default> exit-code=false\n\
-             #             json=false no-progress=false timings=false output=run.txt\n",
+             #             json=false no-progress=false timings=false\n\
+             #             overwrite-output=false output=run.txt\n",
             env!("CARGO_PKG_VERSION")
         );
         assert_eq!(text, expected);
@@ -789,7 +821,7 @@ mod tests {
         let mut inv = invocation();
         inv.output = "run\n# forged\u{1b}[2J.txt".to_owned();
         let text = render_human(&RecordEvent::Header(&inv), 0, 0);
-        assert_eq!(text.lines().count(), 5, "no extra line: {text}");
+        assert_eq!(text.lines().count(), 6, "no extra line: {text}");
         assert!(!text.contains('\u{1b}'), "no raw ESC: {text:?}");
     }
 

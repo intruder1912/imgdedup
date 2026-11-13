@@ -444,6 +444,11 @@ reviewer does not have to re-derive it.**
 
 ### 6. Pre-existing `--output` target — **truncate**
 
+> **Superseded 2026-11-13** by
+> [Amendment 2026-11-13](#amendment-2026-11-13--the---output-target-is-never-destroyed-unasked-task-0342):
+> an existing file is no longer simply truncated. The text below is the
+> original decision, kept for the record.
+
 `File::create` semantics: create, or truncate an existing regular file.
 
 - **Append was rejected on honesty grounds.** A file with a previous run's
@@ -869,6 +874,108 @@ authoritative and the difference is recorded here:
     <reason>`; it used to say `cannot write to`, one word away from the
     mid-run `error: could not write to <path>: <reason>` (exit `1`), which is
     unchanged. Owner decision, 2026-11-13.
+
+## Amendment 2026-11-13 — the `--output` target is never destroyed unasked (TASK-0342)
+
+**Decision (owner, 2026-11-13): a deduplication tool must not destroy any
+file without being asked.** §6 chose `File::create` semantics — truncate, like
+`>` — and judged the residual risk "identical to `>`'s … handled by documenting
+it". The owner overturned that judgment: `--output` is typed by hand next to a
+tree of irreplaceable photos, it truncates before scanning and even on a dry
+run, and `imgdedup --output photos/img_0412.jpg photos` destroyed the photo.
+FR-9's "a default run changes nothing on disk" was read too narrowly in §6.
+
+§6's two rejections still hold and shaped the replacement: **refuse-always**
+would break the normal re-run with the same `--output`, and **append** would
+make an interrupted run read as finished. The new rule, implemented in
+`src/output_file.rs` and run at startup with the other `--output` checks
+(exit `2`, before scanning, no report):
+
+| The `--output` path… | What happens |
+|---|---|
+| does not exist | Created (create-new, so a file appearing in between is classified, not clobbered). |
+| is an empty file | Written. Nothing to keep. |
+| is an earlier run record | Moved to `<file>.bak`, then written. No flag. |
+| is any other file | Refused. With `--overwrite-output`: moved to `<file>.bak`, then written. |
+| is a directory, or cannot be opened | Refused, as before. |
+
+- **An earlier run record** is a file whose first line is the human header
+  `# imgdedup <version> run record`, or an NDJSON header line beginning
+  `{"type":"header","elapsed_ms":` that carries `"tool":"imgdedup"` — the two
+  formats of §4. A looser prefix match was rejected in review: a Markdown note
+  titled `# imgdedup …` would be taken for a record, moved to `.bak`, and lost
+  on the next re-run. A file that cannot be read, has a byte-order mark, or is
+  cut short inside its first line is "any other file": when in doubt, ask.
+- **One backup generation.** An existing `<file>.bak` is replaced when it is
+  empty or itself a run record. Anything else at that name — a foreign file,
+  a directory, a symlink (even one to a record) — refuses the run **with or
+  without** `--overwrite-output`: the flag is permission to replace the
+  output file, not a file the user never named. Numbered backups were
+  rejected: nothing is ever replaced, but an unattended nightly run leaves
+  hundreds of files.
+- **Rename, not copy.** The backup is a rename within the target's own
+  directory: instant, and it cannot fail halfway. When the `--output` path is
+  a symlink the content is copied instead — into a newly created `<file>.bak`
+  (an existing record backup is removed first; a file that reappears at that
+  name refuses the run) — and the file behind the link is rewritten, so the
+  link stays in place and keeps pointing where it did.
+- **A target that is not a regular file** (a FIFO, a device such as
+  `/dev/full`) is opened for writing as before: writing to it replaces
+  nothing. A FIFO with no reader blocks the open until one appears, as
+  `File::create` did. A dangling symlink's target is created, as before. If
+  what was opened turns out to be a non-empty regular file (it appeared in
+  the meantime), the run is refused. An empty file is likewise opened without
+  truncating and checked again on the open handle.
+- **The flag is `--overwrite-output`,** not `--force`, which beside `--delete`
+  could be read as forcing removals. Without `--output` it is a usage error.
+  It is part of the record's `invocation` in both formats, like every other
+  flag (implementation note 10).
+- **A backup that cannot be made refuses the run.** A record the user can
+  write, in a directory they cannot — a pre-created log file in a system log
+  directory — used to be truncated in place. The rename now fails, and the
+  run stops with `error: cannot back up <path> to <backup>: <reason>` rather
+  than replace the file without a backup.
+- **Consequences of renaming instead of truncating**, accepted by the
+  product-owner: permissions and ownership set on an earlier record stay
+  with its `.bak` and the new file gets the defaults; a hard link to the old
+  record keeps the old content; a `tail -f` left open across runs follows
+  the `.bak` (`tail -F` follows the name).
+- **Residual windows (accepted).** Each check and the action after it are
+  separate system calls, so a process that changes the output directory in
+  between can defeat the check. A file swapped in at the `--output` path
+  between its classification and the rename is moved to `<file>.bak`, not
+  destroyed. But a file created at `<file>.bak` between that name's check and
+  the rename is replaced by the rename and lost: a no-replace rename
+  (`renameat2(RENAME_NOREPLACE)`, `renamex_np(RENAME_EXCL)`) is not available
+  in `std` and was not worth platform-specific code for this. imgdedup is a
+  single-user tool: the rule protects against the user's own mistyped path,
+  not against a concurrent process — hostile or not — with write access to
+  the output directory. (In a sticky shared directory such as `/tmp`,
+  `rename` cannot replace another user's file.) Choose an `--output`
+  directory only you write to.
+
+### Writers that cannot panic
+
+`eprintln!` and `println!` panic when their stream cannot be written; a pipe
+whose reader has gone away is enough. Found in the PR #107 review: a
+diagnostic written during `--apply` could abort the apply partway through
+(exit `101`, record left without its completion document), and
+`imgdedup photos | head` panicked once `head` exited. This predates this ADR
+but touches §7 and §8, so it is recorded here.
+
+- Every stderr diagnostic in `main.rs` goes through `streams::diag`, which
+  ignores a failed write. If nobody can read a diagnostic there is nothing
+  better to do with it, and the run, its record and its exit code must not
+  depend on it.
+- The `--timings` subscriber is built with `log_internal_errors(false)`. By
+  default `tracing-subscriber` reports a failed write with `eprintln!`, which
+  panics on the same closed stderr; found in the TASK-0342 review.
+- The report is written with `streams::write_stdout`. When it cannot be
+  delivered, the completion document is still written to the record (§3), no
+  further message is printed, and the process exits `1` — the report the user
+  asked for did not arrive (owner decision, 2026-11-13; the alternative was
+  `0`). Like a degraded record (§7), this takes precedence over
+  `--exit-code`'s `3`.
 
 Verification beyond the automated suite, recorded in the commit messages of
 `37c1fb4` and `be94d61`: the §8 routing table was exercised on a real

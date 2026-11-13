@@ -142,6 +142,19 @@ User stories:
 - **FR-15:** Exit `0` on success and a distinct non-zero code on error. A
   failure to write the FR-20 record file mid-run is such an error (exit `1`)
   even when the deduplication work itself succeeded — see FR-20 and AC-28a.
+  **Output streams that cannot be written (amended 2026-11-13, TASK-0342):**
+  - A diagnostic that cannot be written to stderr (for example, stderr is a
+    pipe whose reader has gone away) is dropped. It never aborts the run,
+    never interrupts an `--apply` partway through, and never changes the
+    exit code or the FR-20 record.
+  - A report (or `--json` document) that cannot be written to stdout does not
+    crash the run. The FR-20 record still receives its completion document,
+    nothing further is printed, and the process exits `1` — the report the
+    user asked for was not delivered. Like a record-write failure, this takes
+    precedence over FR-18's `3`. A report written in full before the reader
+    went away counts as delivered.
+  - Apply-time status lines on stdout (FR-21) that cannot be written are
+    dropped, like diagnostics.
 - **FR-16:** Re-validate at apply time. Because the scan (which selects groups and
   keepers) and `--apply` are separate passes, immediately before trashing or
   deleting a non-keeper the tool re-confirms the file still exists, is still a
@@ -278,6 +291,38 @@ User stories:
     deliberate decision rather than a gap.
   - An unwritable path fails the run **before any scanning begins**, with a
     usage-level error, rather than failing hours in.
+  - **An existing file is never destroyed unasked** (amended 2026-11-13, owner
+    ruling, TASK-0342; this replaces the earlier "an existing file is
+    overwritten, like `>`"). What happens to an existing path is decided at
+    startup, with the unwritable-path check, before anything is scanned:
+    - a path that does not exist is created;
+    - an **empty file** is written; there is nothing to keep, so no backup;
+    - an **earlier `imgdedup` run record** — in either format, whatever the
+      new run's format — is kept as **`<file>.bak`** (the full name plus
+      `.bak`, e.g. `run.txt.bak`) and replaced, **with no flag**, so re-running
+      the same command with the same `--output` keeps working;
+    - **any other existing file is refused** with a usage-level error (exit
+      `2`, nothing scanned, no report, the file left byte-for-byte intact),
+      unless **`--overwrite-output`** is given — then it too is kept as
+      `<file>.bak` and replaced;
+    - a path that is a directory, or that cannot be opened, is refused as
+      before; a writable target that is not a regular file (a FIFO, a device)
+      is written to as before, since that replaces nothing.
+
+    **One backup generation.** An existing `<file>.bak` that is empty or is
+    itself a run record is replaced by the new backup. Anything else at that
+    name (any other file, a directory) refuses the run with a usage-level
+    error **with or without** `--overwrite-output`: the flag is permission to
+    replace the file the user named, not one they never mentioned. A file
+    that cannot be read, or is too short to tell, counts as "any other file"
+    — when in doubt, ask. (What identifies a run record is specified in
+    ADR-0018, Amendment 2026-11-13.) When `--output` names a symlink, the link
+    stays in place and keeps pointing where it did; the backup holds the
+    content it led to.
+
+    `--overwrite-output` without `--output` is a usage error (exit `2`), like
+    `--delete` without `--apply`. Making a backup prints nothing (see the
+    [Amendment 2026-11-13](#amendment-2026-11-13--the---output-file-is-never-destroyed-unasked-closed-output-streams-owner-ruling-task-0342)).
   - **A write failure *during* the run does not stop the run** (decided
     2026-08-06, ADR-0018): the scan or apply proceeds and completes entirely on
     its own terms, unaffected. The failure is reported **once** — not once per
@@ -296,8 +341,8 @@ User stories:
     newline.
   - `--output` is **output-only**: it never changes what is scanned, grouped,
     or removed, and a run with and without it produces the same stdout bytes.
-    Its only effect outside the file is the exit code in the write-failure case
-    above.
+    Its only effects outside the file are the `<file>.bak` backup and the
+    refusals above, and the exit code in the write-failure case above.
 
 - **FR-21 (Amendment 2026-08-06; supersedes FR-19's "stderr only, in any
   mode"):** Route the run's **normal output to stdout and reserve stderr for
@@ -395,6 +440,8 @@ Actions (default is dry-run / report only):
 Output:
   --json              Machine-readable output
   --output <file>     Write a continuous, durable record of the run to <file>
+  --overwrite-output  With --output: also replace an existing file that is
+                      not a run record (kept as <file>.bak)
   --exit-code         Exit 3 if any duplicate groups were found (else 0)
   --no-progress       Disable the live progress indicator
 ```
@@ -426,6 +473,10 @@ Behavior:
   document once the run finishes — so an interrupted run still leaves what it
   had produced. Human-readable by default, NDJSON under `--json`. It adds a
   file; it changes nothing about what the terminal or stdout receives.
+  **Existing file (amended 2026-11-13):** an earlier run record at `<file>` is
+  kept as `<file>.bak` and replaced; an empty file is written; any other file
+  is refused before scanning (exit `2`) unless `--overwrite-output` is given,
+  which keeps it as `<file>.bak` too. One backup generation (FR-20).
 - **Errors:** per-file problems are listed and skipped; the overall run still
   completes and summarizes. Exit non-zero only on a run-level failure. Standard
   error carries **only** genuine failures (Amendment 2026-08-06) — plus
@@ -708,6 +759,56 @@ Behavior:
   terminal completion state reports the run's total elapsed time. No
   remaining-time estimate is shown.
 
+AC-33..AC-37 are reserved for FR-22 (paging) and are stated in the
+[Amendment 2026-08-06](#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341);
+the `--output` overwrite rule and the closed-stream behavior (Amendment
+2026-11-13) continue at AC-38.
+
+- **AC-38 (FR-20, re-run needs no flag):** Given `run.txt` holds the record of
+  an earlier run — human-readable or NDJSON, whatever the new run's format —
+  when the same command is run again with the same `--output run.txt` and no
+  other flag, then the run proceeds normally, `run.txt` holds the new record,
+  and `run.txt.bak` is byte-for-byte the previous record.
+- **AC-39 (FR-20, any other file is refused):** Given `--output` names an
+  existing non-empty file that is not a run record (for example a photo inside
+  the scan root) and `--overwrite-output` is not passed, when the tool is
+  run, then it exits `2` before scanning, writes no report to stdout, prints
+  to stderr a single `error:` line that names the file, `--overwrite-output`,
+  and the backup name, leaves that file **byte-for-byte intact**, and creates
+  no `<file>.bak`.
+- **AC-40 (FR-20, `--overwrite-output`):** Given the same file as AC-39, when
+  the tool is run with `--overwrite-output`, then the file's previous content
+  is in `<file>.bak` byte-for-byte and `<file>` holds the new record.
+- **AC-41 (FR-20, nothing to keep):** Given `--output` names a path that does
+  not exist, or an existing empty file, when the tool is run, then the record
+  is written there and no `<file>.bak` is created.
+- **AC-42 (FR-20, one backup generation):** Given `run.txt` is a run record
+  and `run.txt.bak` is empty or is itself an older run record, when the tool
+  is run with `--output run.txt`, then `run.txt.bak` holds the previous
+  `run.txt` and the older generation is gone. Given instead that `run.txt.bak`
+  is anything else (a non-record file, a directory), then — with or without
+  `--overwrite-output` — the tool exits `2` before scanning, writes no report,
+  prints an `error:` line naming both paths, and leaves `run.txt` and
+  `run.txt.bak` untouched.
+- **AC-43 (FR-20, flag needs `--output`):** Given `--overwrite-output` without
+  `--output`, when the tool is run, then it prints
+  `error: --overwrite-output requires --output` and exits `2` before scanning.
+- **AC-44 (FR-20, symlinked output):** Given `--output` names a symlink to an
+  earlier run record, when the tool is run, then the link is still a link
+  pointing at the same target, the target holds the new record, and
+  `<file>.bak` is a regular file holding the previous record.
+- **AC-45 (FR-15, closed stderr):** Given stderr is a pipe whose reader has
+  gone away, when an `--apply --delete` run that skips some files (so it has
+  diagnostics to write) runs with `--output`, then every removal the same run
+  would perform with stderr open is performed, the exit code is the one it
+  would have been with stderr open, the record ends with its completion
+  document, and the process does not crash.
+- **AC-46 (FR-15, undelivered report):** Given stdout is a pipe whose reader
+  has gone away before the report is written, when a run with `--output`
+  finishes, then the process does not crash and prints nothing further, the
+  record still ends with its completion document, and the exit code is `1` —
+  also with `--exit-code` on a run that found duplicates (`1`, not `3`).
+
 ## 10. Open questions
 
 Handed to the architect (Phase 2) unless noted:
@@ -741,7 +842,10 @@ Handed to the architect (Phase 2) unless noted:
 - **Risk — accidental data loss:** highest-stakes risk. Mitigated by the dry-run
   default (FR-9), recoverable trash default (FR-10), opt-in permanent delete
   (FR-11), the keeper safety invariant (NFR-1), byte-verification before removal
-  (FR-4), and apply-time re-validation (FR-16).
+  (FR-4), and apply-time re-validation (FR-16). The `--output` path is a
+  second route to it — a mistyped path can name a photo — mitigated by FR-20's
+  overwrite rule (Amendment 2026-11-13): only the tool's own records are
+  replaced without a flag, and whatever is replaced is kept as `<file>.bak`.
 - **Risk — trashing a non-image:** mitigated by magic-byte confirmation before any
   action (FR-3, NFR-2).
 - **Risk — missed images with wrong/missing extensions:** accepted, documented
@@ -1466,3 +1570,49 @@ For FR-22 (paging) — **still open**, and needed before that second slice:
   takes the screen", including run-level errors and the apply-stage live
   stream — now that most of that stream is stdout, the same stream the pager
   is about to take.
+
+## Amendment 2026-11-13 — the `--output` file is never destroyed unasked; closed output streams (owner ruling, TASK-0342)
+
+Until now FR-20's `--output <file>` opened its file the way `>` does: an
+existing file was emptied at startup, before scanning and even on a dry run,
+so `imgdedup --output photos/img_0412.jpg photos` destroyed that photo.
+ADR-0018 §6 accepted this as "the same risk as `>`", handled by
+documentation. The owner overturned that.
+
+**Owner rulings (2026-11-13):**
+
+1. **A deduplication tool must not destroy any file without being asked** —
+   and that includes the `--output` path, not only the scanned files.
+2. **Only the tool's own run records are replaced without a flag**, so the
+   everyday re-run with the same `--output` needs no extra flag. Any other
+   existing file is refused unless the user passes `--overwrite-output`.
+   (Refusing every existing file was rejected: the re-run would need the flag
+   every time, and a flag passed by habit protects nothing.)
+3. **Whatever is replaced is kept as `<file>.bak`**, one generation —
+   numbered backups were rejected because an unattended nightly run would
+   leave hundreds of them.
+4. **A report that cannot be written to stdout exits `1`** (the alternative
+   was `0`): the report the user asked for was not delivered. A diagnostic
+   that cannot be written to stderr never aborts or changes a run.
+
+**Product-owner calls on what the rulings left open:**
+
+- **A non-record `<file>.bak` blocks the run even with `--overwrite-output`.**
+  The flag gives permission to replace the file the user named; a file that
+  happens to sit at the backup name was never mentioned.
+- **Making a backup prints nothing.** On the everyday re-run a backup is made
+  every time, so a notice would be routine status — and FR-21 keeps stderr
+  for failures (AC-29: a clean run writes nothing there), while a redirected
+  stdout must carry exactly the report. The rule is documented instead, and
+  the refusal message names the backup path before any replacement the user
+  has to ask for. If a notice is ever wanted, it follows FR-21's status
+  routing: an interactive stdout in the default mode only, never stderr,
+  never a redirected stdout, never under `--json`.
+- **FR-22 (paging), when it is taken up,** must reconcile AC-35 with ruling 4:
+  quitting the pager early is a normal outcome and keeps the tool's own exit
+  code, so a report handed to the pager counts as delivered.
+
+**Folded into the body:** FR-15 (closed output streams), FR-20 (the overwrite
+rule; "behaves like `>`" removed), §8 (`--overwrite-output` and the existing
+file behavior), §11 (the data-loss risk), and **AC-38..AC-46** in §9. The
+design is ADR-0018's Amendment 2026-11-13.
