@@ -899,23 +899,32 @@ make an interrupted run read as finished. The new rule, implemented in
 | is any other file | Refused. With `--overwrite-output`: moved to `<file>.bak`, then written. |
 | is a directory, or cannot be opened | Refused, as before. |
 
-- **An earlier run record** is a file whose first bytes are `# imgdedup`
-  followed by a space, or `{"type":"header"` — the two formats of §4. A file
-  that cannot be read, or is shorter than the marker, is "any other file":
-  when in doubt, ask.
+- **An earlier run record** is a file whose first line is the human header
+  `# imgdedup <version> run record`, or an NDJSON header line beginning
+  `{"type":"header","elapsed_ms":` that carries `"tool":"imgdedup"` — the two
+  formats of §4. A looser prefix match was rejected in review: a Markdown note
+  titled `# imgdedup …` would be taken for a record, moved to `.bak`, and lost
+  on the next re-run. A file that cannot be read, has a byte-order mark, or is
+  cut short inside its first line is "any other file": when in doubt, ask.
 - **One backup generation.** An existing `<file>.bak` is replaced when it is
   empty or itself a run record. Anything else at that name — a foreign file,
-  a directory — refuses the run **with or without** `--overwrite-output`: the
+  a directory, a symlink (even one to a record) — refuses the run **with or without** `--overwrite-output`: the
   flag is permission to replace the output file, not a file the user never
   named. Numbered backups were rejected: nothing is ever replaced, but an
   unattended nightly run leaves hundreds of files.
 - **Rename, not copy.** The backup is a rename within the target's own
   directory: instant, and it cannot fail halfway. When the `--output` path is
-  a symlink the content is copied instead and the file behind the link is
-  rewritten, so the link stays in place and keeps pointing where it did.
+  a symlink the content is copied instead — into a newly created `<file>.bak`
+  (an existing record backup is removed first; a file that reappears at that
+  name refuses the run) — and the file behind the link is rewritten, so the
+  link stays in place and keeps pointing where it did.
 - **A target that is not a regular file** (a FIFO, a device such as
   `/dev/full`) is opened for writing as before: writing to it replaces
-  nothing, so there is nothing to protect.
+  nothing. A FIFO with no reader blocks the open until one appears, as
+  `File::create` did. A dangling symlink's target is created, as before. If
+  what was opened turns out to be a non-empty regular file (it appeared in
+  the meantime), the run is refused. An empty file is likewise opened without
+  truncating and checked again on the open handle.
 - **The flag is `--overwrite-output`,** not `--force`, which beside `--delete`
   could be read as forcing removals. Without `--output` it is a usage error.
   It is part of the record's `invocation` in both formats, like every other
@@ -930,10 +939,19 @@ make an interrupted run read as finished. The new rule, implemented in
   with its `.bak` and the new file gets the defaults; a hard link to the old
   record keeps the old content; a `tail -f` left open across runs follows
   the `.bak` (`tail -F` follows the name).
-- **Residual window.** Between classifying an existing file and renaming it,
-  another process could swap the file. The rename then moves whatever is
-  there to `.bak` rather than destroying it, so the window can misplace a
-  file but not lose one.
+- **Residual windows (accepted).** Each check and the action after it are
+  separate system calls, so a process that changes the output directory in
+  between can defeat the check. A file swapped in at the `--output` path
+  between its classification and the rename is moved to `<file>.bak`, not
+  destroyed. But a file created at `<file>.bak` between that name's check and
+  the rename is replaced by the rename and lost: a no-replace rename
+  (`renameat2(RENAME_NOREPLACE)`, `renamex_np(RENAME_EXCL)`) is not available
+  in `std` and was not worth platform-specific code for this. imgdedup is a
+  single-user tool: the rule protects against the user's own mistyped path,
+  not against a concurrent process — hostile or not — with write access to
+  the output directory. (In a sticky shared directory such as `/tmp`,
+  `rename` cannot replace another user's file.) Choose an `--output`
+  directory only you write to.
 
 ### Writers that cannot panic
 
@@ -948,6 +966,9 @@ but touches §7 and §8, so it is recorded here.
   ignores a failed write. If nobody can read a diagnostic there is nothing
   better to do with it, and the run, its record and its exit code must not
   depend on it.
+- The `--timings` subscriber is built with `log_internal_errors(false)`. By
+  default `tracing-subscriber` reports a failed write with `eprintln!`, which
+  panics on the same closed stderr; found in the TASK-0342 review.
 - The report is written with `streams::write_stdout`. When it cannot be
   delivered, the completion document is still written to the record (§3), no
   further message is printed, and the process exits `1` — the report the user

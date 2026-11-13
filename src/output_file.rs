@@ -26,9 +26,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-/// The first bytes of a run record: the human format and the NDJSON format
-/// (`record.rs`). A file that starts with either was written by this tool.
-const RECORD_MARKERS: [&[u8]; 2] = [b"# imgdedup ", b"{\"type\":\"header\""];
+/// How much of a file is read to decide whether it is a run record. Both
+/// header forms put everything that identifies them well inside this.
+const HEAD_BYTES: u64 = 256;
 
 /// The open record file, and where the previous content went, if any.
 #[derive(Debug)]
@@ -121,14 +121,48 @@ enum Content {
 /// Classify by the first bytes, read through `path` (following a symlink).
 /// A file that cannot be read is `Foreign`: when in doubt, do not replace.
 fn classify(path: &Path) -> Content {
-    let longest = RECORD_MARKERS.iter().map(|m| m.len()).max().unwrap_or(0);
-    let mut head = Vec::with_capacity(longest);
-    let read = File::open(path).and_then(|f| f.take(longest as u64).read_to_end(&mut head));
-    match read {
+    let mut head = Vec::new();
+    match File::open(path).and_then(|f| f.take(HEAD_BYTES).read_to_end(&mut head)) {
         Err(_) => Content::Foreign,
-        Ok(_) if head.is_empty() => Content::Empty,
-        Ok(_) if RECORD_MARKERS.iter().any(|m| head.starts_with(m)) => Content::Record,
-        Ok(_) => Content::Foreign,
+        Ok(_) => classify_bytes(&head),
+    }
+}
+
+/// A run record is recognized by what this tool actually writes as its first
+/// line (`record.rs`), not by a prefix: a looser match once took a Markdown
+/// note titled `# imgdedup …` for a record, moved it to `.bak`, and would
+/// have replaced it for good on the next re-run.
+///
+/// - Human format: the whole first line is `# imgdedup <version> run record`.
+/// - NDJSON: the line starts `{"type":"header","elapsed_ms":` and carries
+///   `"tool":"imgdedup"` (serialized before the invocation, so always within
+///   the bytes read).
+///
+/// Anything else — a byte-order mark, a first line cut short — is `Foreign`.
+fn classify_bytes(head: &[u8]) -> Content {
+    if head.is_empty() {
+        return Content::Empty;
+    }
+    let is_human = || {
+        let line = head.split(|&b| b == b'\n').next()?;
+        // No newline within the bytes read: not a complete first line.
+        if line.len() == head.len() {
+            return None;
+        }
+        let version = line
+            .strip_prefix(b"# imgdedup ")?
+            .strip_suffix(b" run record")?;
+        (!version.is_empty() && !version.contains(&b' ')).then_some(())
+    };
+    let is_ndjson = || {
+        const TOOL: &[u8] = b",\"tool\":\"imgdedup\",";
+        head.starts_with(b"{\"type\":\"header\",\"elapsed_ms\":")
+            && head.windows(TOOL.len()).any(|w| w == TOOL)
+    };
+    if is_human().is_some() || is_ndjson() {
+        Content::Record
+    } else {
+        Content::Foreign
     }
 }
 
@@ -174,43 +208,55 @@ fn open_existing(path: &Path, meta: &fs::Metadata, overwrite: bool) -> Result<Op
         path: path.to_owned(),
         error,
     };
+    // Something changed the file between a check and the open that relied on
+    // it. Refuse rather than guess: a re-run classifies what is there now.
+    let changed = || {
+        io_refusal(io::Error::other(
+            "the file changed while it was being opened; run again",
+        ))
+    };
     let is_symlink = meta.file_type().is_symlink();
 
     // What the path leads to must be a regular file. A directory, a dangling
     // symlink, a device: let the OS say why it cannot be the record.
     let target_is_file = fs::metadata(path).map(|m| m.is_file());
     if !matches!(target_is_file, Ok(true)) {
-        return match OpenOptions::new()
+        // Writable but not a regular file (a FIFO, `/dev/full`, …), or a
+        // dangling symlink whose target is created by this open: nothing is
+        // replaced, so there is nothing to protect or back up. No truncate —
+        // and if what was opened turns out to be a regular file with content
+        // (it appeared in the meantime), it is not written over.
+        let file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(false)
             .open(path)
-        {
-            // Writable but not a regular file (a FIFO, `/dev/full`, …), or a
-            // dangling symlink whose target is created by this open: nothing
-            // is replaced, so there is nothing to protect or back up.
-            Ok(file) => Ok(Opened {
+            .map_err(io_refusal)?;
+        return match file.metadata() {
+            Ok(m) if m.is_file() && m.len() > 0 => Err(changed()),
+            _ => Ok(Opened {
                 file,
                 backed_up_to: None,
             }),
-            Err(e) => Err(io_refusal(e)),
         };
     }
 
-    let truncate = || {
-        OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(path)
-            .map_err(io_refusal)
-    };
-
     let content = classify(path);
     if content == Content::Empty {
-        return Ok(Opened {
-            file: truncate()?,
-            backed_up_to: None,
-        });
+        // Opened without truncating, and checked again on the handle: content
+        // written since the classification is not destroyed.
+        let file = OpenOptions::new()
+            .write(true)
+            .open(path)
+            .map_err(io_refusal)?;
+        return match file.metadata() {
+            Ok(m) if m.len() == 0 => Ok(Opened {
+                file,
+                backed_up_to: None,
+            }),
+            Ok(_) => Err(changed()),
+            Err(e) => Err(io_refusal(e)),
+        };
     }
 
     let backup = backup_path(path);
@@ -222,16 +268,16 @@ fn open_existing(path: &Path, meta: &fs::Metadata, overwrite: bool) -> Result<Op
     }
 
     // One generation: an existing backup is replaced only when replacing it
-    // loses nothing that is not ours.
+    // loses nothing that is not ours. Anything that is not a plain file — a
+    // directory, a symlink (even one to a record) — blocks.
+    let blocked = || Refusal::BackupBlocked {
+        path: path.to_owned(),
+        backup: backup.clone(),
+    };
     let backup_exists = match fs::symlink_metadata(&backup) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => false,
         Ok(m) if m.is_file() && classify(&backup) != Content::Foreign => true,
-        _ => {
-            return Err(Refusal::BackupBlocked {
-                path: path.to_owned(),
-                backup,
-            });
-        }
+        _ => return Err(blocked()),
     };
 
     let backup_failed = |error: io::Error| Refusal::BackupFailed {
@@ -241,14 +287,31 @@ fn open_existing(path: &Path, meta: &fs::Metadata, overwrite: bool) -> Result<Op
     };
     let file = if is_symlink {
         // Keep the link where it is, pointing where it did: copy the content
-        // out, then rewrite the file the link leads to.
-        fs::copy(path, &backup).map_err(backup_failed)?;
-        truncate()?
-    } else {
-        // Windows refuses to rename onto an existing file.
-        if backup_exists && cfg!(windows) {
+        // out, then rewrite the file the link leads to. The backup is created
+        // anew (never opened through whatever sits at that name), so a
+        // symlink planted there after the check above is not followed.
+        if backup_exists {
             fs::remove_file(&backup).map_err(backup_failed)?;
         }
+        let mut to = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&backup)
+        {
+            Ok(to) => to,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(blocked()),
+            Err(e) => return Err(backup_failed(e)),
+        };
+        let mut from = File::open(path).map_err(backup_failed)?;
+        io::copy(&mut from, &mut to).map_err(backup_failed)?;
+        OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map_err(io_refusal)?
+    } else {
+        // `rename` replaces an existing backup on every platform (on Windows
+        // std asks for replace-existing), in one step.
         fs::rename(path, &backup).map_err(backup_failed)?;
         OpenOptions::new()
             .write(true)
@@ -269,7 +332,8 @@ mod tests {
     use tempfile::TempDir;
 
     const HUMAN: &[u8] = b"# imgdedup 0.1.0 run record\n# started: x\n";
-    const NDJSON: &[u8] = b"{\"type\":\"header\",\"elapsed_ms\":0}\n";
+    const NDJSON: &[u8] =
+        b"{\"type\":\"header\",\"elapsed_ms\":0,\"record_version\":1,\"tool\":\"imgdedup\",\"tool_version\":\"0.1.0\"}\n";
     const PHOTO: &[u8] = b"\x89PNG\r\n\x1a\nnot really, but not ours either";
 
     fn dir() -> TempDir {
@@ -360,13 +424,20 @@ mod tests {
     fn an_existing_record_bak_is_replaced() {
         let d = dir();
         let p = d.path().join("run.txt");
-        fs::write(backup_path(&p), b"# imgdedup generation 1\n").unwrap();
-        fs::write(&p, b"# imgdedup generation 2\n").unwrap();
-        open_and_write(&p, false, b"# imgdedup generation 3\n").unwrap();
-        assert_eq!(fs::read(&p).unwrap(), b"# imgdedup generation 3\n");
+        fs::write(
+            backup_path(&p),
+            b"# imgdedup 0.1.0 run record\ngeneration 1\n",
+        )
+        .unwrap();
+        fs::write(&p, b"# imgdedup 0.1.0 run record\ngeneration 2\n").unwrap();
+        open_and_write(&p, false, b"# imgdedup 0.1.0 run record\ngeneration 3\n").unwrap();
+        assert_eq!(
+            fs::read(&p).unwrap(),
+            b"# imgdedup 0.1.0 run record\ngeneration 3\n"
+        );
         assert_eq!(
             fs::read(backup_path(&p)).unwrap(),
-            b"# imgdedup generation 2\n"
+            b"# imgdedup 0.1.0 run record\ngeneration 2\n"
         );
     }
 
@@ -422,6 +493,97 @@ mod tests {
         let refusal = open(&p, false).unwrap_err();
         assert!(matches!(refusal, Refusal::NotARecord { .. }), "{refusal:?}");
         assert_eq!(fs::read(&p).unwrap(), b"# img");
+    }
+
+    /// Review finding: a prefix match took a Markdown note titled
+    /// `# imgdedup …` for a record — moved to `.bak` on one run and replaced,
+    /// i.e. lost, on the next. Only what the tool itself writes is a record.
+    #[test]
+    fn a_file_that_merely_starts_like_a_record_is_not_one() {
+        let d = dir();
+        for lookalike in [
+            &b"# imgdedup notes\n\nthings to try\n"[..],
+            b"# imgdedup 0.1.0 run records are neat\n",
+            b"# imgdedup  run record\n",
+            b"# imgdedup 0.1.0 run record",
+            b"{\"type\":\"header\",\"note\":\"mine\"}\n",
+            b"{\"type\":\"header\",\"elapsed_ms\":0,\"tool\":\"other\"}\n",
+            b"\xef\xbb\xbf# imgdedup 0.1.0 run record\n",
+        ] {
+            let p = d.path().join("notes.md");
+            fs::write(&p, lookalike).unwrap();
+            let refusal = open(&p, false).unwrap_err();
+            assert!(
+                matches!(refusal, Refusal::NotARecord { .. }),
+                "{:?}: {refusal:?}",
+                String::from_utf8_lossy(lookalike)
+            );
+            assert_eq!(fs::read(&p).unwrap(), lookalike);
+        }
+    }
+
+    #[test]
+    fn a_lookalike_bak_blocks_the_run() {
+        let d = dir();
+        let p = d.path().join("notes.md");
+        fs::write(backup_path(&p), b"# imgdedup notes\n").unwrap();
+        fs::write(&p, HUMAN).unwrap();
+        let refusal = open(&p, true).unwrap_err();
+        assert!(
+            matches!(refusal, Refusal::BackupBlocked { .. }),
+            "{refusal:?}"
+        );
+        assert_eq!(fs::read(backup_path(&p)).unwrap(), b"# imgdedup notes\n");
+    }
+
+    #[test]
+    fn real_headers_of_both_formats_are_records() {
+        // Built by the same code that writes them, so the two cannot drift.
+        for format in [crate::record::Format::Human, crate::record::Format::Ndjson] {
+            let header = crate::record::header_for_tests(format);
+            assert_eq!(
+                classify_bytes(header.as_bytes()),
+                Content::Record,
+                "{header}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_record_replaces_an_existing_record_bak() {
+        let d = dir();
+        let real = d.path().join("real.txt");
+        let link = d.path().join("run.txt");
+        fs::write(&real, b"# imgdedup 0.1.0 run record\ngeneration 2\n").unwrap();
+        fs::write(
+            backup_path(&link),
+            b"# imgdedup 0.1.0 run record\ngeneration 1\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        open_and_write(&link, false, b"new").unwrap();
+        assert_eq!(
+            fs::read(backup_path(&link)).unwrap(),
+            b"# imgdedup 0.1.0 run record\ngeneration 2\n"
+        );
+        assert_eq!(fs::read(&real).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_at_the_backup_name_blocks_the_run() {
+        let d = dir();
+        let p = d.path().join("run.txt");
+        let elsewhere = d.path().join("elsewhere.txt");
+        fs::write(&elsewhere, HUMAN).unwrap();
+        fs::write(&p, HUMAN).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, backup_path(&p)).unwrap();
+        let refusal = open(&p, false).unwrap_err();
+        assert!(
+            matches!(refusal, Refusal::BackupBlocked { .. }),
+            "{refusal:?}"
+        );
     }
 
     #[test]
@@ -523,14 +685,9 @@ mod tests {
             matches!(refusal, Refusal::BackupFailed { .. }),
             "{refusal:?}"
         );
-        assert!(
-            refusal
-                .message()
-                .starts_with("error: cannot back up run.txt to run.txt.bak: ")
-                || refusal.message().contains("/run.txt to "),
-            "{}",
-            refusal.message()
-        );
+        let message = refusal.message();
+        assert!(message.starts_with("error: cannot back up "), "{message}");
+        assert!(message.contains("run.txt.bak: "), "{message}");
         assert_eq!(fs::read(&p).unwrap(), HUMAN, "the record is intact");
     }
 

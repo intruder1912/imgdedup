@@ -101,7 +101,7 @@ error: cannot back up <path>: <backup> already exists and is not an imgdedup run
 error: cannot open output file <path>: <reason>
 ```
 
-- [ ] **Step 1: Write the failing unit tests** (in `src/output_file.rs`, `tempfile` dirs). One test per line; each asserts the returned variant, the content of the target and of `.bak` afterwards, and `backed_up_to`:
+- [x] **Step 1: Write the failing unit tests** (in `src/output_file.rs`, `tempfile` dirs). One test per line; each asserts the returned variant, the content of the target and of `.bak` afterwards, and `backed_up_to`:
   - `a_missing_file_is_created_without_backup`
   - `an_empty_file_is_written_without_backup`
   - `a_human_record_is_moved_to_bak` (content `# imgdedup 0.1.0 run record\n…`)
@@ -118,9 +118,9 @@ error: cannot open output file <path>: <reason>
   - `#[cfg(unix)] a_symlinked_record_is_backed_up_by_copy_and_the_link_survives` — target of the link is truncated and rewritten, `read_link` unchanged, `<link>.bak` is a regular file holding the old content
   - `backup_path_appends_bak_to_the_full_name` (`a/run.txt` → `a/run.txt.bak`, `run` → `run.bak`)
 
-- [ ] **Step 2: Run** `cargo test output_file` — expected: does not compile / fails.
+- [x] **Step 2: Run** `cargo test output_file` — expected: does not compile / fails.
 
-- [ ] **Step 3: Implement.** Order inside `open`, which the tests do not fully determine:
+- [x] **Step 3: Implement.** Order inside `open`, which the tests do not fully determine:
   1. `symlink_metadata(path)`; not found → `OpenOptions::new().write(true).create_new(true)`; if that reports `AlreadyExists`, start again from step 1 (once).
   2. A directory, or any other metadata error → `Io`.
   3. Classify by reading at most 32 bytes through the path (following a symlink): empty, record, or foreign. A read error → foreign.
@@ -130,9 +130,9 @@ error: cannot open output file <path>: <reason>
   7. Back up: `rename(path, backup)` — or, when `path` is a symlink, `copy(path, backup)`. On Windows `rename` over an existing file can fail: remove a usable existing backup first.
   8. Open the target: `create_new` after a rename, truncate after a copy.
 
-- [ ] **Step 4: Run** `cargo test output_file` — expected: all pass. `cargo clippy --all-targets -- -D warnings` clean.
+- [x] **Step 4: Run** `cargo test output_file` — expected: all pass. `cargo clippy --all-targets -- -D warnings` clean.
 
-- [ ] **Step 5: Commit** — `feat(output): classify, back up and open the --output target (TASK-0342)`.
+- [x] **Step 5: Commit** — `feat(output): classify, back up and open the --output target (TASK-0342)`.
 
 ### Task 2: `--overwrite-output` and the wiring in `main.rs`
 
@@ -145,7 +145,7 @@ error: cannot open output file <path>: <reason>
 - Consumes: `output_file::open`, `Refusal::message`.
 - Produces: `Cli::overwrite_output: bool` (`--overwrite-output`).
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `src/cli.rs` unit: `overwrite_output_requires_output` — `validate()` returns `Err("--overwrite-output requires --output")`.
   - `tests/cli_integration.rs`: `overwrite_output_without_output_is_a_usage_error` (exit `2`, empty stdout); extend `help_lists_all_flags` with `--overwrite-output`.
   - `tests/output_record.rs`, each with the three-pair `fixture`:
@@ -156,9 +156,9 @@ error: cannot open output file <path>: <reason>
     - `a_foreign_bak_refuses_the_run` — exit `2`, stderr starts with `error: cannot back up`.
   - Update `unwritable_output_path_fails_before_scanning` only if its assertions no longer hold (the directory and missing-parent cases keep `error: cannot open output file`).
 
-- [ ] **Step 2: Run** the new tests — expected: fail.
+- [x] **Step 2: Run** the new tests — expected: fail.
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - `src/cli.rs`: the flag, placed after `output`. Help text (no internal identifiers):
 
     ```text
@@ -173,9 +173,9 @@ error: cannot open output file <path>: <reason>
   - `src/main.rs`: replace the `File::create` block with `output_file::open(path, args.overwrite_output)`; on `Err(r)` print `r.message()` and return `exit_code::USAGE`. `backed_up_to` is not printed (the product-owner decides in Task 5 whether a notice is wanted).
   - `record::Invocation` is unchanged: the flag does not shape the result.
 
-- [ ] **Step 4: Run** `cargo test` — expected: all green, including the unchanged AC-26/AC-28 tests.
+- [x] **Step 4: Run** `cargo test` — expected: all green, including the unchanged AC-26/AC-28 tests.
 
-- [ ] **Step 5: Commit** — `feat(output): refuse to overwrite a foreign file without --overwrite-output (TASK-0342)`.
+- [x] **Step 5: Commit** — `feat(output): refuse to overwrite a foreign file without --overwrite-output (TASK-0342)`.
 
 ### Task 3: A closed stderr cannot abort a run
 
@@ -187,15 +187,15 @@ error: cannot open output file <path>: <reason>
 
 - Produces: `pub fn diag(text: &str)` in `streams` — one `write_all` of `text` to stderr, result ignored. `text` carries its own trailing newline.
 
-- [ ] **Step 1: Write the failing test** `#[cfg(unix)] a_closed_stderr_does_not_abort_an_apply` in `tests/cli_integration.rs`: a fixture with duplicates where at least one removal is skipped (reuse the suite's existing skip-producing setup) plus an unreadable-root argument so several diagnostics fire; spawn with `std::process::Command`, `stderr(Stdio::piped())`, drop the child's stderr handle before `wait`; run with `--apply --delete --json --no-progress --output <file>`. Assert: exit code is the same as the identical run with stderr open; the stdout JSON parses and its `actions.removed` matches that run; the record's last line has `"type":"result"`.
+- [x] **Step 1: Write the failing test** `#[cfg(unix)] a_closed_stderr_does_not_abort_an_apply` in `tests/cli_integration.rs`: a fixture with duplicates where at least one removal is skipped (reuse the suite's existing skip-producing setup) plus an unreadable-root argument so several diagnostics fire; spawn with `std::process::Command`, `stderr(Stdio::piped())`, drop the child's stderr handle before `wait`; run with `--apply --delete --json --no-progress --output <file>`. Assert: exit code is the same as the identical run with stderr open; the stdout JSON parses and its `actions.removed` matches that run; the record's last line has `"type":"result"`.
 
-- [ ] **Step 2: Run it** — expected: fails with exit `101`.
+- [x] **Step 2: Run it** — expected: fails with exit `101`.
 
-- [ ] **Step 3: Implement** `streams::diag` and replace all six `eprintln!` / `eprint!` sites in `src/main.rs` with it (`diag(&format!("…\n"))`; the record-failure closure passes `interrupting_line(..)` straight through). After this step `grep -n 'eprint' src/main.rs` shows only comments.
+- [x] **Step 3: Implement** `streams::diag` and replace all six `eprintln!` / `eprint!` sites in `src/main.rs` with it (`diag(&format!("…\n"))`; the record-failure closure passes `interrupting_line(..)` straight through). After this step `grep -n 'eprint' src/main.rs` shows only comments.
 
-- [ ] **Step 4: Run** `cargo test` — expected: green.
+- [x] **Step 4: Run** `cargo test` — expected: green.
 
-- [ ] **Step 5: Commit** — `fix: a closed stderr no longer aborts a run`.
+- [x] **Step 5: Commit** — `fix: a closed stderr no longer aborts a run`.
 
 ### Task 4: A closed stdout cannot panic; an undelivered report exits 1
 
@@ -207,23 +207,23 @@ error: cannot open output file <path>: <reason>
 
 - Produces: `pub fn write_stdout(text: &str) -> bool` in `streams` — `write_all` + `flush` on stdout; `true` when both succeeded.
 
-- [ ] **Step 1: Write the failing tests** in `tests/cli_integration.rs` (`#[cfg(unix)]`):
+- [x] **Step 1: Write the failing tests** in `tests/cli_integration.rs` (`#[cfg(unix)]`):
   - `a_closed_stdout_does_not_panic_and_exits_1` — spawn with `stdout(Stdio::piped())`, drop the handle before `wait`, `--no-progress`: exit code `1`; stderr does not contain `panicked`.
   - `a_closed_stdout_still_completes_the_record` — same with `--output`: the record contains `===== RESULT`.
   - `a_closed_stdout_exits_1_even_with_exit_code_flag` — `--exit-code` on a tree with duplicates: `1`, not `3`.
 
-- [ ] **Step 2: Run them** — expected: exit `101`.
+- [x] **Step 2: Run them** — expected: exit `101`.
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - `print!("{rendered}")` → `let delivered = streams::write_stdout(&rendered);`
   - The apply-time `println!` status line → `streams::write_stdout(..)`, result ignored.
   - The record's `Result` event is still recorded after the write attempt, unconditionally.
   - `exit_code::compute(root_errors || recorder.is_degraded() || !delivered, …)`.
   - No message is printed for the undelivered report: the usual cause is a reader that stopped reading on purpose.
 
-- [ ] **Step 4: Run** `cargo test` and `make scale` — expected: green.
+- [x] **Step 4: Run** `cargo test` and `make scale` — expected: green.
 
-- [ ] **Step 5: Commit** — `fix: a closed stdout no longer panics; an undelivered report exits 1`.
+- [x] **Step 5: Commit** — `fix: a closed stdout no longer panics; an undelivered report exits 1`.
 
 ### Task 5: Requirements, docs, review, PR
 
@@ -231,20 +231,20 @@ error: cannot open output file <path>: <reason>
 
 - Modify: `docs/prd/PRD-0001-exact-image-deduplication.md`, `docs/adr/0018-durable-run-record-and-output-stream-routing.md`, `README.md`, `docs/guide/output-and-exit-codes.md`, `docs/guide/getting-started.md`, `docs/planning/status.md`, `docs/planning/backlog.md`.
 
-- [ ] **Step 1: Product-owner (`product-owner` agent).** One dispatch, with the spec and real output from the built binary:
+- [x] **Step 1: Product-owner (`product-owner` agent).** One dispatch, with the spec and real output from the built binary:
   - PRD-0001: a dated amendment to FR-20 replacing "an existing file is overwritten" with the spec's behavior tables; new acceptance criteria for each table row, for `--overwrite-output` without `--output`, and for the closed-stderr / closed-stdout behavior (FR-15: exit `1` for an undelivered report).
   - Rule on the three message wordings and on whether a `kept previous record as <file>.bak` notice should be shown (and where, under FR-21's routing). Any wording change comes back as a code change before review.
   - Guide: `output-and-exit-codes.md` "Practical notes" and the exit-code table (`2` for a refused output file; `1` for an undelivered report), README's "Saving results to a file", `getting-started.md`.
 
-- [ ] **Step 2: ADR-0018.** A dated amendment superseding §6 ("truncate") with the classify / back-up / refuse rule and why the earlier "same risk as `>`" judgment was overturned by the owner; an implementation note for the non-panicking writers.
+- [x] **Step 2: ADR-0018.** A dated amendment superseding §6 ("truncate") with the classify / back-up / refuse rule and why the earlier "same risk as `>`" judgment was overturned by the owner; an implementation note for the non-panicking writers.
 
-- [ ] **Step 3: Planning.** `status.md`: session entry with estimate vs. actual usage, and the line recording that PR #108 merged. `backlog.md`: TASK-0342 → `done (this PR)`.
+- [x] **Step 3: Planning.** `status.md`: session entry with estimate vs. actual usage, and the line recording that PR #108 merged. `backlog.md`: TASK-0342 → `done (this PR)`.
 
-- [ ] **Step 4: Validate.** `make validate && cargo deny check` — expected: `✓ local validation passed`, deny clean.
+- [x] **Step 4: Validate.** `make validate && cargo deny check` — expected: `✓ local validation passed`, deny clean.
 
-- [ ] **Step 5: Architect review (`architect` agent)** on `git diff main...HEAD`: heavyweight code review plus a ruling on the ADR-0018 amendment. Security read: the check-then-open window, symlinks at the target and at the `.bak` name, rename across the target's own directory only, and Windows rename semantics. Iterate until converged.
+- [x] **Step 5: Architect review (`architect` agent)** on `git diff main...HEAD`: heavyweight code review plus a ruling on the ADR-0018 amendment. Security read: the check-then-open window, symlinks at the target and at the `.bak` name, rename across the target's own directory only, and Windows rename semantics. Iterate until converged.
 
-- [ ] **Step 6: Push and open the PR** (owner go-ahead), wait for `checks`, `ci-gate`, `security`; the owner merges.
+- [x] **Step 6: Push and open the PR** (owner go-ahead), wait for `checks`, `ci-gate`, `security`; the owner merges.
 
 ---
 

@@ -161,6 +161,9 @@ fn run(args: cli::Cli) -> i32 {
             .with_max_level(tracing::Level::INFO)
             .with_target(false)
             .with_ansi(false)
+            // By default the subscriber reports a failed write with its own
+            // `eprintln!`, which panics on the same closed stderr.
+            .log_internal_errors(false)
             .try_init();
     }
 

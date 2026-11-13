@@ -1596,6 +1596,32 @@ fn a_closed_stderr_does_not_abort_an_apply() {
     assert_eq!(last["type"], "result", "the record is complete");
 }
 
+/// Review finding: `--timings` writes its lines through `tracing-subscriber`,
+/// which by default reports a failed write with its own `eprintln!` — and so
+/// panicked on the same closed stderr.
+#[cfg(unix)]
+#[test]
+fn a_closed_stderr_does_not_abort_a_timings_run() {
+    use std::process::Stdio;
+    let (dir, _a, b, _u) = duplicate_tree();
+    let out_dir = tempfile::tempdir().unwrap();
+    let record = out_dir.path().join("run.ndjson");
+    let out = raw_cmd()
+        .arg(dir.path())
+        .args(["--timings", "--apply", "--delete", "--json", "--output"])
+        .arg(&record)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(broken_pipe())
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(0));
+    assert!(!b.exists(), "the removal happened");
+    let text = fs::read_to_string(&record).unwrap();
+    let last: serde_json::Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    assert_eq!(last["type"], "result", "the record is complete");
+}
+
 /// `imgdedup photos | head -1`: the reader stops reading. No panic, and the
 /// exit code says the report was not delivered.
 #[cfg(unix)]

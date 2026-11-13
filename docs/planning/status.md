@@ -21,29 +21,50 @@ docs pass → AI automation, batched within Claude usage limits.
   `.bak`, one generation; exit `1` when the report cannot be written to
   stdout.
 
-  **Resume point: plan Tasks 1–4 (all code) are done and committed on the
-  branch, which is local only. Task 5 remains**: the product-owner pass
-  (PRD-0001 FR-20 amendment and acceptance criteria, message wording, guide
-  and README), the architect's code review of `git diff main...HEAD`
-  including the ADR-0018 amendment drafted here, then push and PR.
+  **State: the plan is complete through the architect review; what remains
+  is the PR, CI, the architect's confirmation pass and the owner's merge.**
 
   - **Overwrite rule** (`src/output_file.rs`, `--overwrite-output`): an
     earlier record is moved to `<file>.bak` and replaced; an empty file is
     written; any other existing file is refused with exit `2` before
-    scanning unless the flag is given. A foreign `.bak` blocks the run with
-    or without the flag. A symlinked target is backed up by copy.
+    scanning unless the flag is given. A non-record `.bak` blocks the run
+    with or without the flag. A symlinked target is backed up by copy.
   - **Closed stderr / stdout** (rider): `main.rs` no longer uses `eprintln!`
     or `println!`; a diagnostic to a closed stderr is dropped, and a report
     that cannot be written exits `1` after the record is completed. This was
     the PR #107 review's follow-up F5.
-  - **Not yet done, and the user docs still describe the old behavior**
-    until the product-owner pass: the guide and README say an existing file
-    is overwritten.
+  - **Product-owner pass:** PRD-0001 Amendment 2026-11-13 (FR-20 overwrite
+    rule, FR-15 closed streams, AC-38..AC-46 — AC-33..AC-37 are FR-22's),
+    guide and README. Rulings applied in code: the refusal message leads with
+    "choose another path"; the blocked-backup message says what to do; a
+    backup that cannot be made is its own refusal; `--overwrite-output` is
+    part of the record's invocation; no notice is printed for a backup.
+  - **Architect review: changes required, all applied.** Two defects it
+    reproduced with the binary: (F1) `--timings` with a closed stderr still
+    panicked, because `tracing-subscriber` reports a failed write with its
+    own `eprintln!`; (F2) record detection by prefix took a Markdown note
+    titled `# imgdedup …` for a record — moved to `.bak` on one run and
+    replaced for good on the next. Detection now matches the whole header
+    line the tool writes. Hardening: (F3) the symlink copy creates the backup
+    anew instead of writing through whatever sits at that name; (F4) a
+    Windows remove-before-rename block was removed (std's `rename` already
+    replaces, and the block could lose a backup generation); (F6, F7) the
+    empty-file and non-regular-file paths no longer truncate or write over
+    content that appeared after the check. The ADR-0018 amendment carries the
+    architect's wording, including an honest "residual windows" bullet: a
+    file created at `<file>.bak` between its check and the rename is lost.
+    Deferred as TASK-0345 (F8): an undelivered report that is not a broken
+    pipe exits `1` without saying why.
 
-  State: `cargo test` green (367 unit + 103 integration on macOS), clippy
-  and fmt clean. Tests were written before the code for the wiring and the
-  closed-pipe fix; `output_file.rs`'s unit tests and implementation were
-  written together.
+  State: `make validate` passes; `cargo test` green (374 unit + 104
+  integration on macOS). Process note: `output_file.rs`'s first unit tests
+  and implementation were written together rather than test-first; the
+  end-to-end tests, the closed-pipe tests and the tests for the review
+  findings were written before their fixes.
+
+  Usage (fresh 5h window from 3% for Task 5): two full agent passes
+  (product-owner 113k tokens, architect 92k) plus one confirmation pass;
+  estimate 20–25% of the window, actual to be read from `/usage`.
 
 - _Session 35 (fix: FR-20/FR-21 close-out tail — TASK-0343, TASK-0344 and
   review follow-ups), 2026-11-13 — branch `fix/output-record-close-out-tail`._

@@ -124,6 +124,33 @@ pub enum Format {
     Ndjson,
 }
 
+/// A real header line of `format`, for tests elsewhere that must recognize
+/// what this module writes (`output_file`'s record detection).
+#[cfg(test)]
+pub(crate) fn header_for_tests(format: Format) -> String {
+    let invocation = Invocation {
+        roots: vec!["/photos".to_owned()],
+        keep: "shortest",
+        apply: false,
+        delete: false,
+        json: matches!(format, Format::Ndjson),
+        no_recurse: false,
+        hidden: false,
+        follow_symlinks: false,
+        ext: None,
+        exit_code: false,
+        no_progress: false,
+        timings: false,
+        overwrite_output: false,
+        output: "run.txt".to_owned(),
+    };
+    let event = RecordEvent::Header(&invocation);
+    match format {
+        Format::Human => render_human(&event, 0, 0),
+        Format::Ndjson => render_ndjson(&event, 0, 0),
+    }
+}
+
 /// The single writer to the record file.
 ///
 /// Generic over its writer so the failure path is testable without a full
