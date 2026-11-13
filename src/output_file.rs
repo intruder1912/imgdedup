@@ -42,15 +42,23 @@ pub struct Opened {
 }
 
 /// Why the `--output` file was not opened. Nothing on disk has been changed
-/// when one of these is returned, except that a failed backup copy may leave
-/// a partial `<file>.bak` (reported as `Io`).
+/// when one of these is returned, except that a failed backup *copy* (the
+/// symlink case) may leave a partial `<file>.bak` (`BackupFailed`).
 #[derive(Debug)]
 pub enum Refusal {
     /// The target exists, is not empty and is not a record; no flag given.
     NotARecord { path: PathBuf, backup: PathBuf },
     /// The `.bak` name is taken by something that is not a record.
     BackupBlocked { path: PathBuf, backup: PathBuf },
-    /// The target or its backup could not be opened, moved or copied.
+    /// The previous content could not be moved or copied to the backup, so
+    /// the target was not replaced (e.g. a writable record in a directory the
+    /// user cannot write to).
+    BackupFailed {
+        path: PathBuf,
+        backup: PathBuf,
+        error: io::Error,
+    },
+    /// The target could not be opened.
     Io { path: PathBuf, error: io::Error },
 }
 
@@ -62,14 +70,27 @@ impl Refusal {
         match self {
             Refusal::NotARecord { path, backup } => format!(
                 "error: output file {} already exists and is not an imgdedup run record; \
-                 pass --overwrite-output to replace it (it will be kept as {})",
+                 choose another path, or pass --overwrite-output to replace it (it will be \
+                 kept as {})",
                 show(path),
                 show(backup)
             ),
             Refusal::BackupBlocked { path, backup } => format!(
-                "error: cannot back up {}: {} already exists and is not an imgdedup run record",
+                "error: cannot back up {}: {} already exists and is not an imgdedup run \
+                 record; move {} away or choose another output path",
                 show(path),
+                show(backup),
                 show(backup)
+            ),
+            Refusal::BackupFailed {
+                path,
+                backup,
+                error,
+            } => format!(
+                "error: cannot back up {} to {}: {}",
+                show(path),
+                show(backup),
+                escape_control_chars(&error.to_string())
             ),
             Refusal::Io { path, error } => format!(
                 "error: cannot open output file {}: {}",
@@ -213,17 +234,22 @@ fn open_existing(path: &Path, meta: &fs::Metadata, overwrite: bool) -> Result<Op
         }
     };
 
+    let backup_failed = |error: io::Error| Refusal::BackupFailed {
+        path: path.to_owned(),
+        backup: backup.clone(),
+        error,
+    };
     let file = if is_symlink {
         // Keep the link where it is, pointing where it did: copy the content
         // out, then rewrite the file the link leads to.
-        fs::copy(path, &backup).map_err(io_refusal)?;
+        fs::copy(path, &backup).map_err(backup_failed)?;
         truncate()?
     } else {
         // Windows refuses to rename onto an existing file.
         if backup_exists && cfg!(windows) {
-            fs::remove_file(&backup).map_err(io_refusal)?;
+            fs::remove_file(&backup).map_err(backup_failed)?;
         }
-        fs::rename(path, &backup).map_err(io_refusal)?;
+        fs::rename(path, &backup).map_err(backup_failed)?;
         OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -432,6 +458,11 @@ mod tests {
                 path: path.clone(),
                 backup,
             },
+            Refusal::BackupFailed {
+                path: path.clone(),
+                backup: backup_path(&path),
+                error: io::Error::other("bad\u{1b}[2J"),
+            },
             Refusal::Io {
                 path,
                 error: io::Error::other("bad\u{1b}[2J"),
@@ -453,9 +484,54 @@ mod tests {
         assert_eq!(
             refusal.message(),
             "error: output file photos/img.jpg already exists and is not an imgdedup run \
-             record; pass --overwrite-output to replace it (it will be kept as \
-             photos/img.jpg.bak)"
+             record; choose another path, or pass --overwrite-output to replace it (it \
+             will be kept as photos/img.jpg.bak)"
         );
+    }
+
+    #[test]
+    fn the_blocked_backup_message_says_what_to_do() {
+        let refusal = Refusal::BackupBlocked {
+            path: PathBuf::from("run.txt"),
+            backup: PathBuf::from("run.txt.bak"),
+        };
+        assert_eq!(
+            refusal.message(),
+            "error: cannot back up run.txt: run.txt.bak already exists and is not an \
+             imgdedup run record; move run.txt.bak away or choose another output path"
+        );
+    }
+
+    /// A record the user can open, in a directory they cannot write to: the
+    /// backup cannot be made, so the record is not replaced — and the message
+    /// says it was the backup that failed, not the open.
+    #[cfg(unix)]
+    #[test]
+    fn a_backup_that_cannot_be_made_refuses_and_says_so() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir();
+        let locked = d.path().join("logs");
+        fs::create_dir(&locked).unwrap();
+        let p = locked.join("run.txt");
+        fs::write(&p, HUMAN).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let refusal = open(&p, false).unwrap_err();
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(refusal, Refusal::BackupFailed { .. }),
+            "{refusal:?}"
+        );
+        assert!(
+            refusal
+                .message()
+                .starts_with("error: cannot back up run.txt to run.txt.bak: ")
+                || refusal.message().contains("/run.txt to "),
+            "{}",
+            refusal.message()
+        );
+        assert_eq!(fs::read(&p).unwrap(), HUMAN, "the record is intact");
     }
 
     #[cfg(unix)]

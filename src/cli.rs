@@ -126,7 +126,8 @@ pub struct Cli {
     ///
     /// Without this flag, `--output` replaces only an earlier run record or
     /// an empty file and refuses anything else. Whatever is replaced is kept
-    /// as FILE.bak. Requires `--output`.
+    /// as FILE.bak. A FILE.bak that is not an imgdedup run record is never
+    /// replaced, with or without this flag. Requires `--output`.
     // TASK-0342.
     #[arg(long, action = ArgAction::SetTrue)]
     pub overwrite_output: bool,

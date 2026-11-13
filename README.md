@@ -179,12 +179,19 @@ duplicate group as it is confirmed, every warning and error, each removal on an
 or killed still leaves everything it had found. It is additive: what the
 terminal shows and what standard output receives stay exactly the same. The
 record is human-readable by default and NDJSON (one JSON object per line) under
-`--json`; an existing file is overwritten:
+`--json`:
 
 ```sh
 imgdedup --output run.txt ./photos
 imgdedup --json --output run.ndjson ./photos > result.json
 ```
+
+`--output` never destroys a file you did not ask it to. Re-running with the
+same path replaces the earlier record and keeps it as `run.txt.bak` (one
+backup). Any other existing file — a mistyped path that names a photo, say —
+is refused before anything is scanned, and left untouched; pass
+`--overwrite-output` if you really mean to replace it (it is kept as
+`<file>.bak` too).
 
 A finished record ends with a `===== RESULT` banner followed by the report (or,
 under `--json`, a final line whose `type` is `result`); a record without it is
@@ -237,6 +244,8 @@ Common options at a glance: `--no-recurse`, `--hidden`, `--follow-symlinks`,
 `--apply` (move non-keepers to the OS trash); `--delete` (with `--apply`,
 permanently delete instead); `--json` (machine-readable output);
 `--output <FILE>` (write a durable, continuously updated record of the run);
+`--overwrite-output` (let `--output` replace a file that is not an earlier
+record);
 `--exit-code` (signal duplicates via exit status); `--no-progress` (disable the
 live progress indicator); `--timings` (print per-stage timings to stderr for
 diagnosis). Run `imgdedup --help` for the full list.

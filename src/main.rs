@@ -50,6 +50,7 @@ fn invocation(args: &cli::Cli, output: &std::path::Path) -> record::Invocation {
         exit_code: args.exit_code,
         no_progress: args.no_progress,
         timings: args.timings,
+        overwrite_output: args.overwrite_output,
         output: output.to_string_lossy().into_owned(),
     }
 }

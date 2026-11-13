@@ -185,7 +185,10 @@ imgdedup --output run.txt ./photos
 A record that ends with a `===== RESULT` banner and the report is from a run
 that finished; one without it is from a run that did not. Groups are confirmed
 near the end of a run, after hashing, so a run stopped early may have recorded
-progress but no groups yet. An existing file at that path is overwritten.
+progress but no groups yet. Running the same command again replaces the
+record and keeps the previous one as `run.txt.bak`; a file at that path that
+is not an `imgdedup` record is never replaced unless you pass
+`--overwrite-output` — the run stops instead, before scanning anything.
 See [`--output`: a durable record of the run](output-and-exit-codes.md#--output-file-a-durable-record-of-the-run)
 for everything that lands in the file and what survives an interrupted run.
 

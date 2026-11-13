@@ -918,7 +918,18 @@ make an interrupted run read as finished. The new rule, implemented in
   nothing, so there is nothing to protect.
 - **The flag is `--overwrite-output`,** not `--force`, which beside `--delete`
   could be read as forcing removals. Without `--output` it is a usage error.
-  It is not part of the record's `invocation`: it does not shape the result.
+  It is part of the record's `invocation` in both formats, like every other
+  flag (implementation note 10).
+- **A backup that cannot be made refuses the run.** A record the user can
+  write, in a directory they cannot — a pre-created log file in a system log
+  directory — used to be truncated in place. The rename now fails, and the
+  run stops with `error: cannot back up <path> to <backup>: <reason>` rather
+  than replace the file without a backup.
+- **Consequences of renaming instead of truncating**, accepted by the
+  product-owner: permissions and ownership set on an earlier record stay
+  with its `.bak` and the new file gets the defaults; a hard link to the old
+  record keeps the old content; a `tail -f` left open across runs follows
+  the `.bak` (`tail -F` follows the name).
 - **Residual window.** Between classifying an existing file and renaming it,
   another process could swap the file. The rename then moves whatever is
   there to `.bak` rather than destroying it, so the window can misplace a
