@@ -2,8 +2,9 @@
 
 [← Guide index](README.md)
 
-This page covers how `imgdedup` reports results and how it signals outcomes
-through its exit code.
+This page covers how `imgdedup` reports results, which stream each kind of
+output goes to, how to keep a durable record of a run with `--output`, and how
+the tool signals outcomes through its exit code.
 
 ## Human-readable report (default)
 
@@ -293,34 +294,107 @@ not assume a `path` string can always be used verbatim to re-open the file.
 ### Diagnostics: JSON vs. stderr
 
 Under `--json`, standard output is **exactly one JSON document** — nothing else is
-written there. Diagnostics appear as follows:
+written there, whether or not it is a terminal. Diagnostics appear as follows:
 
-- **Per-file `warnings`** (skipped files) appear **only** inside the JSON
-  document, in the `warnings` array. They are not echoed to stderr.
+- **Per-file `warnings`** (files skipped during the scan) appear **only** inside
+  the JSON document, in the `warnings` array. They are not echoed to stderr.
 - **Run-level `root_errors`** appear in the JSON `root_errors` array **and** are
   additionally written to standard error, so an unreadable input path is visible
   even when you pipe stdout straight into a JSON parser. A non-empty `root_errors`
   also drives the exit code to `1`.
-- **Apply-stage removals and skips** (`--apply`, with or without `--delete`) are
-  written to standard error **as they happen**, in addition to appearing in the
-  `actions` object at the end. This is deliberate: if a run is interrupted
-  partway through, the final document never gets printed, and without the live
-  stream you would have no record of what was already removed. In the default
-  report mode the same skips therefore appear twice — once live on stderr, once
-  in the report's `Skipped (left in place):` list.
+- **Apply-time skips** (`--apply`, with or without `--delete`) are written to
+  standard error **as they happen**, as `warning: <path>: <reason>` lines, in
+  addition to appearing in `actions.skipped` at the end. In the default report
+  mode the same skips likewise appear twice — once live on stderr, once in the
+  report's `Skipped (left in place):` list.
+- **Apply-time removals** — the `trashed:` / `deleted:` lines you see when you
+  watch an `--apply` run on a terminal — are routine status, not diagnostics, so
+  under `--json` they are written to **neither** stream. Nothing is lost:
+  `actions.removed` in the final document is the authoritative list once a run
+  completes, and for a run that might not get that far, an
+  [`--output`](#--output-file-a-durable-record-of-the-run) record captures each
+  removal the moment it happens.
 
 So a script can rely on stdout being pure JSON, while a human watching the
-terminal still sees run-level failures, and a running record of anything that was
-removed, on stderr.
+terminal still sees, on stderr, the scan roots that could not be read and the
+removals that did not happen.
+
+## Where output goes: stdout and stderr
+
+`imgdedup` writes to two streams. What each one carries depends on the output
+mode and on whether standard output is an interactive terminal or something is
+capturing it (a redirect to a file, or a pipe):
+
+| Situation | Standard output carries | Standard error carries |
+|---|---|---|
+| Default report mode, stdout is an **interactive terminal** | The run as you watch it — the live progress line with its elapsed time, then, on an `--apply` run, a `trashed:` / `deleted:` line for each file as it is removed — followed by the report | **Failures only** — nothing at all on a run where nothing went wrong |
+| Default report mode, stdout **redirected or piped** | **Exactly the report**, nothing else | The progress indicator, plus failures |
+| **`--json`**, terminal or not | **Exactly one JSON document**, nothing else | The progress indicator, plus failures |
+
+Two rules follow from that table:
+
+- **Whenever something other than you is reading standard output — a redirect,
+  a pipe, or `--json` — stdout is exactly the result and nothing else.** That
+  is what makes `imgdedup ./photos > report.txt` and
+  `imgdedup --json ./photos | jq …` safe. The interactive terminal in the
+  default mode is the only case where stdout carries more than the report, and
+  in that case you are the one reading it.
+- **Standard error is for failures.** Concretely, apart from progress (when it
+  falls back there) and `--timings`, standard error carries:
+  - usage errors, such as an unknown flag, `--delete` without `--apply`, or an
+    `--output` file that cannot be created (exit code `2`);
+  - a scan root that could not be read (`error: <path>: <reason>`), and the
+    `error: not applying: …` refusal when `--apply` is combined with one;
+  - apply-time skips (`warning: <path>: <reason>`), one per file you approved
+    for removal that was left in place;
+  - a failure to keep writing an [`--output`](#--output-file-a-durable-record-of-the-run)
+    record (`error: could not write to <path>: <reason>`).
+
+  Files skipped *during the scan* (unreadable, or not really an image) are not
+  on that list: they belong to the result, so they appear in the report's
+  `Warnings:` section or the JSON `warnings` array, never on stderr.
+
+A note on apply-time skips: every skip means a removal you approved did not
+happen, so they are all kept together on stderr, even though some of them are
+expected rather than a problem — a file that is already gone (which is what
+makes re-running `--apply` a no-op), a symlink (which is never removed), or a
+file that has become a hard link to the copy being kept. See
+[What a skip looks like](removing-duplicates-safely.md#what-a-skip-looks-like)
+for each reason and whether it needs your attention.
+
+Some consequences worth knowing:
+
+- **`--no-progress`** removes the progress indicator from whichever stream would
+  have carried it; everything else in the table stays as it is.
+- **[`--timings`](#--timings-where-the-time-went)** writes its stage lines to
+  standard error in every mode — an engineering diagnostic, and a deliberate
+  exception to "stderr is for failures" — and turns the progress indicator off.
+- **The `trashed:` / `deleted:` lines are written only to an interactive
+  terminal.** With stdout redirected or piped, or under `--json`, they are not
+  moved to stderr — they are not failures — they are simply not written. The
+  result's performed-actions section (or `actions.removed` under `--json`) lists
+  every removal once the run completes, and an
+  [`--output`](#--output-file-a-durable-record-of-the-run) record captures each
+  one as it happens, for a run that may not complete.
+- **When progress falls back to standard error, it follows standard error's own
+  terminal-ness.** `imgdedup ./photos > report.txt` typed at a terminal still
+  shows a live progress line, redrawn in place, because stderr is still your
+  terminal; only when stderr is captured as well (`2> progress.log`, or CI)
+  does it switch to plain log lines. Redirecting stdout never takes away an
+  indicator you can still see, and the in-place redraw codes never end up in a
+  file.
 
 ## Progress while it runs
 
-While a scan runs, `imgdedup` shows a live progress indicator on **standard
-error**, enabled by default, so you can see it is working and how far along it
-is. It never writes to standard output — in the default report or with
-`--json` — so redirecting stdout (see
-[Saving results to a file](#saving-results-to-a-file) below) always captures a
-clean report or JSON document, with nothing progress-related mixed in.
+While a scan runs, `imgdedup` shows a live progress indicator, enabled by
+default, so you can see it is working, how far along it is, and how long it has
+been going. It goes to the stream the table in
+[Where output goes](#where-output-goes-stdout-and-stderr) assigns it: standard
+output when you are watching a default-mode run on a terminal, standard error
+whenever stdout is redirected, piped, or carrying a `--json` document. So
+redirecting stdout (see [Saving results to a file](#saving-results-to-a-file)
+below) always captures a clean report or JSON document, with nothing
+progress-related mixed in.
 
 The indicator shows:
 
@@ -333,6 +407,13 @@ The indicator shows:
   percentage**, where `y` is the number of candidate files confirmed as
   images, fixed once scanning finishes. Before that the candidate total is
   unknown, so scanning shows its own counting states instead (see below).
+- The **elapsed time** since the run started, at the end of every line, in
+  every phase — for example `hashing: 1200 of 28450 (4%) (12s elapsed)` — and,
+  on the completion line, the run's **total** time:
+  `done: 302 of 302 (100%) (141s total)`. There is deliberately **no** estimate
+  of the time remaining: the phases cost very different amounts per file
+  (hashing usually dominates), so an estimate would be confidently wrong in
+  exactly the long runs where you would want one.
 
 ### Scanning happens in two steps
 
@@ -340,17 +421,16 @@ Scanning does two things in sequence, and the indicator shows both:
 
 1. **Walking the tree** to find files worth examining. There is no total to
    count against yet, so on a terminal it shows a live count of what it has
-   found so far, alongside how long the scan has been running, for example
-   `scanning... 30000 files found (14s elapsed)`. The elapsed time is always
-   there, not just on slow trees — but it earns its keep most on a tree where
-   almost nothing matches (a source checkout, a backup volume of documents),
-   where the count alone can sit still for a long stretch even though the
-   walk is actively working; the ticking clock is evidence the tool has not
-   hung when the count itself gives none.
+   found so far, alongside the elapsed time every line carries, for example
+   `scanning... 30000 files found (14s elapsed)`. The clock earns its keep
+   most here, on a tree where almost nothing matches (a source checkout, a
+   backup volume of documents): the count alone can sit still for a long
+   stretch even though the walk is actively working, and the ticking clock is
+   evidence the tool has not hung when the count itself gives none.
 2. **Examining each file it found**, reading a few header bytes from each to
    confirm the content really is an image. The total is known exactly here —
    it is what step 1 just finished counting — so the indicator switches to
-   `scanning: 12345 of 30000 (41%)`. Every file counts, whether it turns out
+   `scanning: 12345 of 30000 (41%) (52s elapsed)`. Every file counts, whether it turns out
    to be an image or not, so the number keeps moving even on a folder full of
    misnamed files.
 
@@ -361,7 +441,8 @@ Note that `30000` there is how many files were **examined**, not how many
 turned out to be images. The candidate total `y` used by the later phases only
 counts the confirmed images, so it can be smaller — a folder of 30 000 files
 where none is really an image shows `scanning: 30000 of 30000 (100%)` and then
-`done: 0 of 0 (100%)`. If the walk found nothing at all, step 2 is skipped
+`done: 0 of 0 (100%)` (each followed by its elapsed time). If the walk found
+nothing at all, step 2 is skipped
 rather than shown as a pointless `0 of 0`.
 
 ### What the denominator means per phase
@@ -381,57 +462,81 @@ force one shared denominator across every phase:
   has zero work to do and is skipped entirely — you will not see a degenerate
   `verifying: 0 of 0 (100%)`.
 - Every run **ends on a completion line rendered against the full candidate
-  total**, for example `done: 302 of 302 (100%)`. On a TTY this is the state
-  left on screen once the run finishes, so the overall size of the job you
-  just scanned stays visible at the end — even though the verifying phase
-  along the way was reporting progress against a smaller number.
+  total**, carrying the run's total elapsed time, for example
+  `done: 302 of 302 (100%) (141s total)`. On a terminal this is the state left
+  on screen once the run finishes, so the overall size of the job you just
+  scanned — and how long it took — stays visible at the end, even though the
+  verifying phase along the way was reporting progress against a smaller
+  number.
 
-### On a terminal vs. redirected or piped
+### On a terminal vs. in a log
 
-- When standard error is an interactive terminal, progress renders as a
+The indicator adapts to **whichever stream is carrying it** (see
+[Where output goes](#where-output-goes-stdout-and-stderr)):
+
+- When that stream is an interactive terminal, progress renders as a
   **single line, redrawn in place** as counts advance. Repaints are
   throttled so a fast run does not flood the terminal.
-- When standard error is **not** a terminal — redirected to a file, piped, or
-  captured by CI/log tooling — the in-place redraw is disabled automatically.
-  Instead `imgdedup` prints occasional **plain, newline-terminated lines** at
-  coarse milestones (phase changes and roughly every 10% of progress), with no
+- When it is **not** a terminal — progress has fallen back to standard error
+  and standard error is itself redirected to a file, piped, or captured by
+  CI/log tooling — the in-place redraw is disabled automatically. Instead
+  `imgdedup` prints occasional **plain, newline-terminated lines** at coarse
+  milestones (phase changes and roughly every 10% of progress), with no
   carriage returns or ANSI control codes, so a captured log stays readable and
-  bounded rather than growing one line per file. The live *found-so-far* count
-  from scanning's first step (`scanning... 30000 files found`), and the
-  elapsed-time liveness cue alongside it, are both terminal-only displays: a
-  log gets a plain `scanning...` line instead, since a single non-redrawn
-  line could only ever record a stale count or a stale elapsed time. Scanning's
-  second step does appear in the log, at the same coarse milestones as every
-  other phase.
+  bounded rather than growing one line per file. Each of these lines carries
+  its elapsed time too: it is written at that moment, so the time on it is
+  accurate. A complete log of a small run looks like this:
+
+  ```text
+  scanning...
+  scanning: 0 of 6 (0%) (0s elapsed)
+  scanning: 6 of 6 (100%) (0s elapsed)
+  hashing: 0 of 6 (0%) (0s elapsed)
+  verifying: 0 of 4 (0%) (6 candidates) (0s elapsed)
+  done: 6 of 6 (100%) (0s total)
+  ```
+
+- The live *found-so-far* count from scanning's first step
+  (`scanning... 30000 files found (14s elapsed)`) is a **terminal-only**
+  display: a log gets the plain `scanning...` line above instead, since a
+  single line that is never redrawn could only ever record a stale count and
+  a stale clock. Scanning's second step does appear in the log, at the same
+  coarse milestones as every other phase.
 
 ### `--no-progress`
 
 Pass `--no-progress` to disable the indicator entirely: nothing
-progress-related is written to standard error, whether it is a terminal or
-not. Standard output is unaffected either way.
+progress-related is written to either stream, terminal or not. The report and
+the `--json` document are unaffected either way, and so is an
+[`--output`](#--output-file-a-durable-record-of-the-run) record, which keeps
+its milestones regardless.
 
 ```sh
 imgdedup --no-progress ./photos
 ```
 
 The diagnostic [`--timings`](#--timings-where-the-time-went) flag also turns
-the indicator off, because the two cannot share standard error — see below.
+the indicator off, because the two would collide on screen — see below.
 
 ### Progress is output-only
 
 Progress never changes what is scanned, grouped, or removed, and it is
 excluded from the [determinism](#determinism) guarantee above: that guarantee
-covers standard-output content only (the report or `--json` document). The
-stderr progress stream — its exact timing and milestone lines — can
-legitimately vary between otherwise-identical runs without affecting the
-result.
+covers the **result** — the report or `--json` document, which is the whole of
+standard output whenever stdout is redirected, piped, or carrying `--json`. The
+progress lines — their exact timing and milestones, and whatever they put on an
+interactive terminal ahead of the report — can legitimately vary between
+otherwise-identical runs without affecting the result.
 
 ## `--timings`: where the time went
 
 Pass `--timings` to see how long each part of a run took. As each stage of the
-scan finishes, `imgdedup` prints one line describing it to **standard error**.
-Standard output is untouched: the report — or the `--json` document — is
-exactly what it would have been without the flag.
+scan finishes, `imgdedup` prints one line describing it to **standard error** —
+in every mode, a deliberate exception to the
+[stream rules](#where-output-goes-stdout-and-stderr) above, because it is an
+engineering diagnostic rather than normal output. Standard output is untouched:
+the report — or the `--json` document — is exactly what it would have been
+without the flag.
 
 ```sh
 imgdedup --timings ./photos
@@ -473,17 +578,19 @@ lets a slow run be attributed to a specific stage.
 
 ### `--timings` replaces the progress indicator
 
-Turning on timings turns the live progress indicator **off**. You do not need
-to pass `--no-progress` as well, and passing both is not an error — `--timings`
-always wins.
+Turning on timings turns the live progress indicator **off**, in every mode.
+You do not need to pass `--no-progress` as well, and passing both is not an
+error — `--timings` always wins.
 
-The reason is that both write to standard error, and the progress indicator
-keeps a single line open and redraws it in place, so a stage line arriving
-mid-redraw would land in the middle of it. Rather than garble the display, or
-make you type two flags to express one intention, `--timings` takes the stream
-for itself. The apply-time `removed:` / `warning:` lines and run-level
-`error:` lines are unaffected: they are ordinary whole lines and interleave
-with timing lines harmlessly.
+The reason is that the two would collide on screen. The progress indicator
+keeps a single line open and redraws it in place, so a timing line arriving
+mid-redraw would land in the middle of it — whether progress is on standard
+error alongside the timing lines, or on standard output, which normally shows
+up on the same terminal. Rather than garble the display, or make you type two
+flags to express one intention, `--timings` takes the screen for itself. Every
+other line — the apply-time `trashed:` / `deleted:` and `warning:` lines, and
+the `error:` lines — is unaffected: they are ordinary whole lines and
+interleave with timing lines harmlessly.
 
 ### Combining with `--json`
 
@@ -509,44 +616,326 @@ flag.)
 Consequently the stage names, their fields, and the line format are **not a
 stable interface**: they exist to be read, not parsed, and they may change in
 any release. Like progress, the timing stream is excluded from the
-[determinism](#determinism) guarantee above — that guarantee covers standard
-output only — and, also like progress, timings never change what is scanned,
+[determinism](#determinism) guarantee above — that guarantee covers the result
+document only — and, also like progress, timings never change what is scanned,
 grouped, or removed. The design and its rationale are recorded in
 [ADR-0017](../adr/0017-performance-instrumentation-tracing-spans.md).
 
 ## Saving results to a file
 
-There is **no dedicated output flag** — to keep a result for later, use your
-shell's **output redirection**. This works for both output formats:
+There are two ways to keep what a run produced, and they answer different
+needs:
+
+- **Shell redirection** saves the finished result — the report, or the `--json`
+  document — exactly as the run wrote it. Nothing reaches the file until the
+  run completes.
+- **[`--output <file>`](#--output-file-a-durable-record-of-the-run)** writes a
+  durable record *while the run works*, so a run that is interrupted or killed
+  still leaves everything it had produced by that point, and a finished one
+  ends with the same result.
+
+They compose: `--output` adds a file and changes nothing about what standard
+output receives, so a long run can do both at once.
+
+### Shell redirection
+
+This works for both output formats:
 
 ```sh
 imgdedup ./photos > report.txt          # save the human-readable report
 imgdedup --json ./photos > result.json  # save the machine-readable JSON
 ```
 
-Redirection is reliable here because `imgdedup` keeps a strict separation between
-its two output streams:
+Redirection is reliable because **the moment standard output is redirected or
+piped, it carries exactly the result and nothing else** — the human report, or
+exactly one JSON document with `--json`. Progress moves to standard error in
+exactly that case, and the apply-time `trashed:` / `deleted:` lines are not
+written at all (see [Where output goes](#where-output-goes-stdout-and-stderr)),
+so the captured file stays clean: a `> result.json` capture is a valid JSON
+document you can pipe straight into a parser, and a `> report.txt` capture is
+just the report.
 
-- **Standard output** carries **only** the result — the human report, or exactly
-  one JSON document with `--json`. Nothing else is ever written there.
-- **Standard error** carries diagnostics — run-level `root_errors`, the
-  live progress indicator while a scan runs (see
-  [Progress while it runs](#progress-while-it-runs) above), and, with
-  `--timings`, the per-stage timing lines. Under the default
-  report the per-file `Warnings:` section prints on stdout as part of the report;
-  under `--json` those per-file problems move into the JSON `warnings` array. To
-  redirect only the result and let diagnostics stay on the terminal, capture stdout
-  as shown above.
+Standard error then carries the progress indicator — still a live line, redrawn
+in place, if your terminal is still attached to it — plus failures: scan roots
+that could not be read, apply-time skips, and, with `--timings`, the per-stage
+timing lines. Under the default report the per-file `Warnings:` section prints
+on stdout as part of the report; under `--json` those per-file problems move
+into the JSON `warnings` array. To capture standard error too, redirect it as
+well — for example `imgdedup ./photos > report.txt 2> log.txt`, or `2>&1` to
+merge the two.
 
-Because stdout carries nothing but the result, the redirected file stays clean: a
-`> result.json` capture is a valid JSON document you can pipe straight into a
-parser, and a `> report.txt` capture is just the report. To capture the stderr
-diagnostics too, redirect that stream as well — for example
-`imgdedup ./photos > report.txt 2> log.txt`, or `2>&1` to merge them.
+What redirection cannot do is survive an interrupted run: the report (or JSON
+document) is written once, at the very end, so a run that is killed, crashes,
+or is stopped with `Ctrl-C` before it finishes leaves an empty file. For that,
+use `--output`.
 
-> A dedicated `--output <file>` flag was considered and deliberately **not** added:
-> shell redirection already covers saving results with no extra surface. See the
-> [PRD-0001 Amendment 2026-07-19](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-07-19--progress-indication--stored-results).
+## `--output <file>`: a durable record of the run
+
+Pass `--output <file>` to have `imgdedup` write a record of the run to `<file>`
+**continuously, while the run is working** — not once at the end. The point is
+durability: a run that is interrupted, killed, or simply too slow to wait for
+still leaves behind everything it had produced up to that moment.
+
+```sh
+imgdedup --output run.txt ./photos
+```
+
+The flag is **opt-in** — no file is ever created without it — and **additive**:
+it changes nothing about what the terminal shows or what standard output
+receives. Progress still renders, the report is still printed, and standard
+output is byte-for-byte the same with and without the flag, so you never have
+to choose between watching a run and keeping it. The two compose with
+redirection, too:
+
+```sh
+imgdedup --output run.txt ./photos > report.txt
+```
+
+Because each entry reaches the file the moment it is written, you can watch a
+record grow from another terminal with `tail -f run.txt`.
+
+### What the record contains
+
+In the order things actually happened:
+
+1. A **header** — the tool version, the start time (UTC), and the invocation:
+   the scan roots and the flags that shape the result.
+2. **Progress milestones**, each stamped with the time since the run started,
+   at the same coarse granularity as the plain-log progress fallback (phase
+   changes and roughly every 10%) — never one line per file. They are written
+   even with `--no-progress` or `--timings`.
+3. Each **duplicate group** as soon as its membership is final: the copy kept,
+   the copies that would be removed, and any hard-linked copies.
+4. Every **warning and error**, at the moment it occurs: files skipped during
+   the scan, scan roots that could not be read, and a refusal to apply.
+5. On an `--apply` run, each **removal and skip**, as it happens.
+6. **Only if the run finishes**, the **complete result** — exactly the report
+   (or JSON document) the same run wrote to standard output.
+
+A quick run over a small `photos` folder holding two pairs of duplicates
+(`imgdedup --output run.txt photos`) leaves this file:
+
+```text
+# imgdedup 0.1.0 run record
+# started:    2026-11-13T17:18:35Z
+# invocation: roots=[photos] keep=shortest apply=false delete=false hidden=false
+#             recurse=true follow-symlinks=false ext=<default> exit-code=false
+[     0.0s] scanning...
+[     0.0s] scanning: 0 of 6 (0%)
+[     0.0s] scanning: 6 of 6 (100%)
+[     0.0s] hashing: 0 of 6 (0%)
+[     0.0s] verifying: 0 of 4 (0%) (6 candidates)
+[     0.0s] group (2668960 bytes reclaimable):
+              KEEP    photos/a/img1.JPG
+              REMOVE  photos/b/copy1.jpg
+[     0.0s] group (2013563 bytes reclaimable):
+              KEEP    photos/a/img2.JPG
+              REMOVE  photos/b/img2.JPG
+[     0.0s] done: 6 of 6 (100%)
+
+===== RESULT — run completed 2026-11-13T17:18:35Z after 0.0s =====
+
+Group 1/2 (2 files, 2668960 bytes reclaimable):
+  KEEP  photos/a/img1.JPG
+  REMOVE photos/b/copy1.jpg
+
+Group 2/2 (2 files, 2013563 bytes reclaimable):
+  KEEP  photos/a/img2.JPG
+  REMOVE photos/b/img2.JPG
+
+Summary: 2 duplicate groups, 4 files, 4682523 bytes reclaimable.
+```
+
+Reading it:
+
+- Header lines start with `#`. Every later entry starts at the left margin with
+  `[` and the time since the run started, in seconds (`[   131.4s]` on a long
+  run); a group's member lines are indented beneath it. Group rows use the
+  report's own `KEEP` / `REMOVE` / `PROTECT` / `hard-linked:` words, so there is
+  only one vocabulary to learn.
+- Other entries you may see: `warning: <stage>: <path>: <reason>` (a file
+  skipped during the scan; the stage is `enumerate`, `sniff` or `engine`, as in
+  the JSON `warnings` array),
+  `error: <path>: <reason>` (a scan root that could not be read),
+  `already deduplicated (hard-linked): <path>`, and on an `--apply` run
+  `trashed: <path>` / `deleted: <path>` for each removal and
+  `warning: <path>: <reason>` for each skip.
+- Everything above the `===== RESULT` banner is a transcript of the run **in
+  progress**: its order follows the order work actually finished, which is not
+  reproducible from run to run, and it carries no totals. Everything below the
+  banner is the authoritative, [deterministic](#determinism) result — a
+  byte-for-byte copy of the report standard output received.
+
+### Finished or interrupted?
+
+**The `===== RESULT` banner is the tell.** A record that has it is a finished
+run; a record without it is a run that did not finish — it was killed or
+crashed, or it stopped itself, as when `--apply` refuses to act because a scan
+root could not be read (the record then ends with that `error:` line). Under
+`--json` the same signal is the final line: a finished record ends with a line
+whose `type` is `result`; an unfinished one does not.
+
+### When groups appear
+
+A group is written as soon as its **membership** is final — the copy kept, the
+copies to remove, the hard-linked copies — and *final* is a real guarantee:
+nothing later in the run can add a file to a group, remove one from it, or
+split it.
+
+But that moment is not early in the run. `imgdedup` hashes every candidate
+before it byte-verifies any of them, and hashing is usually the long part of a
+scan, so **groups appear during the verifying phase — the last stretch of the
+run — not steadily throughout it.** A run killed while it is still hashing
+leaves a record with a header, milestones and warnings, and **no groups**.
+
+What is *not* final when a group is written is its place in the final ordering
+and every run-wide total, so group entries carry **no `Group i/N` number** and
+no running totals; those appear only in the result.
+
+### NDJSON under `--json`
+
+With `--json`, the record is **NDJSON** — one JSON object per line — instead of
+the human-readable form:
+
+```sh
+imgdedup --json --output run.ndjson photos > result.json
+```
+
+NDJSON is used because it stays valid at every line boundary: if the process
+dies mid-write, every *complete* line still parses on its own, so even a partial
+record is machine-readable. The same run as above produces:
+
+```text
+{"type":"header","elapsed_ms":0,"record_version":1,"tool":"imgdedup","tool_version":"0.1.0","started_at":"2026-11-13T17:18:35Z","invocation":{"roots":["photos"],"keep":"shortest","apply":false,"delete":false,"json":true,"no_recurse":false,"hidden":false,"follow_symlinks":false,"ext":null,"exit_code":false,"no_progress":false,"timings":false,"output":"run.ndjson"}}
+{"type":"milestone","elapsed_ms":0,"phase":"scanning","current":0,"total":null,"percent":null,"run_total":0}
+{"type":"milestone","elapsed_ms":0,"phase":"scanning","current":0,"total":6,"percent":0,"run_total":0}
+{"type":"milestone","elapsed_ms":1,"phase":"scanning","current":6,"total":6,"percent":100,"run_total":0}
+{"type":"milestone","elapsed_ms":1,"phase":"hashing","current":0,"total":6,"percent":0,"run_total":6}
+{"type":"milestone","elapsed_ms":4,"phase":"verifying","current":0,"total":4,"percent":0,"run_total":6}
+{"type":"group","elapsed_ms":5,"keeper":{"path":"photos/a/img2.JPG","size":2013563,"mtime":1794590314},"removable":[{"path":"photos/b/img2.JPG","size":2013563,"mtime":1794590314}],"protected":[],"hard_link_sets":[],"reclaimable_bytes":2013563}
+{"type":"group","elapsed_ms":6,"keeper":{"path":"photos/a/img1.JPG","size":2668960,"mtime":1794590314},"removable":[{"path":"photos/b/copy1.jpg","size":2668960,"mtime":1794590314}],"protected":[],"hard_link_sets":[],"reclaimable_bytes":2668960}
+{"type":"milestone","elapsed_ms":6,"phase":"done","current":6,"total":6,"percent":100,"run_total":6}
+{"type":"result","elapsed_ms":6,"record_version":1,"result":{"schema_version":1,"mode":"dry-run","groups":[{"keeper":{"path":"photos/a/img1.JPG","size":2668960,"mtime":1794590314},"removable":[{"path":"photos/b/copy1.jpg","size":2668960,"mtime":1794590314}],"protected":[],"hard_link_sets":[],"reclaimable_bytes":2668960},{"keeper":{"path":"photos/a/img2.JPG","size":2013563,"mtime":1794590314},"removable":[{"path":"photos/b/img2.JPG","size":2013563,"mtime":1794590314}],"protected":[],"hard_link_sets":[],"reclaimable_bytes":2013563}],"already_deduplicated":[],"totals":{"duplicate_groups":2,"removable_files":2,"reclaimable_bytes":4682523,"already_deduplicated_sets":0},"actions":{"removed":[],"skipped":[]},"warnings":[],"root_errors":[]}}
+```
+
+Note the two `group` lines arrive in the opposite order from the `result`'s
+`groups` array: the transcript follows the order verification happened to
+finish, and only the result is in canonical order.
+
+Every line starts with `type` and `elapsed_ms` (milliseconds since the run
+started). The event types:
+
+| `type` | When | Fields besides `type` and `elapsed_ms` |
+|---|---|---|
+| `header` | Always the first line. | `record_version`, `tool`, `tool_version`, `started_at` (UTC, RFC 3339), `invocation` (an object: `roots` and every flag) |
+| `milestone` | At each phase change and roughly every 10% of progress. | `phase` (`scanning`, `hashing`, `verifying`, `done`), `current`, `total` and `percent` (both `null` while the walk's total is still unknown), `run_total` (the candidate total; `0` until it is known) |
+| `group` | When a group's membership is final. | Exactly a [Group object](#field-reference-schema-version-1) from the `--json` document: `keeper`, `removable`, `protected`, `hard_link_sets`, `reclaimable_bytes` |
+| `already_deduplicated` | When a hard-link-only set is found. | A HardLinkSet object: `representative`, `siblings` |
+| `warning` | When a file is skipped during the scan. | A Warning object: `stage`, `path`, `reason` |
+| `error` | When a run-level error occurs. | `scope`: `"root"` for a scan root that could not be read (with `path` and `reason`), or `"run"` for a failure not tied to one path, such as `--apply` refusing to act (with `reason` only) |
+| `action` | On an `--apply` run, as each file is removed or skipped. | `action` (`removed` or `skipped`), `mode` (`trash` or `delete`), `path`, and `reason` (skips only) |
+| `result` | The last line — **only if the run finished**. | `record_version`, and `result`: the complete `--json` document |
+
+To pull the result out of a finished record:
+
+```sh
+jq -c 'select(.type=="result").result' run.ndjson
+```
+
+That is the same document, with the same `schema_version: 1` schema, that
+standard output received — serialized compactly on one line rather than
+pretty-printed, so it is the same *document*, not the same bytes. (In the
+human-readable record, by contrast, the result is a byte-for-byte copy.)
+
+A record from a run that was killed mid-write may end in a partial line, which
+plain `jq` reports as a parse error once it reaches it. To read whatever *is*
+complete — every group found so far, say — have `jq` skip lines that do not
+parse:
+
+```sh
+jq -cR 'fromjson? | select(.type=="group")' run.ndjson
+```
+
+**The record's event vocabulary is not a stable interface yet.** Its version is
+`record_version` (`1` today) — separate from the result's `schema_version` — and
+it appears on both the first (`header`) and last (`result`) line. New event
+types and new fields may be added **without** changing `record_version`, so a
+consumer must **ignore `type` values and fields it does not recognize**;
+`record_version` changes only for a change that would break a consumer that
+does so. The nested `result` document is the exception: it is the existing
+`schema_version: 1` document with its existing
+[stability contract](#stability-contract), unchanged.
+
+### What survives, and what does not
+
+Each entry is handed to the operating system the moment it is written, with
+nothing held back in a buffer waiting for a tidy shutdown. So:
+
+- The record **survives the process dying** — `Ctrl-C`, `kill`, `kill -9`, a
+  panic, or any crash. Every entry the tool finished writing is in the file; at
+  most the single entry that was being written at that instant is cut short.
+  Under `--json` that is a partial final line, which a line-by-line reader
+  discards; every complete line still parses.
+- The record **does not survive a host crash or power loss.** Written entries
+  sit in the operating system's cache until it writes them out to disk;
+  `imgdedup` does not force each one to stable storage. On a network mount, the
+  record inherits that mount's behavior.
+
+And remember [when groups appear](#when-groups-appear): a run killed while it is
+still hashing has not found any groups yet, so its record has none.
+
+### Practical notes
+
+- **An existing file is overwritten**, exactly as `> file` would overwrite it —
+  so a mistyped `--output` path clobbers a file the same way a mistyped `>`
+  does. It is never appended to: an old run's result followed by a new, partial
+  transcript would read as a finished run.
+- **A path that cannot be written fails immediately.** If the file cannot be
+  created — the path is a directory, its parent folder does not exist, or you
+  cannot write there — `imgdedup` prints
+  `error: cannot write to <path>: <reason>` and exits `2` **before scanning
+  anything**, with no report, rather than failing hours in.
+- **A write failure partway through does not stop the run.** If the file
+  becomes unwritable while the run is working — a full disk, a dropped network
+  mount — the scan, and any `--apply` already under way, carries on and
+  finishes exactly as it would have without `--output`: the same groups, the
+  same removals, the same report. The failure is reported **once** on standard
+  error (`error: could not write to <path>: <reason>`), not once per later
+  write; the file is left as it is, with no result; and the run **exits `1`**,
+  even though the deduplication itself succeeded — you asked for a durable
+  record and did not get one, and the exit code is how a script finds out.
+- **The record holds your files' full paths** — the scan roots, every file in a
+  duplicate group, and every file warned about, removed, or skipped. It is
+  created with your usual default file permissions, just as `>` would create
+  it, so on a shared machine choose where you put it accordingly.
+- **Putting the record inside a folder you are scanning is safe.** The record is
+  never an image, so it can never be grouped, trashed, or deleted. If its name
+  has an image extension (or you widen the allow-list with `--ext`), it is
+  examined like any other candidate and skipped with a "not recognized as a
+  supported image format" warning — which then appears in its own transcript.
+
+### `--json` without `--output` keeps nothing until the end
+
+Worth knowing **before** you start a long unattended run: `imgdedup --json` on
+its own produces output only if it reaches the end. Its entire output is one
+JSON document written on completion, and nothing about the run is recorded
+anywhere along the way — not even the removals of an `--apply` run, which are
+not printed under `--json`. Stop it at 95% and you have nothing.
+
+That is by design, not an oversight. Keeping standard output to exactly one
+document is what makes `imgdedup --json ./photos | jq …` work at all, and
+streaming it piece by piece would break every program that reads it — for
+little gain, since a pipeline whose producer dies loses its output anyway.
+`--output` is the answer instead, and a better one, because NDJSON is valid at
+every line boundary:
+
+```sh
+imgdedup --json --output run.ndjson ./photos > result.json
+```
+
+For a long `--apply` run this is the shape to reach for: each removal lands in
+the record the moment it happens, so even a run that never finishes leaves a
+complete account of what it did.
 
 ## `--exit-code`: signal "duplicates found"
 
@@ -563,8 +952,8 @@ imgdedup --exit-code ./photos
 | Code | Meaning |
 |---|---|
 | `0` | Success. With `--exit-code`, also means no duplicates were found. |
-| `1` | Run-level error — e.g. an input path could not be scanned. |
-| `2` | Usage error — invalid arguments. |
+| `1` | Run-level error — e.g. an input path could not be scanned, or an [`--output`](#--output-file-a-durable-record-of-the-run) record could not be written while the run was in progress (the run itself still completed). Takes precedence over `3`. |
+| `2` | Usage error — invalid arguments, or an `--output` file that cannot be created (checked before anything is scanned). |
 | `3` | Duplicates were found. Only emitted when `--exit-code` is passed. |
 
 ## Next

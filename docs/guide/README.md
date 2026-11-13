@@ -8,8 +8,9 @@ tool.
 > **Status: under active development (Phase 3).** Scanning, scope filtering,
 > magic-byte image confirmation, the content-hash deduplication engine, the
 > human-readable report, machine-readable `--json` output, a live progress
-> indicator on stderr, and the destructive actions (`--apply` trash /
-> `--apply --delete` permanent) are all shipped. See
+> indicator with elapsed time, a durable `--output` run record, and the
+> destructive actions (`--apply` trash / `--apply --delete` permanent) are all
+> shipped. See
 > [`docs/planning/status.md`](../planning/status.md) for the live state.
 
 ## Guide pages
@@ -27,8 +28,9 @@ full tour.
    default, moving duplicates to the trash with `--apply`, and the guarded
    permanent `--delete`.
 5. [Output and exit codes](output-and-exit-codes.md) — the human-readable report,
-   `--json` for scripting, the live progress indicator on stderr, the
-   `--timings` per-stage diagnostic, and what each exit code means.
+   `--json` for scripting, which stream carries what, the live progress
+   indicator, the durable `--output` run record, the `--timings` per-stage
+   diagnostic, and what each exit code means.
 6. [Using imgdedup with an AI agent](using-with-claude.md) — the official
    Claude Code plugin: the `/imgdedup:dedupe` command, the dry-run-first
    safety protocol, and the read-only `imgdedup-operator` subagent for large
