@@ -349,7 +349,10 @@ Two rules follow from that table:
   - apply-time skips (`warning: <path>: <reason>`), one per file you approved
     for removal that was left in place;
   - a failure to keep writing an [`--output`](#--output-file-a-durable-record-of-the-run)
-    record (`error: could not write to <path>: <reason>`).
+    record (`error: could not write to <path>: <reason>`);
+  - a report that could not be written to standard output for a reason other
+    than its reader having stopped
+    (`error: could not write the report to standard output: <reason>`).
 
   Files skipped *during the scan* (unreadable, or not really an image) are not
   on that list: they belong to the result, so they appear in the report's
@@ -1020,7 +1023,7 @@ imgdedup --exit-code ./photos
 | Code | Meaning |
 |---|---|
 | `0` | Success. With `--exit-code`, also means no duplicates were found. |
-| `1` | Run-level error — e.g. an input path could not be scanned, an [`--output`](#--output-file-a-durable-record-of-the-run) record could not be written while the run was in progress, or the report could not be written to standard output because whatever was reading it had gone away (in both of the last two cases the run itself still completed). Takes precedence over `3`. |
+| `1` | Run-level error — e.g. an input path could not be scanned, an [`--output`](#--output-file-a-durable-record-of-the-run) record could not be written while the run was in progress, or the report could not be written to standard output — for example, whatever was reading it had gone away, or the disk filled up behind a `>` redirect. In both of the last two cases the run itself still completed. Takes precedence over `3`. |
 | `2` | Usage error — invalid arguments, an `--output` file that cannot be created, or an existing `--output` file the tool [will not replace](#if-the-file-already-exists) (all checked before anything is scanned). |
 | `3` | Duplicates were found. Only emitted when `--exit-code` is passed. |
 
@@ -1034,6 +1037,14 @@ pipe can exit `0` on a small run. If a script runs with `set -o pipefail`,
 expect that `1`. A diagnostic that cannot be written to standard error is
 simply dropped: it never stops a run, interrupts an `--apply`, or changes the
 exit code.
+
+If the report cannot be written for any other reason — the disk fills up
+behind `imgdedup ./photos > report.txt`, say — the run also exits `1`, and
+says why on standard error:
+
+```text
+error: could not write the report to standard output: <reason>
+```
 
 ## Next
 

@@ -971,11 +971,15 @@ but touches §7 and §8, so it is recorded here.
   default `tracing-subscriber` reports a failed write with `eprintln!`, which
   panics on the same closed stderr; found in the TASK-0342 review.
 - The report is written with `streams::write_stdout`. When it cannot be
-  delivered, the completion document is still written to the record (§3), no
-  further message is printed, and the process exits `1` — the report the user
-  asked for did not arrive (owner decision, 2026-11-13; the alternative was
-  `0`). Like a degraded record (§7), this takes precedence over
-  `--exit-code`'s `3`.
+  delivered, the completion document is still written to the record (§3) and
+  the process exits `1` — the report the user asked for did not arrive (owner
+  decision, 2026-11-13; the alternative was `0`). Like a degraded record
+  (§7), this takes precedence over `--exit-code`'s `3`. A broken pipe prints
+  nothing further: the reader stopped on purpose. Any other cause (for
+  example a full disk or a quota behind `> file`, or an I/O error) is said
+  once on stderr,
+  `error: could not write the report to standard output: <reason>`
+  (TASK-0345; the first version was silent in both cases).
 
 Verification beyond the automated suite, recorded in the commit messages of
 `37c1fb4` and `be94d61`: the §8 routing table was exercised on a real

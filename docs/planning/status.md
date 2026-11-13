@@ -11,6 +11,24 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 37 (fix: say why a report could not be written, TASK-0345),
+  2026-11-13 — branch `fix/undelivered-report-message`._ Since TASK-0342 a
+  report that cannot be written to stdout exits `1` in silence. That is
+  right when the reader has gone away (`imgdedup … | head`), but
+  `imgdedup … > file` on a full disk ended the same way with no explanation.
+  `streams::write_stdout` now returns the error, and every cause except a
+  broken pipe prints one line on stderr:
+  `error: could not write the report to standard output: <reason>`.
+  PRD-0001 FR-15 is clarified and gains AC-47; the guide and ADR-0018's
+  "Writers that cannot panic" section say the same. The architect's review
+  of the diff converged with doc nits only. The wording was the architect's
+  suggestion from the TASK-0342 review; the product-owner approved it
+  unchanged in a short document review and tightened AC-47 (the line is one
+  among any other stderr lines of the run; exit `1` also beats `--exit-code`'s
+  `3`). Tests written first: an
+  end-to-end test that forces a real write failure with `ulimit -f` on a
+  redirected stdout, and an assertion that a broken pipe stays silent.
+
 - _Session 36 (feat: `--output` overwrite safety net, TASK-0342, plus two
   owner-requested riders), 2026-11-13 — branch
   `feat/output-overwrite-safety-net`._ Brainstormed with the owner the same
@@ -21,8 +39,9 @@ docs pass → AI automation, batched within Claude usage limits.
   `.bak`, one generation; exit `1` when the report cannot be written to
   stdout.
 
-  **State: the plan is complete through the architect review; what remains
-  is the PR, CI, the architect's confirmation pass and the owner's merge.**
+  **Merged 2026-11-13 as PR #109 (squash `e1c40d0`)**, CI green on all
+  checks including the Windows leg; the architect's confirmation pass came
+  back clean before the PR was opened.
 
   - **Overwrite rule** (`src/output_file.rs`, `--overwrite-output`): an
     earlier record is moved to `<file>.bak` and replaced; an empty file is
@@ -64,7 +83,11 @@ docs pass → AI automation, batched within Claude usage limits.
 
   Usage (fresh 5h window from 3% for Task 5): two full agent passes
   (product-owner 113k tokens, architect 92k) plus one confirmation pass;
-  estimate 20–25% of the window, actual to be read from `/usage`.
+  estimate 20–25% of the window, actual **37%** (3% → 40%, owner's `/usage`
+  reading). The estimate priced only the dispatches; the review returned
+  seven findings, and the inline fix round plus the confirmation pass cost
+  about as much again. For comparison, PR #107's close-out phase was
+  estimated at 40–60% and came in at 42%.
 
 - _Session 35 (fix: FR-20/FR-21 close-out tail — TASK-0343, TASK-0344 and
   review follow-ups), 2026-11-13 — branch `fix/output-record-close-out-tail`._
