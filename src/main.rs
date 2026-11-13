@@ -114,10 +114,13 @@ fn run(args: cli::Cli) -> i32 {
                 format,
                 shown,
                 Box::new(move |message| {
+                    // One write, so a concurrent progress repaint cannot
+                    // land between the line break and the message.
                     if live_line {
-                        eprintln!();
+                        eprint!("\n{message}\n");
+                    } else {
+                        eprintln!("{message}");
                     }
-                    eprintln!("{message}");
                 }),
             );
             let recorder: Arc<dyn record::RunRecorder> = Arc::new(file_record);

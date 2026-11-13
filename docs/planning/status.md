@@ -7,7 +7,7 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-11-12
+**Last updated:** 2026-11-13
 
 ## In progress
 
@@ -19,21 +19,62 @@ docs pass → AI automation, batched within Claude usage limits.
   product-owner reviews dispatched at the end. FR-22 (paging) is not part of
   this unit.
 
-  **Resume point (end of window 1, 2026-11-12): plan Tasks 0–10 are done and
-  committed on the branch (11 commits, `7c097ab`..`be94d61`); the branch is
-  local only — not pushed, no PR. Task 11 is all that remains**: tester pass
-  over AC-20..AC-32 + AC-28a, product-owner guide docs (README,
-  `output-and-exit-codes.md`, `getting-started.md`; starting draft is commit
-  `13252110f81ec764acce1862083827d3d88a6cb5`, fetchable from GitHub but no
-  longer in a local clone), ADR-0018 `proposed` → `accepted` with
-  implementation notes, backlog close-out, `make validate`, architect review
-  of `git diff main...HEAD`, then push and PR (owner go-ahead needed).
+  **State (end of window 2, 2026-11-13): the plan is complete through Task 11
+  Step 6; what remains is Step 7 — push, open the PR, CI, the architect's
+  confirmation pass, and the owner's merge.** Window 1 (2026-11-12) landed plan
+  Tasks 0–10 inline; window 2 ran Task 11: the tester pass, the product-owner
+  guide docs, the ADR-0018 / backlog close-out, the architect's code review on
+  the branch diff, and product-owner acceptance.
 
-  State at the resume point: `cargo test` green (347 unit + 88 integration;
-  the 4 scale tests ignored as always), `cargo fmt --check`, clippy
-  `-D warnings` and `cargo deny check` clean. **`make validate` has not been
-  run on this branch yet** (Markdown lint / spell / links for the new plan
-  file were run on that file only).
+  Window 2 outcomes:
+
+  - **Tester** (AC-20..AC-32 + AC-28a): no product defect. Four tests added —
+    AC-32 for scanning's determinate state and for the `(Ns elapsed)` /
+    `(Ns total)` suffixes end to end, and two AC-28a tests that force a real
+    `EFBIG` through `ulimit -f` so the continue / report-once / exit-1 path
+    runs on macOS as well as through the Linux-only `/dev/full` tests.
+    `make scale` passes. `--output` adds no measurable wall time on the
+    2,021-file corpus (about 500 ms with or without it).
+  - **Product-owner docs:** README, `output-and-exit-codes.md`,
+    `getting-started.md` and the guide index, built from the reverted
+    2026-08-06 draft with its review findings applied and every example taken
+    from the built binary. The draft's "two clarity gaps" were never itemized
+    anywhere, so they were addressed by best guess.
+  - **Architect review: code converged, docs changes required and applied.**
+    All five plan decisions, the latch-under-mutex variant and the other
+    recorded deviations were approved. Findings fixed on the branch: (M1) a
+    failed write of the completion document can leave the `===== RESULT`
+    banner and a cut-short report in the human record — reproduced by the
+    architect; documented in the guide and in ADR-0018 implementation note 9
+    rather than changed in code, because an end trailer would break AC-26;
+    (M2) the ADR index still said `proposed`; (M3) two inaccurate
+    implementation notes; (S1) the `ulimit` test assumed the failure lands
+    before the result write, which holds only for long temporary paths — it
+    now asserts the record does not end with the complete report; (S2) the
+    record-failure message is written to stderr in one call so a progress
+    repaint cannot split it.
+  - **ADR-0018 §6 overclaimed.** It says the record "contains every scanned
+    path"; the record holds the roots, group and hard-link-set members, warned
+    files, error paths and action paths. The architect ruled the narrower
+    record correct per FR-20; implementation note 8 and the guide say so.
+
+  - **Product-owner acceptance: FR-21 and the FR-19 amendment accepted; FR-20
+    accepted on one condition, met in this PR** — a PRD-0001 wording fold-in
+    (FR-20's write-failure bullet and AC-28a) saying that after a reported
+    write failure the human record may hold a partial completion document and
+    that exit code `1` plus the error message are the signal. Follow-ups
+    raised as backlog rows: TASK-0342 (safety net for `--output` naming an
+    existing image or scan root, P2, needs an owner brainstorm), TASK-0343
+    (byte-pinned `--json` golden test, P2), TASK-0344 (record-header and
+    `--help` polish, P3). Declined as follow-ups: a "stopped" marker for a
+    refused `--apply`, and rewording `cannot write to` / `could not write to`.
+
+  State: `make validate` passes; `cargo test` green (348 unit + 91
+  integration; the 4 scale tests ignored as always); clippy `-D warnings`,
+  `cargo fmt --check` and `cargo deny check` clean. The architect also built
+  `main` and compared stdout byte for byte against this branch, with and
+  without `--output`, in default and `--json` modes and under
+  `--apply --delete`: identical.
 
   Verified by hand, evidence in the commit messages of `37c1fb4` and
   `be94d61`: (1) FR-21 routing on a real pseudo-terminal (a throwaway Python
@@ -45,7 +86,8 @@ docs pass → AI automation, batched within Claude usage limits.
 
   Known gaps for the reviewers to judge, not rediscover: the two `/dev/full`
   end-to-end tests (`tests/output_record.rs`) are Linux-only and **have never
-  executed** — CI's Linux leg is their first run; no kill has landed in the
+  executed** — CI's Linux leg is their first run (the tester and the architect
+  both read them and expect them to pass); no kill has landed in the
   verify phase on a real corpus (`test-images/` has no duplicates), so
   "already-written groups survive a kill" rests on fixture tests; there is no
   automated pty test.
@@ -73,6 +115,13 @@ docs pass → AI automation, batched within Claude usage limits.
   dispatches. Task 11 is dispatch-heavy (tester, product-owner, architect
   ×1–2): budget 40–60% of a fresh window, and do not start the architect
   review with less than ~35% left.
+
+  Window 2 (2026-11-13; fresh 5h window, weekly at 12% at the start): four
+  agent dispatches — tester, product-owner docs, architect review,
+  product-owner acceptance — about 490k subagent tokens in total, the docs
+  pass and the architect review about 195k each. Estimate 40–60% of the
+  window; actual: to be read from `/usage` by the owner and recorded with
+  the merge.
 
 - _Session 33 (TASK-0340/TASK-0341 joint design: PRD-0001 amendment + ADR-0018),
   2026-08-06 — branch `docs/prd-0001-pager-and-output-model`, fresh window

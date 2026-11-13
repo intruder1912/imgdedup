@@ -775,6 +775,14 @@ root could not be read (the record then ends with that `error:` line). Under
 `--json` the same signal is the final line: a finished record ends with a line
 whose `type` is `result`; an unfinished one does not.
 
+One exception: if `imgdedup` reported that it **could not write to** the record
+(see [Practical notes](#practical-notes)), do not rely on the banner. If that
+failure struck while the result itself was being written, the default-format
+record can end with the banner followed by a report that is cut short — so the
+banner alone does not prove the record is complete. The exit status `1` and the
+message on standard error are the signal then. The `--json` form does not have
+this ambiguity: a cut-short `result` line is not valid JSON.
+
 ### When groups appear
 
 A group is written as soon as its **membership** is final — the copy kept, the
@@ -901,11 +909,14 @@ still hashing has not found any groups yet, so its record has none.
   finishes exactly as it would have without `--output`: the same groups, the
   same removals, the same report. The failure is reported **once** on standard
   error (`error: could not write to <path>: <reason>`), not once per later
-  write; the file is left as it is, with no result; and the run **exits `1`**,
+  write; the file is left as it is, without a complete result (see
+  [Finished or interrupted?](#finished-or-interrupted)); and the run
+  **exits `1`**,
   even though the deduplication itself succeeded — you asked for a durable
   record and did not get one, and the exit code is how a script finds out.
 - **The record holds your files' full paths** — the scan roots, every file in a
-  duplicate group, and every file warned about, removed, or skipped. It is
+  duplicate group or an already-deduplicated hard-link set, and every file
+  warned about, removed, or skipped. It is
   created with your usual default file permissions, just as `>` would create
   it, so on a shared machine choose where you put it accordingly.
 - **Putting the record inside a folder you are scanning is safe.** The record is

@@ -507,8 +507,11 @@ fn run_with_file_size_limit(args: &[&std::ffi::OsStr]) -> std::process::Output {
 #[test]
 fn a_record_that_hits_the_file_size_limit_does_not_stop_the_run() {
     // AC-28a on every Unix: same product behavior as the `/dev/full` test,
-    // but runnable on macOS. The three-group fixture's record is well over the
-    // 1 KiB limit, so a write must fail partway through.
+    // but runnable on macOS. `ulimit -f 1` is one block: 512 bytes under dash,
+    // 1024 under bash-as-sh. The three-group fixture's complete record is
+    // larger than either, so some write must fail. Which one depends on the
+    // shell and on the length of the temporary paths, so nothing below assumes
+    // the failure lands before the result.
     use std::ffi::OsStr;
     let tree = tempfile::tempdir().unwrap();
     let out_dir = tempfile::tempdir().unwrap();
@@ -544,14 +547,12 @@ fn a_record_that_hits_the_file_size_limit_does_not_stop_the_run() {
     );
     assert_eq!(stderr.lines().count(), 1, "and nothing else: {stderr}");
 
-    let text = fs::read_to_string(&record).unwrap();
+    // Bytes, not a string: the cut can land inside a multi-byte character.
+    let bytes = fs::read(&record).unwrap();
+    assert!(bytes.starts_with(b"# imgdedup "), "partial record kept");
     assert!(
-        text.starts_with("# imgdedup "),
-        "partial record kept: {text}"
-    );
-    assert!(
-        !text.contains("===== RESULT"),
-        "a failed record never claims completion: {text}"
+        !bytes.ends_with(&plain.stdout),
+        "a failed record never ends with the complete report"
     );
 }
 

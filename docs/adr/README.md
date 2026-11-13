@@ -37,7 +37,7 @@ the options considered, the decision, and its consequences. They use a
 | [0015](0015-release-publishing-tag-and-github-release.md) | Release publishing — tag + GitHub Release, no commit back to `main` | accepted |
 | [0016](0016-ai-agent-automation-plugin.md) | AI-agent automation — Claude Code plugin (skill, command, operator agent) | accepted |
 | [0017](0017-performance-instrumentation-tracing-spans.md) | Performance instrumentation — `tracing` spans + an opt-in `--timings` consumer | accepted |
-| [0018](0018-durable-run-record-and-output-stream-routing.md) | Durable run record (`--output`) & output-stream routing | proposed |
+| [0018](0018-durable-run-record-and-output-stream-routing.md) | Durable run record (`--output`) & output-stream routing | accepted |
 
 > The technology-stack and core design ADRs for PRD-0001 (0007–0010) have
 > landed; ADR-0015 closes the release-mechanism question ADR-0004 left open.
