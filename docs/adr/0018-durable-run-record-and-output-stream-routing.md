@@ -852,7 +852,18 @@ authoritative and the difference is recorded here:
    code `1` and the stderr message are the signal; the guide says so. An
    end-of-record trailer was rejected because it would break AC-26 (the record
    ends with the exact stdout bytes), and truncating back contradicts §7's
-   "no truncate". NDJSON is unaffected: a partial `result` line does not parse.
+   "no truncate". NDJSON is unaffected: a cut-short `result` line does not
+   parse, and a finished line ends with a newline.
+10. **The human header names every invocation flag (TASK-0344).** §4a's
+    example shows two `# invocation:` lines, the flags that shape the result.
+    The header now has a third — `json=`, `no-progress=`, `timings=` and
+    `output=` — so the human record carries the same invocation as the NDJSON
+    header. The `--output` path is escaped like every other path in the
+    record.
+11. **No blank line before a late record-failure message.** §7's leading line
+    break is written only while a progress line is live; once progress has
+    finished (a failed apply-time or result write) the message is written
+    without it.
 
 Verification beyond the automated suite, recorded in the commit messages of
 `37c1fb4` and `be94d61`: the §8 routing table was exercised on a real

@@ -11,6 +11,40 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 35 (fix: FR-20/FR-21 close-out tail — TASK-0343, TASK-0344 and
+  review follow-ups), 2026-11-13 — branch `fix/output-record-close-out-tail`._
+  One owner-requested collective PR for the small items left over from
+  PR #107, three in product code and four chores:
+
+  - **TASK-0344 (done).** The human-readable record header gains a third
+    `# invocation:` line (`json=`, `no-progress=`, `timings=`, `output=`), so
+    it carries the same invocation as the NDJSON header; the `--output` path
+    is escaped like every other path. `--help` and `-h` no longer cite
+    internal identifiers (`FR-`, `AC-`, `ADR-`); they moved to `//` comments
+    beside each flag, and an integration test keeps them out.
+  - **No stray blank line.** A record-write failure after progress has
+    finished (an apply-time or result write) printed an empty line before the
+    error on a terminal. The line break is now written only while a progress
+    line is live. Checked by hand on a pseudo-terminal; the text itself is
+    unit-tested (`streams::interrupting_line`).
+  - **Shared stage labels.** `"enumerate"`, `"sniff"` and `"engine"` are
+    constants in `json.rs`, used by the document and by the record's call
+    sites. No behavior change.
+  - **TASK-0343 (done).** A byte-pinned golden test for `--json` stdout
+    (`tests/golden/json_dry_run.json`: two groups, a protected hard link, an
+    already-deduplicated set, one warning) replaces the tautological
+    `document_to_pretty_is_byte_identical_to_render`. Unix only.
+  - **Wording.** ADR-0018 note 9, PRD-0001 FR-20 and the guide said a partial
+    NDJSON `result` line "does not parse"; a write that fails on exactly the
+    final newline leaves a parseable line, so the text now adds that a
+    finished line ends with a newline.
+  - **Planning.** Session 34's entry records the merge; the implementation
+    plan's steps are ticked; ADR-0018 gains implementation notes 10 and 11.
+
+  Not in this unit, by decision: `eprintln!` panicking when stderr is a
+  closed pipe (predates this work, needs its own unit); TASK-0342 (needs an
+  owner brainstorm).
+
 - _Session 34 (TASK-0340/TASK-0341 implementation, slice 1: FR-20 + FR-21 +
   FR-19 elapsed time), 2026-11-12 — branch
   `feat/output-record-and-stream-routing`._ Executing
@@ -19,10 +53,10 @@ docs pass → AI automation, batched within Claude usage limits.
   product-owner reviews dispatched at the end. FR-22 (paging) is not part of
   this unit.
 
-  **State (end of window 2, 2026-11-13): PR #107 is open, CI is green
+  **Merged 2026-11-13 as PR #107 (squash `497e976`)** with CI green
   (`checks`, `ci-gate`, `security`, Rust on Ubuntu and Windows) and the
-  architect's confirmation pass is done; the PR awaits the owner's merge.**
-  Window 1 (2026-11-12) landed plan
+  architect's confirmation pass done. TASK-0341 is closed; TASK-0340 stays
+  open for FR-22 only. Window 1 (2026-11-12) landed plan
   Tasks 0–10 inline; window 2 ran Task 11: the tester pass, the product-owner
   guide docs, the ADR-0018 / backlog close-out, the architect's code review on
   the branch diff, and product-owner acceptance.

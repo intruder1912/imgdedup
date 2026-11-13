@@ -292,7 +292,8 @@ User stories:
     of the completion document (its banner and a truncated report) when the
     failing write was the completion document itself. The exit code `1` and
     the single error message are the signal. NDJSON is unaffected, since a
-    partial final line does not parse.
+    cut-short final line does not parse, and a finished line ends with a
+    newline.
   - `--output` is **output-only**: it never changes what is scanned, grouped,
     or removed, and a run with and without it produces the same stdout bytes.
     Its only effect outside the file is the exit code in the write-failure case

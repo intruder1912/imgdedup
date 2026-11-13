@@ -67,6 +67,22 @@ pub enum ProgressStream {
     Err(io::Stderr),
 }
 
+/// The text of a mid-run stderr message that may arrive while a live
+/// progress line is on screen (today: the record-write failure, ADR-0018 §7).
+///
+/// While a line is live the message starts with a line break, so it lands on
+/// a clean line instead of after the progress text; once progress has
+/// finished the cursor is already on a fresh line and the break would only
+/// leave a stray blank one. The result is written with **one** `write`, so a
+/// concurrent repaint cannot land between the break and the message.
+pub fn interrupting_line(message: &str, line_is_live: bool) -> String {
+    if line_is_live {
+        format!("\n{message}\n")
+    } else {
+        format!("{message}\n")
+    }
+}
+
 impl ProgressStream {
     pub fn open(stream: Stream) -> Self {
         match stream {
@@ -95,6 +111,12 @@ impl Write for ProgressStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupting_line_breaks_first_only_while_a_line_is_live() {
+        assert_eq!(interrupting_line("error: x", true), "\nerror: x\n");
+        assert_eq!(interrupting_line("error: x", false), "error: x\n");
+    }
 
     const OUT_TTY: Target = Target {
         stream: Stream::Stdout,

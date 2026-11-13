@@ -542,7 +542,7 @@ where
                         });
                         if let Some(w) = outcome.warnings.last() {
                             recorder.record(RecordEvent::Warning {
-                                stage: "engine",
+                                stage: crate::json::STAGE_ENGINE,
                                 path: &w.path,
                                 reason: &w.reason,
                             });
@@ -684,7 +684,7 @@ fn record_decided<K>(
 {
     for w in &outcome.warnings[warnings_before..] {
         recorder.record(RecordEvent::Warning {
-            stage: "engine",
+            stage: crate::json::STAGE_ENGINE,
             path: &w.path,
             reason: &w.reason,
         });
