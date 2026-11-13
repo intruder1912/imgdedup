@@ -1640,6 +1640,49 @@ fn a_closed_stdout_does_not_panic_and_exits_1() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!stderr.contains("panicked"), "{stderr}");
     assert_eq!(out.status.code(), Some(1), "{stderr}");
+    // A reader that stopped reading did so on purpose: nothing to explain.
+    assert_eq!(stderr, "", "a broken pipe is not reported");
+}
+
+/// TASK-0345: when the report cannot be written for any other reason — here
+/// a file-size limit standing in for a full disk behind `> file` — the run
+/// says why instead of exiting `1` in silence.
+#[cfg(unix)]
+#[test]
+fn a_report_that_cannot_be_written_to_a_file_says_why() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Enough duplicate pairs for a report well over one `ulimit -f` block
+    // (512 bytes under dash, 1024 under bash-as-sh).
+    for i in 0..20u8 {
+        let bytes = image_bytes(ImageFormat::Png, 100 + i, 64);
+        fs::write(dir.path().join(format!("original-{i:02}.png")), &bytes).unwrap();
+        fs::write(dir.path().join(format!("duplicate-{i:02}.png")), &bytes).unwrap();
+    }
+    let out_dir = tempfile::tempdir().unwrap();
+    let report = out_dir.path().join("report.txt");
+
+    // `SIGXFSZ` is ignored (an ignored signal survives `exec`), so the
+    // over-limit write fails with an error instead of killing the process.
+    let out = std::process::Command::new("sh")
+        .args([
+            "-c",
+            r#"ulimit -f 1; trap '' XFSZ; out="$1"; shift; exec "$0" "$@" > "$out""#,
+            env!("CARGO_BIN_EXE_imgdedup"),
+        ])
+        .arg(&report)
+        .arg(dir.path())
+        .arg("--no-progress")
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .expect("run");
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.starts_with("error: could not write the report to standard output: "),
+        "{stderr}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
 }
 
 #[cfg(unix)]

@@ -93,13 +93,30 @@ pub fn diag(text: &str) {
     let _ = io::stderr().write_all(text.as_bytes());
 }
 
-/// Write `text` to stdout and flush it, without panicking. Returns whether
-/// it was delivered: `false` means the reader is gone (or the disk behind a
-/// redirect is full) and the caller decides what that is worth.
-#[must_use]
-pub fn write_stdout(text: &str) -> bool {
+/// Write `text` to stdout and flush it, without panicking. An `Err` means
+/// the text was not delivered — the reader is gone, or the disk behind a
+/// redirect is full — and the caller decides what that is worth.
+pub fn write_stdout(text: &str) -> io::Result<()> {
     let mut out = io::stdout().lock();
-    out.write_all(text.as_bytes()).is_ok() && out.flush().is_ok()
+    out.write_all(text.as_bytes())?;
+    out.flush()
+}
+
+/// The stderr line for a report that could not be written to stdout, or
+/// `None` when there is nothing to explain (TASK-0345).
+///
+/// A broken pipe is a reader that stopped reading — `imgdedup … | head` —
+/// and did so on purpose: the exit code is enough. Anything else (a full
+/// disk behind `> file`, a quota, an I/O error) leaves the user with a
+/// missing or cut-short report and no idea why, so it is said once.
+pub fn undelivered_report_message(error: &io::Error) -> Option<String> {
+    if error.kind() == io::ErrorKind::BrokenPipe {
+        return None;
+    }
+    Some(format!(
+        "error: could not write the report to standard output: {}\n",
+        crate::safe_text::escape_control_chars(&error.to_string())
+    ))
 }
 
 impl ProgressStream {
@@ -130,6 +147,21 @@ impl Write for ProgressStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_broken_pipe_is_not_explained_but_any_other_failure_is() {
+        let gone = io::Error::from(io::ErrorKind::BrokenPipe);
+        assert_eq!(undelivered_report_message(&gone), None);
+
+        let full = io::Error::other("No space left on device\u{1b}[2J");
+        let message = undelivered_report_message(&full).unwrap();
+        assert!(
+            message.starts_with("error: could not write the report to standard output: No space"),
+            "{message}"
+        );
+        assert!(message.ends_with('\n') && message.lines().count() == 1);
+        assert!(!message.contains('\u{1b}'), "{message:?}");
+    }
 
     #[test]
     fn interrupting_line_breaks_first_only_while_a_line_is_live() {

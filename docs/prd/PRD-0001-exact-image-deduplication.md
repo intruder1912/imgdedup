@@ -149,10 +149,17 @@ User stories:
     exit code or the FR-20 record.
   - A report (or `--json` document) that cannot be written to stdout does not
     crash the run. The FR-20 record still receives its completion document,
-    nothing further is printed, and the process exits `1` — the report the
-    user asked for was not delivered. Like a record-write failure, this takes
-    precedence over FR-18's `3`. A report written in full before the reader
-    went away counts as delivered.
+    and the process exits `1` — the report the user asked for was not
+    delivered. Like a record-write failure, this takes precedence over FR-18's
+    `3`. A report written in full before the reader went away counts as
+    delivered. What is printed depends on the cause (clarified 2026-11-13,
+    TASK-0345): when the reader has gone away (a broken pipe, as in
+    `imgdedup … | head`) nothing further is printed — the reader stopped on
+    purpose and the exit code is enough; for any other cause (a full disk or
+    a quota behind `> file`, an I/O error) one line
+    `error: could not write the report to standard output: <reason>` is
+    written to stderr, so the user is not left with a missing or cut-short
+    report and no explanation.
   - Apply-time status lines on stdout (FR-21) that cannot be written are
     dropped, like diagnostics.
 - **FR-16:** Re-validate at apply time. Because the scan (which selects groups and
@@ -808,6 +815,14 @@ the `--output` overwrite rule and the closed-stream behavior (Amendment
   finishes, then the process does not crash and prints nothing further, the
   record still ends with its completion document, and the exit code is `1` —
   also with `--exit-code` on a run that found duplicates (`1`, not `3`).
+- **AC-47 (FR-15, report undeliverable for another reason; TASK-0345):**
+  Given stdout is redirected to a file that cannot take the whole report (a
+  full disk, a file-size limit), when the run finishes, then the process does
+  not crash, exits `1` (also with `--exit-code` on a run that found
+  duplicates), and stderr carries exactly one line beginning
+  `error: could not write the report to standard output:` followed by the
+  reason (other stderr lines the run would write anyway are unaffected). With
+  a reader that has gone away (AC-46) no such line is written.
 
 ## 10. Open questions
 
@@ -1616,3 +1631,10 @@ documentation. The owner overturned that.
 rule; "behaves like `>`" removed), §8 (`--overwrite-output` and the existing
 file behavior), §11 (the data-loss risk), and **AC-38..AC-46** in §9. The
 design is ADR-0018's Amendment 2026-11-13.
+
+**Later clarification (2026-11-13, TASK-0345, product-owner call within
+ruling 4):** an undelivered report still exits `1` whatever the cause, but
+only a reader that went away (a broken pipe) stays silent; any other cause
+(a full disk behind `> file`, an I/O error) prints one
+`error: could not write the report to standard output: <reason>` line on
+stderr. Folded into FR-15 and **AC-47**.

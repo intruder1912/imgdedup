@@ -471,9 +471,18 @@ fn run(args: cli::Cli) -> i32 {
     };
     // A reader that has gone away (`imgdedup … | head`) must not panic the
     // run. The report is still recorded below; that it was not delivered is
-    // a run-level failure (exit 1), reported by the exit code alone — the
-    // usual cause is a reader that stopped reading on purpose.
-    let delivered = streams::write_stdout(&rendered);
+    // a run-level failure (exit 1). A reader that stopped reading did so on
+    // purpose and gets the exit code alone; any other failure (a full disk
+    // behind `> file`) is said once on stderr (TASK-0345).
+    let delivered = match streams::write_stdout(&rendered) {
+        Ok(()) => true,
+        Err(error) => {
+            if let Some(message) = streams::undelivered_report_message(&error) {
+                streams::diag(&message);
+            }
+            false
+        }
+    };
 
     // The completion document: the same `rendered` string stdout just
     // received (byte-identical in the human record, AC-26; the same document
