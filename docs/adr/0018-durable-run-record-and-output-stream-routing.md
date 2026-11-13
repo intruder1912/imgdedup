@@ -908,10 +908,11 @@ make an interrupted run read as finished. The new rule, implemented in
   cut short inside its first line is "any other file": when in doubt, ask.
 - **One backup generation.** An existing `<file>.bak` is replaced when it is
   empty or itself a run record. Anything else at that name — a foreign file,
-  a directory, a symlink (even one to a record) — refuses the run **with or without** `--overwrite-output`: the
-  flag is permission to replace the output file, not a file the user never
-  named. Numbered backups were rejected: nothing is ever replaced, but an
-  unattended nightly run leaves hundreds of files.
+  a directory, a symlink (even one to a record) — refuses the run **with or
+  without** `--overwrite-output`: the flag is permission to replace the
+  output file, not a file the user never named. Numbered backups were
+  rejected: nothing is ever replaced, but an unattended nightly run leaves
+  hundreds of files.
 - **Rename, not copy.** The backup is a rename within the target's own
   directory: instant, and it cannot fail halfway. When the `--output` path is
   a symlink the content is copied instead — into a newly created `<file>.bak`
