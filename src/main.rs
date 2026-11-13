@@ -54,6 +54,23 @@ fn invocation(args: &cli::Cli, output: &std::path::Path) -> record::Invocation {
     }
 }
 
+/// `eprintln!` that cannot panic: a diagnostic nobody can read must not
+/// abort the run it describes (least of all an `--apply` in flight).
+macro_rules! diag {
+    ($($arg:tt)*) => {
+        streams::diag(&format!("{}\n", format_args!($($arg)*)))
+    };
+}
+
+/// `println!` for routine status lines, likewise unable to panic. Whether
+/// the line arrived is not interesting; whether the *report* did is decided
+/// where it is written.
+macro_rules! status {
+    ($($arg:tt)*) => {
+        let _ = streams::write_stdout(&format!("{}\n", format_args!($($arg)*)));
+    };
+}
+
 /// Top-level dispatch.
 ///
 /// Runs post-parse validation, then the enumeration stage (TASK-0302), then
@@ -65,7 +82,7 @@ fn run(args: cli::Cli) -> i32 {
     // valid flag combination syntactically), but the same code as if it had
     // been, since both mean "the invocation itself was wrong."
     if let Err(msg) = args.validate() {
-        eprintln!("error: {msg}");
+        diag!("error: {msg}");
         return exit_code::USAGE;
     }
 
@@ -96,7 +113,7 @@ fn run(args: cli::Cli) -> i32 {
             let file = match output_file::open(path, args.overwrite_output) {
                 Ok(opened) => opened.file,
                 Err(refusal) => {
-                    eprintln!("{}", refusal.message());
+                    diag!("{}", refusal.message());
                     return exit_code::USAGE;
                 }
             };
@@ -116,10 +133,10 @@ fn run(args: cli::Cli) -> i32 {
                 format,
                 shown,
                 Box::new(move |message| {
-                    eprint!(
-                        "{}",
-                        streams::interrupting_line(message, line_is_live.load(Ordering::Relaxed))
-                    );
+                    streams::diag(&streams::interrupting_line(
+                        message,
+                        line_is_live.load(Ordering::Relaxed),
+                    ));
                 }),
             );
             let recorder: Arc<dyn record::RunRecorder> = Arc::new(file_record);
@@ -307,7 +324,7 @@ fn run(args: cli::Cli) -> i32 {
     // (or any future stderr writer added during the run window — see the
     // rule in `progress.rs`'s module doc) may run before it returns.
     for err in &candidate_set.root_errors {
-        eprintln!(
+        diag!(
             "error: {}: {}",
             safe_text::escape_control_chars(&err.path.display().to_string()),
             safe_text::escape_control_chars(&err.reason)
@@ -336,7 +353,7 @@ fn run(args: cli::Cli) -> i32 {
                  re-run once the paths are correct",
                 candidate_set.root_errors.len()
             );
-            eprintln!("error: {reason}");
+            diag!("error: {reason}");
             recorder.record(record::RecordEvent::RunError { reason: &reason });
             return exit_code::ERROR;
         }
@@ -373,7 +390,7 @@ fn run(args: cli::Cli) -> i32 {
                     // not written at all — the result document's `actions`
                     // and `--output` cover it (ADR-0018 §9 #6). Never stderr.
                     if routing.status.is_some() {
-                        println!(
+                        status!(
                             "{verb}: {}",
                             safe_text::escape_control_chars(&path.display().to_string())
                         );
@@ -386,7 +403,7 @@ fn run(args: cli::Cli) -> i32 {
                         path,
                         skipped: Some(&reason),
                     });
-                    eprintln!(
+                    diag!(
                         "warning: {}: {}",
                         safe_text::escape_control_chars(&path.display().to_string()),
                         safe_text::escape_control_chars(&reason)
@@ -448,7 +465,11 @@ fn run(args: cli::Cli) -> i32 {
         render_span.record("bytes", rendered.len());
         (rendered, document)
     };
-    print!("{rendered}");
+    // A reader that has gone away (`imgdedup … | head`) must not panic the
+    // run. The report is still recorded below; that it was not delivered is
+    // a run-level failure (exit 1), reported by the exit code alone — the
+    // usual cause is a reader that stopped reading on purpose.
+    let delivered = streams::write_stdout(&rendered);
 
     // The completion document: the same `rendered` string stdout just
     // received (byte-identical in the human record, AC-26; the same document
@@ -465,9 +486,10 @@ fn run(args: cli::Cli) -> i32 {
     // Per-file warnings alone never change the code from 0 (NFR-6).
     // A record that could not be written is a run-level failure even though
     // the scan (and any apply) succeeded: the user asked for a durable record
-    // and did not get one (ADR-0018 §7, AC-28a).
+    // and did not get one (ADR-0018 §7, AC-28a). So is a report that could
+    // not be written to stdout.
     exit_code::compute(
-        !candidate_set.root_errors.is_empty() || recorder.is_degraded(),
+        !candidate_set.root_errors.is_empty() || recorder.is_degraded() || !delivered,
         args.exit_code,
         !dedup.groups.is_empty(),
     )

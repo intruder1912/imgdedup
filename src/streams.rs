@@ -83,6 +83,25 @@ pub fn interrupting_line(message: &str, line_is_live: bool) -> String {
     }
 }
 
+/// Write a diagnostic to stderr with one `write`, ignoring failure.
+///
+/// `eprintln!` panics when stderr cannot be written — a pipe whose reader has
+/// gone away is enough. A diagnostic nobody can read is not worth aborting a
+/// run for, and must never abort an `--apply` partway through. `text` carries
+/// its own line ending.
+pub fn diag(text: &str) {
+    let _ = io::stderr().write_all(text.as_bytes());
+}
+
+/// Write `text` to stdout and flush it, without panicking. Returns whether
+/// it was delivered: `false` means the reader is gone (or the disk behind a
+/// redirect is full) and the caller decides what that is worth.
+#[must_use]
+pub fn write_stdout(text: &str) -> bool {
+    let mut out = io::stdout().lock();
+    out.write_all(text.as_bytes()).is_ok() && out.flush().is_ok()
+}
+
 impl ProgressStream {
     pub fn open(stream: Stream) -> Self {
         match stream {
