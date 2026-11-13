@@ -161,6 +161,26 @@ fn help_text_cites_no_internal_identifiers() {
     }
 }
 
+/// `--overwrite-output` only means something next to `--output` (TASK-0342).
+#[test]
+fn overwrite_output_without_output_is_a_usage_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = cmd()
+        .arg(dir.path())
+        .arg("--overwrite-output")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--overwrite-output requires --output"),
+        "{stderr}"
+    );
+    let help = cmd().arg("--help").output().unwrap();
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--overwrite-output"));
+}
+
 /// `--help` lists every PRD §8 flag.
 /// Maps to: "imgdedup --help lists every PRD §8 flag".
 #[test]

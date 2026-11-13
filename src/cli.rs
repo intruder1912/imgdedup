@@ -114,11 +114,22 @@ pub struct Cli {
     /// complete report once the run finishes. If the run is interrupted, the
     /// file keeps everything recorded up to that point and has no final
     /// report. With `--json` the file is NDJSON (one JSON object per line).
-    /// An existing FILE is overwritten. This is in addition to the normal
-    /// output, which is unchanged.
-    // FR-20, ADR-0018.
+    /// An earlier run record at FILE is kept as FILE.bak and replaced; any
+    /// other existing file is refused unless `--overwrite-output` is given.
+    /// This is in addition to the normal output, which is unchanged.
+    // FR-20, ADR-0018; the overwrite rule is TASK-0342.
     #[arg(long, value_name = "FILE")]
     pub output: Option<PathBuf>,
+
+    /// Replace an existing FILE given to `--output` even if it is not an
+    /// imgdedup run record.
+    ///
+    /// Without this flag, `--output` replaces only an earlier run record or
+    /// an empty file and refuses anything else. Whatever is replaced is kept
+    /// as FILE.bak. Requires `--output`.
+    // TASK-0342.
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub overwrite_output: bool,
 
     // ── Diagnostics (ADR-0017, TASK-0338) ──────────────────────────────────
     /// Print per-stage timing lines to stderr (diagnostic).
@@ -156,6 +167,9 @@ impl Cli {
             return Err(
                 "--delete requires --apply (refusing to permanently delete without an explicit --apply)",
             );
+        }
+        if self.overwrite_output && self.output.is_none() {
+            return Err("--overwrite-output requires --output");
         }
         Ok(())
     }

@@ -11,6 +11,7 @@ mod enumerate;
 mod exit_code;
 mod json;
 mod keeper;
+mod output_file;
 mod progress;
 mod record;
 mod report;
@@ -82,23 +83,20 @@ fn run(args: cli::Cli) -> i32 {
 
     // The run record (FR-20, ADR-0018). Opened before anything is scanned, so
     // an unwritable path is a usage-level failure now rather than a surprise
-    // hours in (AC-28). `File::create` truncates an existing file — `--output`
-    // behaves like the `>` it stands in for (ADR-0018 §6). The file is written
-    // unbuffered: this function's caller ends in `process::exit`, which runs
+    // hours in (AC-28). An existing file is never destroyed unasked: an
+    // earlier record is kept as `<file>.bak`, anything else is refused
+    // without `--overwrite-output` (TASK-0342, `output_file`). The file is
+    // written unbuffered: this function's caller ends in `process::exit`, which runs
     // no destructors, so nothing may sit in a user-space buffer.
     let line_is_live = Arc::new(AtomicBool::new(routing.progress.is_some_and(|t| t.tty)));
     let recorder: Arc<dyn record::RunRecorder> = match &args.output {
         None => Arc::new(record::NoRecord),
         Some(path) => {
             let shown = path.display().to_string();
-            let file = match std::fs::File::create(path) {
-                Ok(file) => file,
-                Err(e) => {
-                    eprintln!(
-                        "error: cannot open output file {}: {}",
-                        safe_text::escape_control_chars(&shown),
-                        safe_text::escape_control_chars(&e.to_string())
-                    );
+            let file = match output_file::open(path, args.overwrite_output) {
+                Ok(opened) => opened.file,
+                Err(refusal) => {
+                    eprintln!("{}", refusal.message());
                     return exit_code::USAGE;
                 }
             };

@@ -594,3 +594,144 @@ fn a_record_write_failure_never_interrupts_an_apply_on_any_unix() {
         "{stderr}"
     );
 }
+
+// ── TASK-0342: `--output` never destroys a file unasked ───────────────────
+
+#[test]
+fn rerunning_with_the_same_output_keeps_the_previous_record_as_bak() {
+    let tree = tempfile::tempdir().unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let record = out_dir.path().join("run.txt");
+    let bak = out_dir.path().join("run.txt.bak");
+
+    let run = || {
+        cmd()
+            .arg(tree.path())
+            .arg("--no-progress")
+            .arg("--output")
+            .arg(&record)
+            .output()
+            .unwrap()
+    };
+    assert_eq!(run().status.code(), Some(0));
+    let first = fs::read(&record).unwrap();
+    assert!(!bak.exists(), "nothing to back up on the first run");
+
+    assert_eq!(run().status.code(), Some(0), "a re-run needs no flag");
+    assert_eq!(fs::read(&bak).unwrap(), first, "previous record kept");
+    assert!(
+        fs::read_to_string(&record)
+            .unwrap()
+            .contains("===== RESULT")
+    );
+
+    // One generation: the third run replaces the backup with the second.
+    let second = fs::read(&record).unwrap();
+    assert_eq!(run().status.code(), Some(0));
+    assert_eq!(fs::read(&bak).unwrap(), second);
+}
+
+#[test]
+fn a_json_rerun_backs_up_a_human_record() {
+    let tree = tempfile::tempdir().unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let record = out_dir.path().join("run.out");
+
+    let human = cmd()
+        .arg(tree.path())
+        .args(["--no-progress", "--output"])
+        .arg(&record)
+        .output()
+        .unwrap();
+    assert_eq!(human.status.code(), Some(0));
+    let first = fs::read(&record).unwrap();
+
+    let json = cmd()
+        .arg(tree.path())
+        .args(["--no-progress", "--json", "--output"])
+        .arg(&record)
+        .output()
+        .unwrap();
+    assert_eq!(json.status.code(), Some(0));
+    assert_eq!(fs::read(out_dir.path().join("run.out.bak")).unwrap(), first);
+    assert_eq!(ndjson(&record).last().unwrap()["type"], "result");
+}
+
+#[test]
+fn refusing_leaves_an_existing_image_intact() {
+    // The mistake this exists for: `--output` names one of the photos.
+    let tree = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let image = tree.path().join("dir0/a.png");
+    let before = fs::read(&image).unwrap();
+
+    let out = cmd()
+        .arg(tree.path())
+        .arg("--output")
+        .arg(&image)
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty(), "no report");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.starts_with("error: output file "), "{stderr}");
+    assert!(stderr.contains("--overwrite-output"), "{stderr}");
+    assert!(!stderr.contains("scanning"), "refused before scanning");
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert_eq!(fs::read(&image).unwrap(), before, "the image is intact");
+    assert!(!tree.path().join("dir0/a.png.bak").exists());
+}
+
+#[test]
+fn overwrite_output_replaces_a_foreign_file_and_keeps_it_as_bak() {
+    let tree = tempfile::tempdir().unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let record = out_dir.path().join("notes.txt");
+    fs::write(&record, b"shopping list\n").unwrap();
+
+    let out = cmd()
+        .arg(tree.path())
+        .args(["--no-progress", "--overwrite-output", "--output"])
+        .arg(&record)
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(
+        fs::read(out_dir.path().join("notes.txt.bak")).unwrap(),
+        b"shopping list\n"
+    );
+    let text = fs::read_to_string(&record).unwrap();
+    assert!(text.ends_with(&String::from_utf8(out.stdout).unwrap()));
+}
+
+#[test]
+fn a_foreign_bak_refuses_the_run() {
+    let tree = tempfile::tempdir().unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let record = out_dir.path().join("run.txt");
+    let bak = out_dir.path().join("run.txt.bak");
+    fs::write(&record, b"# imgdedup 0.1.0 run record\n").unwrap();
+    fs::write(&bak, b"not ours\n").unwrap();
+
+    for extra in [&[][..], &["--overwrite-output"][..]] {
+        let out = cmd()
+            .arg(tree.path())
+            .args(extra)
+            .arg("--output")
+            .arg(&record)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2), "{extra:?}");
+        assert!(out.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.starts_with("error: cannot back up "), "{stderr}");
+        assert_eq!(fs::read(&bak).unwrap(), b"not ours\n");
+        assert_eq!(fs::read(&record).unwrap(), b"# imgdedup 0.1.0 run record\n");
+    }
+}
