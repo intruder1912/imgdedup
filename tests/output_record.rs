@@ -484,3 +484,109 @@ fn a_failed_record_never_interrupts_an_apply() {
         );
     }
 }
+
+/// The cross-platform twin of the `/dev/full` tests above: a real write
+/// failure (`EFBIG`) produced by the file-size resource limit. `SIGXFSZ` is
+/// ignored (an ignored signal survives `exec`), so the over-limit write fails
+/// instead of killing the process. Only the record file is limited: stdout and
+/// stderr are pipes, which `RLIMIT_FSIZE` does not constrain.
+#[cfg(unix)]
+fn run_with_file_size_limit(args: &[&std::ffi::OsStr]) -> std::process::Output {
+    std::process::Command::new("sh")
+        .args([
+            "-c",
+            r#"ulimit -f 1; trap '' XFSZ; exec "$0" "$@""#,
+            env!("CARGO_BIN_EXE_imgdedup"),
+        ])
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_record_that_hits_the_file_size_limit_does_not_stop_the_run() {
+    // AC-28a on every Unix: same product behavior as the `/dev/full` test,
+    // but runnable on macOS. The three-group fixture's record is well over the
+    // 1 KiB limit, so a write must fail partway through.
+    use std::ffi::OsStr;
+    let tree = tempfile::tempdir().unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let record = out_dir.path().join("run.txt");
+
+    let plain = cmd()
+        .arg(tree.path())
+        .arg("--no-progress")
+        .output()
+        .unwrap();
+    let out = run_with_file_size_limit(&[
+        tree.path().as_os_str(),
+        OsStr::new("--no-progress"),
+        OsStr::new("--output"),
+        record.as_os_str(),
+    ]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "exit 1 although the scan succeeded"
+    );
+    assert_eq!(
+        out.stdout, plain.stdout,
+        "stdout is exactly the plain report"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr.matches("error: could not write to ").count(),
+        1,
+        "reported exactly once: {stderr}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "and nothing else: {stderr}");
+
+    let text = fs::read_to_string(&record).unwrap();
+    assert!(
+        text.starts_with("# imgdedup "),
+        "partial record kept: {text}"
+    );
+    assert!(
+        !text.contains("===== RESULT"),
+        "a failed record never claims completion: {text}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_record_write_failure_never_interrupts_an_apply_on_any_unix() {
+    use std::ffi::OsStr;
+    let tree = tempfile::tempdir().unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    fixture(tree.path());
+    let record = out_dir.path().join("run.ndjson");
+
+    let out = run_with_file_size_limit(&[
+        tree.path().as_os_str(),
+        OsStr::new("--apply"),
+        OsStr::new("--delete"),
+        OsStr::new("--no-progress"),
+        OsStr::new("--json"),
+        OsStr::new("--output"),
+        record.as_os_str(),
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["actions"]["removed"].as_array().unwrap().len(), 3);
+    for i in 0..3 {
+        let left = fs::read_dir(tree.path().join(format!("dir{i}")))
+            .unwrap()
+            .count();
+        assert_eq!(left, 1, "dir{i}: duplicate removed, keeper kept");
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr.matches("error: could not write to ").count(),
+        1,
+        "{stderr}"
+    );
+}

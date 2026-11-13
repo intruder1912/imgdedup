@@ -1760,6 +1760,23 @@ mod tests {
     }
 
     #[test]
+    fn scanning_determinate_state_carries_elapsed_time() {
+        // AC-32 "in every phase and state": AC-21a's second scanning state,
+        // which the per-phase test above does not reach.
+        for tty in [true, false] {
+            let p = immediate_with_elapsed(tty, 7_000);
+            p.set_phase(Phase::Scanning);
+            p.retotal(30);
+            p.set_phase(Phase::Scanning);
+            let out = captured(&p);
+            assert!(
+                out.contains("scanning: 0 of 30 (0%) (7s elapsed)"),
+                "tty={tty}: {out:?}"
+            );
+        }
+    }
+
+    #[test]
     fn completion_line_reports_total_elapsed_time() {
         for tty in [true, false] {
             let p = immediate_with_elapsed(tty, 141_300);

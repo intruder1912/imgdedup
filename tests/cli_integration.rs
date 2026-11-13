@@ -995,6 +995,41 @@ fn piped_stderr_has_no_redraw_or_ansi_and_bounded_line_count() {
     );
 }
 
+/// AC-32 (FR-19 amended 2026-08-06) end to end, on the plain-line path:
+/// every determinate progress line carries the elapsed time, and the
+/// completion line carries the run's total. The one exempt line is the bare
+/// non-TTY `scanning...` entry (AC-22: a clock there would be stale).
+#[test]
+fn non_tty_progress_lines_carry_elapsed_time_and_the_completion_line_a_total() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    materialize_progress_fixture(dir.path());
+
+    let out = cmd().arg(dir.path()).output().expect("imgdedup must spawn");
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    let determinate: Vec<&str> = stderr.lines().filter(|l| l.contains(" of ")).collect();
+    assert!(!determinate.is_empty(), "positive control; got:\n{stderr}");
+    for line in &determinate {
+        let ok = if line.starts_with("done:") {
+            line.ends_with("s total)")
+        } else {
+            line.ends_with("s elapsed)")
+        };
+        assert!(ok, "AC-32: no elapsed time on {line:?}; all:\n{stderr}");
+    }
+    assert!(
+        stderr
+            .lines()
+            .any(|l| l.starts_with("done: 6 of 6 (100%) (") && l.ends_with("s total)")),
+        "the completion line reports the run total; got:\n{stderr}"
+    );
+    assert!(
+        stderr.lines().any(|l| l == "scanning..."),
+        "the non-TTY indeterminate line stays bare (AC-22); got:\n{stderr}"
+    );
+}
+
 // ── AC-21a (FR-19, scanning's determinate second state, TASK-0328) ────────
 
 /// AC-21a end to end: once the walk finds `N > 0` candidates, scanning
