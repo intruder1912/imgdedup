@@ -11,6 +11,28 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 38 (feat: report paging and closing status, TASK-0340 / FR-22),
+  2026-11-13 — branch `feat/report-paging`, local only._ Brainstormed with
+  the owner; the
+  [design](../superpowers/specs/2026-11-13-report-paging-design.md) is
+  approved and the
+  [plan](../superpowers/plans/2026-11-13-report-paging.md) is written.
+  Owner decisions: on an interactive terminal a report longer than the
+  screen opens in a pager **positioned at its end**, on by default; a short
+  closing status (the report's `Summary:` line, the removal counts, a
+  warnings count) is the last thing shown and stays in the terminal after
+  the pager exits; that status appears **only after a pager**.
+
+  **Resume point: nothing is built. Start at plan Task 1** — the architect's
+  ADR-0019 (how `$PAGER` is started safely, opening at the end, the screen
+  after exit), then Task 2, the product-owner's PRD amendment replacing the
+  tentative FR-22 and AC-33..AC-37. Code (Tasks 3–5) follows the ADR. Run
+  each batch in a fresh session; the plan carries the usage budget.
+
+  Also to record in this unit: PR #110 (TASK-0345, session 37) merged
+  2026-11-13 as squash `cc74999`; its usage was 22% of a 5h window against a
+  15–20% estimate.
+
 - _Session 37 (fix: say why a report could not be written, TASK-0345),
   2026-11-13 — branch `fix/undelivered-report-message`._ Since TASK-0342 a
   report that cannot be written to stdout exits `1` in silence. That is
