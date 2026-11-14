@@ -7,7 +7,7 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-11-13
+**Last updated:** 2026-11-14
 
 ## In progress
 
@@ -23,11 +23,30 @@ docs pass → AI automation, batched within Claude usage limits.
   warnings count) is the last thing shown and stays in the terminal after
   the pager exits; that status appears **only after a pager**.
 
-  **Resume point: nothing is built. Start at plan Task 1** — the architect's
-  ADR-0019 (how `$PAGER` is started safely, opening at the end, the screen
-  after exit), then Task 2, the product-owner's PRD amendment replacing the
-  tentative FR-22 and AC-33..AC-37. Code (Tasks 3–5) follows the ADR. Run
-  each batch in a fresh session; the plan carries the usage budget.
+  **Batch A (design) done 2026-11-14, committed on the local branch.**
+  [ADR-0019](../adr/0019-report-paging.md) (`proposed`): `$PAGER` runs
+  through the platform shell, `less` directly otherwise; the tool measures
+  the terminal itself rather than using `less -F`, so the status follows only
+  a pager that really ran; `LESS` is wrapped around the user's value to open
+  at the end; Ctrl-C is ignored while the pager is up; the record's
+  completion document is written before delivery. No new crate, but `libc`
+  and `windows-sys` become direct dependencies and the crate gets its first
+  `unsafe` code, confined to `pager::sys`. Measured on macOS with less 668
+  only. PRD-0001 Amendment 2026-11-14 folds FR-22 into the body (AC-33..AC-37
+  rewritten, AC-48..AC-52 new, FR-15 reconciled) and settles the closing
+  status and a failed-pager warning line. After the PRD pass the orchestrator
+  added a `warn` closure to the ADR's `deliver` interface for that line; the
+  architect has not seen that edit yet.
+
+  **Open owner question:** should an unset or empty `TERM` disable paging
+  like `dumb` (ADR-0019 §8)? The ADR, PRD and plan proceed on "yes".
+
+  **Resume point: nothing is built. Start at plan Task 3** (inline TDD,
+  Tasks 3–5), then Batch C (docs, review, PR) in its own window.
+
+  Usage, Batch A: two agent passes, architect 200k and product-owner 164k
+  subagent tokens; estimate 25–35% of a 5h window, starting from 6% (weekly
+  14%); actual to be read by the owner.
 
   Also to record in this unit: PR #110 (TASK-0345, session 37) merged
   2026-11-13 as squash `cc74999`; its usage was 22% of a 5h window against a

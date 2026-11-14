@@ -3,7 +3,7 @@
 - **Status:** approved
 - **Owner:** product-owner
 - **Created:** 2026-06-13
-- **Related:** [roadmap Phase 1](../planning/roadmap.md), [backlog TASK-0101](../planning/backlog.md), [TEMPLATE](TEMPLATE.md); hands open questions to the architect (TASK-0201 technology-stack ADR and design ADRs). FR-20/FR-21 are designed in [ADR-0018](../adr/0018-durable-run-record-and-output-stream-routing.md).
+- **Related:** [roadmap Phase 1](../planning/roadmap.md), [backlog TASK-0101](../planning/backlog.md), [TEMPLATE](TEMPLATE.md); hands open questions to the architect (TASK-0201 technology-stack ADR and design ADRs). FR-20/FR-21 are designed in [ADR-0018](../adr/0018-durable-run-record-and-output-stream-routing.md); FR-22 in [ADR-0019](../adr/0019-report-paging.md).
 
 ## 1. Summary
 
@@ -95,6 +95,10 @@ User stories:
 - As a user watching a long run, I want to see **how long it has been going**
   and to find the run's own output on **standard output**, with standard error
   reserved for actual problems (Amendment 2026-08-06, FR-21).
+- As a user coming back to a long run at a terminal, I want to **land on the
+  run's status** and still be able to **scroll up to the first line** of the
+  report, however long it is, without having planned for it before the run
+  (Amendment 2026-11-14, FR-22).
 
 ## 6. Functional requirements
 
@@ -162,6 +166,15 @@ User stories:
     report and no explanation.
   - Apply-time status lines on stdout (FR-21) that cannot be written are
     dropped, like diagnostics.
+  - **A report shown through a pager (amended 2026-11-14, FR-22)** counts as
+    delivered, however far the user scrolled and whether or not the pager
+    read all of it: quitting early is normal, prints nothing, and does not
+    make the exit code `1`. The pager's own exit status never replaces the
+    tool's exit code. After a pager that failed or could not be started, the
+    report is printed directly and that print decides delivery exactly as
+    above (AC-46, AC-47). FR-22's closing status (like a status line) and
+    its failed-pager warning (like a diagnostic) are dropped when they cannot
+    be written, and change nothing.
 - **FR-16:** Re-validate at apply time. Because the scan (which selects groups and
   keepers) and `--apply` are separate passes, immediately before trashing or
   deleting a non-keeper the tool re-confirms the file still exists, is still a
@@ -395,6 +408,130 @@ User stories:
   A future reader should treat this paragraph as the reason **not** to reopen
   streaming stdout without new evidence.
 
+- **FR-22 (Amendment 2026-11-14; replaces the tentative FR-22 of the
+  Amendment 2026-08-06):** On an interactive terminal, show a human-readable
+  report that is **longer than the screen** through a **pager, opened at the
+  report's end**, with a short **closing status** as the last thing in the
+  pager and printed again into the terminal after the pager closes. The user
+  lands on the run's status and can scroll up to the report's first line,
+  however long the report is, without having thought of `--output` or
+  `| less` before the run. How the pager is started, positioned and waited
+  for is [ADR-0019](../adr/0019-report-paging.md)'s; this requirement states
+  what the user gets.
+  - **When it pages.** Only when **all** of these hold; otherwise no pager
+    runs and the output is exactly what it was before FR-22:
+    - stdout **and** stdin are interactive terminals (someone must be there
+      to press a key);
+    - `TERM` is not `dumb`. On macOS and Linux an unset or empty `TERM`
+      counts as `dumb` too *(this clause is pending the owner's
+      confirmation, ADR-0019 §8; if the owner rules against it, delete this
+      sentence)*;
+    - the output is the human-readable report — never `--json`;
+    - neither `--no-pager` nor `--timings` is given;
+    - `PAGER` is not set to the empty string or to exactly `cat`;
+    - the terminal reports its size, and the report **does not fit** on it.
+      A report fits when it can be shown in full with one row left over for
+      the prompt. The tool measures this itself rather than leaving it to the
+      pager. Near the boundary it errs towards paging (a line with non-ASCII
+      characters is counted as if every such character were double-width),
+      so a report a few rows shorter than the screen may still open a pager;
+      a terminal that does not report a size never gets one;
+    - a pager can be started.
+  - **Which pager.** `$PAGER` when set, run the way the user typed it (so
+    `PAGER="less -R"` works); otherwise `less` on macOS and Linux.
+    **Windows has no default pager:** without `$PAGER` the report prints as
+    it did before FR-22. This is an accepted gap against NFR-5 (owner,
+    2026-11-13).
+  - **What is promised for `less`** (the default, or a `$PAGER` that runs
+    `less`): it opens at the end of the text; it stays open until the user
+    quits it, even when the user's own `LESS` setting asks it to quit at the
+    end of the text or when the text fits; the user's other `LESS` settings
+    still apply; options written into `$PAGER` itself are the user's explicit
+    command and win. After the user quits, the screen as it was before the
+    pager is back and the closing status is printed below it. With `-X` in
+    the user's `LESS`, the pager's last page (ending in the status) stays on
+    the screen instead and the status is printed again directly below it —
+    accepted: `-X` is set precisely to keep that page.
+  - **What is promised for any other pager: whatever that pager does.**
+    Where it opens, whether it quits on its own, and what it leaves on the
+    screen are that pager's. The tool still starts it only for a report that
+    does not fit, hands it the report and the closing status, waits for it to
+    exit, and then prints the closing status.
+  - **The text in the pager** is the report — byte for byte what a redirect
+    of the same run captures; nothing truncated, summarized, reordered or
+    re-styled — followed by one empty line and the closing status.
+  - **The closing status** is an empty line followed by these lines, in this
+    order, each ending in a newline — the same text in the pager and in the
+    terminal:
+    1. The report's own summary line, **byte for byte**: its `Summary:` line,
+       or `No duplicate groups found.` when the report has no `Summary:`
+       line.
+    2. On an `--apply` run only: `Trashed <n> files.` — `Deleted` with
+       `--delete`; `file` when `<n>` is `1`; present even when `<n>` is `0`.
+       When at least one file was skipped, the same line continues with one
+       space and `Skipped <k> (left in place).` These are the report's own
+       counts and verbs (its `Trashed <n> files:` and
+       `Skipped (left in place):` headings), without the lists.
+    3. Only when the report has a `Warnings:` section:
+       `<w> warnings, listed at the top of the report.` — `warning` when
+       `<w>` is `1` — where `<w>` is the number of entries in that section.
+       Apply-time skips are not counted here; they are line 2's `Skipped`.
+
+    Scan roots that could not be read are **not** counted in the closing
+    status: they are already the `error:` lines on stderr written just before
+    the report (so, after `less` restores the screen, directly above the
+    status), and they already make the exit code `1`; an `--apply` run with
+    an unreadable root stops before any report.
+  - **When the closing status appears.** Only after a pager: after a pager
+    that was shown, once it has exited; and after a pager that failed,
+    following the directly printed report (below). **Never** after a report
+    printed directly because no pager was started — a report that fits, any
+    condition above not met, a pager that could not be started. **Never** in
+    redirected or piped stdout, under `--json`, or in the `--output` record.
+  - **A pager that fails.** A pager that exits successfully, or that the
+    user ends with Ctrl-C, was **shown**. A pager that started and then
+    exits with any other failure status, or is ended by any other signal,
+    **failed** — including a misspelled `$PAGER`, which the shell starts and
+    which then fails. After a failed pager the tool writes one line to
+    stderr, `warning: pager failed: <command>; the report follows`, where
+    `<command>` is the value of `$PAGER` (control characters escaped as in
+    the report) or `less` for the default; then the report, printed
+    directly; then the closing status. In the rare case of a pager that
+    showed the report and still exited with a failure status, the user sees
+    the report twice; that is preferred to not seeing it at all. A pager
+    that **could not be started** at all (for example no `less` installed)
+    gets no warning line and no closing status: the report prints exactly as
+    before FR-22.
+  - **Delivery and exit codes** — see FR-15's paged-report rule: a report
+    shown through a pager counts as delivered, quitting early is normal and
+    prints nothing, and the pager's exit status never replaces the tool's
+    exit code (FR-15, FR-18 decide it exactly as for the same run without a
+    pager).
+  - **Ctrl-C while the pager is open.** With `less` it does not end the run:
+    `less` stays open, and when the user quits, the closing status is printed
+    and the tool exits with its own code. Another pager does what it does
+    with Ctrl-C; if it ends, it counts as shown, so the report is not printed
+    again. On Windows, Ctrl-C ends the tool (accepted with the Windows gap).
+  - **Everything else first; the record does not wait.** Progress (FR-19)
+    has finished, run-level errors and apply-time lines (FR-21) have been
+    written, and the `--output` record's completion document (FR-20) has
+    been written **before** the pager starts. Nothing is written to the
+    terminal while the pager is open. The record is therefore complete while
+    the user is still reading the pager, and quitting, Ctrl-C or a closed
+    terminal cannot cost it its completion document. This ordering holds on
+    every run, paged or not, so when writing the completion document itself
+    fails, its `error:` line now comes before the report rather than after
+    it.
+  - **The run waits for the user.** A paged run does not return to the
+    prompt until the pager is closed, so `imgdedup photos && next-command`
+    typed at a terminal waits for a keypress (accepted, owner 2026-11-13).
+    Where a terminal exists but nobody is at it and the conditions above do
+    not catch it (a CI runner or `docker run -t` that allocates a sized
+    terminal), `--no-pager` or `PAGER=cat` turns paging off.
+  - Paging is **output-only**: it never changes what is scanned, grouped or
+    removed, and stdout whenever stdout is not an interactive terminal is
+    unchanged (NFR-3).
+
 ## 7. Non-functional requirements
 
 - **NFR-1 (safety invariant):** The keeper of every group is never trashed or
@@ -411,7 +548,8 @@ User stories:
   depends on — plus the completion document that ends an FR-20 record file.
   Explicitly **excluded**: the FR-19 progress stream, on whichever stream
   FR-21 puts it (Amendment 2026-07-19, re-scoped by the Amendment 2026-08-06);
-  anything written to an interactive terminal alongside progress; and the
+  anything written to an interactive terminal alongside progress, which
+  includes FR-22's closing status and what a pager shows; and the
   transcript portion of an FR-20 record file, whose order follows the order
   work finished.
 - **NFR-4 (scale):** Comfortably process large libraries — on the order of 100k+
@@ -419,7 +557,9 @@ User stories:
   buffering in memory) and hashing in parallel across CPU cores. Concrete
   throughput/memory targets to be firmed up with the architect.
 - **NFR-5 (portability):** Run on Linux, macOS, and Windows, honoring each
-  platform's trash/recycle semantics.
+  platform's trash/recycle semantics. One accepted, documented gap: Windows
+  has no default pager for FR-22, so a long report there is paged only when
+  `$PAGER` is set (owner, 2026-11-13).
 - **NFR-6 (robust errors):** Unreadable files, permission errors, and similar
   per-file failures are reported and skipped; the run continues rather than
   aborting.
@@ -451,6 +591,9 @@ Output:
                       not a run record (kept as <file>.bak)
   --exit-code         Exit 3 if any duplicate groups were found (else 0)
   --no-progress       Disable the live progress indicator
+  --no-pager          Do not show a long report through a pager. By default,
+                      on an interactive terminal, a report longer than the
+                      screen opens in a pager positioned at its end.
 ```
 
 Behavior:
@@ -484,6 +627,16 @@ Behavior:
   kept as `<file>.bak` and replaced; an empty file is written; any other file
   is refused before scanning (exit `2`) unless `--overwrite-output` is given,
   which keeps it as `<file>.bak` too. One backup generation (FR-20).
+- **Long reports (Amendment 2026-11-14, FR-22):** on an interactive
+  terminal, a human-readable report longer than the screen opens in a pager
+  (`$PAGER`, otherwise `less`; no default on Windows) positioned at its end.
+  The user can scroll up to its first line; after the pager closes, a short
+  closing status — the summary line, what `--apply` did, the number of
+  warnings — is printed into the terminal. A report that fits prints as
+  before, with no keypress and no closing status. `--no-pager`, `PAGER=cat`
+  (or an empty `PAGER`), `--timings`, `--json`, and any redirect or pipe of
+  stdout turn paging off. The exit code is the tool's own, however the pager
+  was left.
 - **Errors:** per-file problems are listed and skipped; the overall run still
   completes and summarizes. Exit non-zero only on a run-level failure. Standard
   error carries **only** genuine failures (Amendment 2026-08-06) — plus
@@ -766,10 +919,88 @@ Behavior:
   terminal completion state reports the run's total elapsed time. No
   remaining-time estimate is shown.
 
-AC-33..AC-37 are reserved for FR-22 (paging) and are stated in the
-[Amendment 2026-08-06](#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341);
-the `--output` overwrite rule and the closed-stream behavior (Amendment
-2026-11-13) continue at AC-38.
+**How FR-22 is verified (AC-33..AC-37, AC-48..AC-52; ADR-0019 §9).** The
+test suite has no pseudo-terminal, and the shipped binary has no hidden
+switch that pretends stdout is a terminal. Each FR-22 criterion therefore
+says which part is **verified automatically** — the paging decision, the
+fit rule, the closing-status text, what is written after a pager that was
+shown, failed or could not be started (with stand-in pager programs), the
+exit code, and, end to end through the binary, that nothing pages when
+stdout is not a terminal — and which part is **verified by hand on a real
+terminal** before the slice's PR opens, with the evidence recorded in the
+commit that ships it.
+
+- **AC-33 (FR-22, a long report is paged at its end):** Given stdout and
+  stdin are an interactive terminal on macOS or Linux, `PAGER` and `LESS`
+  are unset, and a run produces a human-readable report longer than the
+  screen, when the run finishes, then `less` opens showing the end of the
+  text, whose last lines are the closing status (AC-48); the user can scroll
+  up to the report's first line; and after `q` the screen as it was before
+  the pager is back, the closing status is printed below it, and the prompt
+  returns. *Automatically:* the text handed to a pager is exactly the report
+  (byte-identical to what the same run writes to a redirected stdout), one
+  empty line, and the closing status, in that order — checked with a
+  stand-in pager that saves what it receives. *By hand:* opening at the end,
+  scrolling to the first line, and the screen after `q`.
+- **AC-34 (FR-22, when it never pages):** Given any one of: stdout
+  redirected or piped; stdin not a terminal; `--json`; `--no-pager`;
+  `--timings`; `TERM=dumb`; on macOS or Linux an unset or empty `TERM`
+  *(pending the owner, FR-22)*; `PAGER` empty or exactly `cat`; Windows with
+  `PAGER` unset — when a run finishes, then no pager is started and the
+  output is exactly what the same run produced before FR-22, with no closing
+  status. *Automatically:* the decision for every one of these conditions
+  (unit table test, including that `PAGER=/bin/cat` and `PAGER=" cat"` do
+  not count as `cat`); and, end to end through the binary with stdout a
+  pipe, that a `PAGER` which would create a marker file never runs and
+  stdout is byte-identical to a run without `PAGER` — likewise with
+  `--no-pager`. *By hand:* `PAGER=cat` on a real terminal prints the report
+  directly with no closing status.
+- **AC-35 (FR-22, FR-15, quitting early and exit codes):** Given a report
+  shown through a pager, when the user quits on the first screen — or the
+  pager exits successfully without reading all of the report, or is ended
+  by Ctrl-C — then no error is printed, nothing panics, the closing status
+  is printed, and the exit code is the one the same run has without a pager:
+  `0` for a successful run, `3` with `--exit-code` on a run that found
+  duplicates, `1` for a run-level failure (an unreadable scan root, a failed
+  `--output` record) — never the pager's own status and never FR-15's
+  undelivered-report `1`. *Automatically:* the delivery step with stand-in
+  pagers — one that reads nothing and exits `0`, one that reads one line of
+  a 5 MB report and exits (returns promptly), one that ends itself by
+  interrupt or exits `130` — all count as shown and write only the closing
+  status after them; and the exit code after "shown" equals the unpaged
+  code in each of the three cases. *By hand:* `q` on the first screen of a
+  long report.
+- **AC-36 (FR-22, a pager that fails or cannot be started):** Given paging
+  applies, when the pager **started and failed** — `PAGER=lesss`, a pager
+  that exits `3`, one ended by a signal other than interrupt — then stderr
+  gets exactly one line,
+  `warning: pager failed: <command>; the report follows`,
+  with `<command>` the escaped value of `$PAGER` (or `less`), then
+  the report is printed directly in full, then the closing status, and the
+  exit code is the tool's own; and when the direct print itself cannot be
+  written, FR-15 applies to it as for any report (exit `1`; AC-46/AC-47).
+  When the pager **could not be started** (no `less` on the `PATH`, a
+  program that does not exist), then there is no warning line and no closing
+  status: the report is printed exactly as before FR-22. Neither case's
+  warning line or status is in the `--output` record. *Automatically:* the
+  outcome for each exit status and signal, the warning line's exact text
+  (including an escaped control character in `$PAGER`), the order of what is
+  written after "failed" and after "not started", and a failing report write
+  after a failed pager returning "not delivered". *By hand:* `PAGER=lesss` on
+  a real terminal.
+- **AC-37 (FR-22, a report that fits):** Given stdout and stdin are an
+  interactive terminal and the report can be shown in full with one row left
+  over, when the run finishes, then it is printed directly, exactly as
+  before FR-22: no pager, no keypress, no closing status. A terminal that
+  reports no size (or a size of zero) behaves the same whatever the report's
+  length. *Automatically:* the fit rule — a report of exactly one row fewer
+  than the screen fits and one row more does not; a line one column wider
+  than the screen takes two rows; a non-ASCII character counts two columns;
+  an empty report fits; a zero or unknown size means no pager. *By hand:* a
+  short report on a real terminal returns straight to the prompt.
+
+AC-38..AC-47 follow (Amendment 2026-11-13); FR-22's remaining criteria
+continue at AC-48.
 
 - **AC-38 (FR-20, re-run needs no flag):** Given `run.txt` holds the record of
   an earlier run — human-readable or NDJSON, whatever the new run's format —
@@ -823,6 +1054,64 @@ the `--output` overwrite rule and the closed-stream behavior (Amendment
   `error: could not write the report to standard output:` followed by the
   reason (other stderr lines the run would write anyway are unaffected). With
   a reader that has gone away (AC-46) no such line is written.
+- **AC-48 (FR-22, the closing status's exact text):** Given a run's report,
+  then its closing status is an empty line followed by, in order:
+  - the report's own summary line, byte-identical to that line inside the
+    report — for example
+    `Summary: 3120 duplicate groups, 6412 files, 48213377112 bytes reclaimable.`,
+    or `No duplicate groups found.` when the report has no `Summary:` line;
+  - on an `--apply` run only, `Trashed 3288 files.` — `Deleted` under
+    `--delete`, `Trashed 1 file.` in the singular, `Trashed 0 files.` when
+    nothing was removed — continued on the same line, after one space, by
+    `Skipped 4 (left in place).` only when something was skipped
+    (`Skipped 1 (left in place).` for one);
+  - only when the report has a `Warnings:` section,
+    `12 warnings, listed at the top of the report.` — or
+    `1 warning, listed at the top of the report.` — counting that section's
+    entries.
+
+  So a dry run with no warnings has just the summary line; a dry run with 12
+  warnings adds the warnings line; an `--apply` run that trashed 3288 files
+  and skipped 4 reads `Summary: …`, then
+  `Trashed 3288 files. Skipped 4 (left in place).`, then the warnings line
+  if any. Scan roots that could not be read add no line. Every line ends with
+  a newline. *Automatically:* unit tests over each of these cases, including
+  the byte-identity of the first line with the report's own for every form
+  of the summary line (with and without already-deduplicated hard-link
+  sets).
+- **AC-49 (FR-22, FR-20, the status stays out of every document; the record
+  does not wait):** Given any run, then the closing status and the
+  failed-pager warning appear neither in redirected or piped stdout, nor in
+  `--json` output, nor in the `--output` record, whose completion document
+  is the report exactly as an unpaged run records it (AC-26, AC-27
+  unchanged). Given a paged run with `--output`, when the pager is still
+  open, then the record already ends with its completion document.
+  *Automatically:* the record's contents are unchanged by paging, and the
+  completion document is written before the report is delivered on every
+  path. *By hand:* the record is complete while the pager is open on a real
+  terminal.
+- **AC-50 (FR-22, what `less` and other pagers get):** Given paging
+  applies, when the pager is `PAGER="less -R"`, or the default `less` with
+  the user's `LESS=-R` or `LESS=-FRX`, then it opens at the end and stays
+  open until `q`; with `-FRX` the last page stays on screen after `q` and the
+  closing status is printed again directly below it. Given any other
+  `$PAGER`, then it is started only for a report that does not fit and
+  receives the same text as AC-33; where it opens and what it leaves on the
+  screen are not checked. *Automatically:* the command and environment the
+  tool would start for the default `less` and for a `$PAGER` value, without
+  starting them. *By hand:* `PAGER="less -R"` and `LESS=-FRX` on a real
+  terminal.
+- **AC-51 (FR-22, Ctrl-C while `less` is open):** Given the default `less`
+  is showing a report, when the user presses Ctrl-C and then `q`, then the
+  run is not ended by the Ctrl-C, the terminal is left usable, the closing
+  status is printed after `q`, and the exit code is the tool's own.
+  *Automatically:* the tool's own handling of interrupts is the same after
+  the pager has exited as before it started, and a pager ended by interrupt
+  counts as shown. *By hand:* Ctrl-C, then `q`, on a real terminal.
+- **AC-52 (FR-22, the flag):** Given `--help`, then `--no-pager` is listed
+  with wording that names no internal identifier; given `--output`, then the
+  record's header names `no-pager` like every other flag (human-readable and
+  NDJSON). *Automatically:* both.
 
 ## 10. Open questions
 
@@ -883,6 +1172,19 @@ Handed to the architect (Phase 2) unless noted:
   work-completion order. Mitigated by the completion document's presence being
   the only "this run finished" signal, and by requiring the file to make the
   transcript/result distinction legible (FR-20).
+- **Risk — a run that waits for a keypress nobody can give (Amendment
+  2026-11-14):** FR-22's pager is on by default, so a paged run does not
+  return until someone quits it. Mitigated by paging only when stdin and
+  stdout are both terminals, `TERM` is not `dumb`, the terminal reports a
+  size, and the report does not fit; never under `--json` (so an agent
+  harness that allocates a terminal, ADR-0016, is unaffected); and by
+  `--no-pager` and `PAGER=cat`. Residual, accepted and documented: a sized
+  terminal with nobody at it (some CI runners, `docker run -t`) still pages
+  until one of those is set.
+- **Risk — a run that looks finished but lost its status (Amendment
+  2026-11-14):** pagers differ in what they leave on screen when they exit.
+  Mitigated by the tool printing the closing status itself after the pager
+  has exited, whatever the pager did (FR-22).
 - **Risk — hard links misreported as reclaimable:** removing one link frees no
   space and may discard a path the user considers distinct. Mitigated by FR-17
   (hard links are not proposed for removal and excluded from reclaimable space).
@@ -1402,63 +1704,26 @@ AC-20/AC-21/AC-22/AC-23/AC-24 re-scoped in place). §4's `--output <file>`
 non-goal is deleted and the Amendment 2026-07-19's decision 2 is marked
 superseded there.
 
-Only **FR-22 (paging)** is still tentative and therefore still stated here in
-full, together with its acceptance criteria. It is **not** in the body and no
-work on it starts until the open question below is answered. This capability is
-**two slices** (ADR-0013): FR-20 + FR-21 + the FR-19 amendment first, FR-22
-second.
+This capability is **two slices** (ADR-0013): FR-20 + FR-21 + the FR-19
+amendment first, FR-22 second.
 
-- **FR-22 (Amendment 2026-08-06; TENTATIVE — not folded into §6, pending the
-  open question below):** When the human-readable report is written
-  to an **interactive terminal**, display it through a **pager**, so that a
-  report longer than the screen can be read from its first line and cannot
-  overrun the terminal's scrollback. Specifics:
-  - Paging engages **only** when stdout is an interactive TTY, and **only** for
-    the human-readable report. It never engages under `--json` (ruling 5), and
-    never when stdout is redirected or piped.
-  - The byte stream handed to the pager is **exactly** the byte stream that
-    would otherwise have gone to stdout. Nothing is truncated, summarized,
-    reordered, or re-styled.
-  - The pager is the one named by **`$PAGER`** when set, otherwise a sensible
-    platform default. If no pager is available, or launching it fails, the
-    report is written directly to stdout and the run still succeeds.
-  - **`--no-pager`** disables paging. `--timings` disables it too, for the same
-    reason it disables progress (ADR-0017): both would write to a screen the
-    pager owns.
-  - A report that **fits on one screen** must not require a keypress to get
-    back to the prompt.
-  - **Exit codes are the tool's own.** The pager's exit status never replaces
-    FR-15's or FR-18's. Quitting the pager before the end of the report is a
-    normal outcome: the exit code is unchanged and no broken-pipe/`EPIPE`
-    error is reported.
-  - Progress (which under FR-21 is on stdout in this case) and every other
-    in-flight output are emitted **before** the pager takes the screen.
-  - Paging is **output-only**: it never changes what is scanned, grouped, or
-    removed. NFR-3 is unaffected — as narrowed by ruling 3 it governs stdout
-    whenever stdout is not an interactive terminal, which is exactly the case
-    in which no pager runs; the paged bytes are identical either way.
-
-Acceptance criteria for FR-22 (the confirmed criteria AC-25..AC-32 are in §9):
-
-- **AC-33 (FR-22, paging on a TTY):** Given stdout is an interactive terminal
-  and a run produces a human-readable report longer than the screen, when the
-  run finishes, then the report is displayed through a pager and can be
-  scrolled back to its first line, and the bytes displayed are identical to
-  those the same run writes when stdout is redirected.
-- **AC-34 (FR-22, when it never engages):** Given stdout is redirected or
-  piped, or `--json`, or `--no-pager`, or `--timings`, when a run finishes,
-  then no pager is launched and the report/JSON is written directly to stdout.
-- **AC-35 (FR-22, exit codes):** Given a paged report, when the user quits the
-  pager before reaching the end, then the tool exits with its own status — `0`
-  for a successful run, `3` for a run with `--exit-code` that found duplicates,
-  `1` for a run-level failure — and no broken-pipe/`EPIPE` error is printed.
-- **AC-36 (FR-22, no pager available):** Given no usable pager (`$PAGER` unset
-  with no platform default present, or the pager fails to launch), when a run
-  finishes on an interactive terminal, then the report is written directly to
-  stdout in full and the run completes with its normal exit code.
-- **AC-37 (FR-22, short report):** Given a report that fits within the
-  terminal, when the run finishes, then the user is not required to press a key
-  to return to the prompt.
+> **Superseded 2026-11-14 — the tentative FR-22 and AC-33..AC-37 that stood
+> here.** They were replaced by the owner-approved design and now live in the
+> body (FR-22 in §6, AC-33..AC-37 and AC-48..AC-52 in §9); see the
+> [Amendment 2026-11-14](#amendment-2026-11-14--report-paging-and-the-closing-status-owner-rulings-task-0340).
+> What changed, kept so the old reasoning stays legible: the tentative text
+> had the pager show the report **from its first line**, and handed it
+> **exactly** the bytes a redirect would capture — so AC-33 required "the
+> bytes displayed are identical to those the same run writes when stdout is
+> redirected". The approved design opens the pager **at the end** and adds a
+> closing status after the report, so that clause no longer holds for what
+> the pager shows (it still holds for the report part, for redirected stdout,
+> and for the record). The tentative FR-22's other points carry over:
+> terminal-only, never `--json` (ruling 5), `$PAGER` else a platform
+> default, the report printed directly when no pager can be started,
+> `--no-pager`, `--timings` disables paging, no keypress for a report that
+> fits, the tool's own exit code, everything else written before the pager
+> starts, and output-only.
 
 **Fold status.** Done for the confirmed part: §4 **deletes** the
 `--output <file>` non-goal (ruling 1) and Amendment 2026-07-19's decision 2 is
@@ -1468,9 +1733,9 @@ FR-21, and FR-19 is amended in place; §7 records NFR-3's narrowing (ruling 3);
 gains AC-25..AC-32 plus **AC-28a** (mid-run record-write failure) and re-scopes
 AC-20/AC-21/AC-22/AC-23/AC-24; §11 gains two risks. The ADR-0018 design pass's
 resolutions (2026-08-06) are folded into FR-20, FR-21, AC-22, AC-26, AC-27,
-AC-28a and AC-30 — see the handoff status below. **Not folded:** FR-22 and
-AC-33..AC-37 (paging), which stay in this amendment until the open question
-below is answered.
+AC-28a and AC-30 — see the handoff status below. FR-22 and AC-33..AC-37
+(paging) stayed here, unfolded, until the open question below was answered;
+they were replaced and folded into the body by the Amendment 2026-11-14.
 
 ### Open question — for the human owner, and only for the FR-22 slice
 
@@ -1488,6 +1753,9 @@ rulings 1–3 above. One remains, and it blocks only the second slice:
    **Recommendation: default-on, and accept the Windows gap rather than
    blocking the slice.** Until this is answered, FR-22 and AC-33..AC-37 stay
    out of the PRD body and no paging work starts.
+
+   **Answered by the owner (2026-11-13):** default-on, and the Windows gap is
+   accepted — see the Amendment 2026-11-14.
 
 ### Handed to the architect
 
@@ -1522,7 +1790,8 @@ so a later reader need not reconstruct it:
    reasoning is scoped to the indeterminate walk state so it no longer reads as
    contradicting AC-32 or FR-20's always-timestamped record milestones.
 
-The FR-22 questions below remain open, with that slice.
+The FR-22 questions below stayed open with that slice; they were closed by
+[ADR-0019](../adr/0019-report-paging.md) (2026-11-14).
 
 For FR-20 (the record file) — **closed, retained for the record**:
 
@@ -1568,7 +1837,8 @@ For FR-21 (the stream model) — **closed, retained for the record**:
   arguable rather than deciding it silently. **Resolved** — the apply-time
   lines were the one arguable case; see item 1 above.
 
-For FR-22 (paging) — **still open**, and needed before that second slice:
+For FR-22 (paging) — **closed by ADR-0019 (2026-11-14), retained for the
+record**:
 
 - Whether `$PAGER` is executed **through a shell** (needed for the common
   `PAGER="less -R"` form, as `git` does) or exec'd directly, and what that
@@ -1625,7 +1895,8 @@ documentation. The owner overturned that.
   never a redirected stdout, never under `--json`.
 - **FR-22 (paging), when it is taken up,** must reconcile AC-35 with ruling 4:
   quitting the pager early is a normal outcome and keeps the tool's own exit
-  code, so a report handed to the pager counts as delivered.
+  code, so a report handed to the pager counts as delivered. (Done by the
+  Amendment 2026-11-14, in FR-15.)
 
 **Folded into the body:** FR-15 (closed output streams), FR-20 (the overwrite
 rule; "behaves like `>`" removed), §8 (`--overwrite-output` and the existing
@@ -1638,3 +1909,120 @@ only a reader that went away (a broken pipe) stays silent; any other cause
 (a full disk behind `> file`, an I/O error) prints one
 `error: could not write the report to standard output: <reason>` line on
 stderr. Folded into FR-15 and **AC-47**.
+
+## Amendment 2026-11-14 — report paging and the closing status (owner rulings, TASK-0340)
+
+The Amendment 2026-08-06's tentative FR-22 answered the first field complaint
+— a long report overran the terminal's scrollback — but was written around a
+pager's usual behavior: "can be read from its first line". `--output`
+(FR-20) has since made sure results are not *lost*, but only for a user who
+thought of it before starting; paging needs no foresight. Asked what they
+want after a long run, the owner described the opposite view from the
+tentative text: **to see the run's status, and for it to stay in the
+terminal above the prompt after they are done looking; and to be able to
+scroll up to the first output, however long the report is.** The design
+([report paging design](../superpowers/specs/2026-11-13-report-paging-design.md))
+was approved on that basis; the mechanism is
+[ADR-0019](../adr/0019-report-paging.md).
+
+**Owner rulings (2026-11-13):**
+
+1. **Paging is on by default** on an interactive terminal (the design's
+   approach A, over a fixed per-user record file and over an opt-in
+   `--pager`). Accepted with it: a paged run waits for a keypress, so
+   `imgdedup photos && next-command` typed at a terminal waits too.
+2. **The pager opens at the end** of the report.
+3. **A short closing status** is the last thing in the pager and is printed
+   into the terminal after the pager closes, so the status never depends on
+   what the pager leaves on the screen.
+4. **The status appears only after a pager.** A report printed directly
+   (it fits, `--no-pager`, Windows without `$PAGER`, no pager could be
+   started) is exactly today's output. The cost, accepted: a long `--apply`
+   with `--no-pager`, or on Windows, still ends on its list of removed
+   paths. The one case that follows the pager rather than this rule is a
+   pager that started and failed: the report is printed directly and the
+   status follows, because a pager was started and the user is owed it.
+5. **Windows has no default pager**, an accepted gap against NFR-5 rather
+   than a blocker (the open question of 2026-08-06, answered).
+
+The design's own calls, approved with it: `--no-pager` is the opt-out and no
+`imgdedup`-specific environment variable is added, since `PAGER=cat` (or
+empty) already turns paging off; `--timings` disables paging; the status is
+never in the `--output` record; paging also needs an interactive stdin and a
+`TERM` other than `dumb`; a pager that exits with a failure status is
+followed by the report printed directly.
+
+**From ADR-0019, shaping the requirements:** the tool measures the terminal
+itself and pages only a report that does not fit (relying on the pager to
+quit by itself on a short report would make a short report look paged, and
+print the status after it); what is promised is stated separately for
+`less` and for any other `$PAGER` ("whatever that pager does"); the user's
+own `-X` is respected, so the status then shows twice in adjacent lines;
+Ctrl-C does not end the run while `less` is open; and the `--output`
+record's completion document is written before the report is delivered, on
+every run, so it never waits on the pager.
+
+**Product-owner calls on what was left open:**
+
+- **The closing status's wording** (FR-22, AC-48). Every line is built from
+  the report's own words and counts, so no parallel wording exists to drift:
+  the first line *is* the report's summary line, byte for byte — its
+  `Summary:` line, or `No duplicate groups found.`, the report's only other
+  closing line, which the design's sketch did not cover; the apply line is
+  the report's `Trashed <n> files:` heading with a full stop instead of the
+  list, joined by the design's `Skipped <k> (left in place).` when something
+  was skipped. The one new line is the warnings line:
+  `12 warnings, listed at the top of the report.` rather than the design's
+  sketch `12 warnings; see the full report.` — after the pager closes the
+  report is no longer on the screen, so the line should say *where* the
+  warnings are (the report opens with its `Warnings:` section, reached in
+  `less` with one key), not only that they exist. It counts the entries of
+  that section; apply-time skips are already line 2's `Skipped` and are not
+  counted twice.
+- **Unreadable scan roots are not counted.** They are the `error:` lines on
+  stderr written just before the report, so after `less` restores the screen
+  they sit directly above the status; they already make the exit code `1`;
+  and an `--apply` run with an unreadable root stops before there is any
+  report. A status line for them would repeat what is on the screen and
+  would be the one line in the status not taken from the report.
+- **One empty line separates the report from the status** in the pager, and
+  the same empty line precedes the status wherever it is printed. In a dry
+  run the report ends with its own `Summary:` line, so without a separator
+  the pager would end on two identical lines in a row; with one, the status
+  reads as its own block.
+- **A one-line warning names a failed pager:**
+  `warning: pager failed: <command>; the report follows`, on stderr, before
+  the directly printed report. Without it the user sees a pager screen
+  flash, or nothing, and then an unpaged report, with no hint of which
+  setting to fix; the shell's own message (`sh: lesss: command not found`)
+  covers only a misspelled name. It starts with `warning:` like an apply-time
+  skip — a real failure that does not fail the run. Its exit status is not
+  shown: one form of the line, and the number is rarely what a user can act
+  on. A pager that could not be started gets no line: that is the default
+  `less` missing, and the output is then exactly today's. The line is not in
+  the `--output` record, which is already complete by then.
+- **FR-15 reconciled** (Amendment 2026-11-13's open item): a report shown
+  through a pager counts as delivered, quitting early is normal and prints
+  nothing, and the pager's exit status never replaces the tool's code. What
+  still counts as undelivered is the directly printed report after a failed
+  pager, or when no pager was started, failing to write — the existing
+  FR-15 rule, unchanged (AC-46, AC-47).
+- **Verification is stated in the criteria** (§9, the note before AC-33):
+  ADR-0019 rules out a pseudo-terminal in the suite and any hidden test
+  switch in the binary, so each FR-22 criterion names what is checked
+  automatically and what by hand on a real terminal, rather than promising a
+  check nothing can run.
+
+**Pending the owner (one clause):** ADR-0019 §8 found that with `TERM` unset
+or empty, `less` behaves as with `dumb` — it warns, waits for Return, and on
+`q` exits successfully, so the tool would show only the closing status and
+the report would never be seen. FR-22 and AC-34 therefore treat an unset or
+empty `TERM` on macOS and Linux like `dumb`, on the architect's
+recommendation, each marked as pending the owner's confirmation. If the owner
+rules otherwise, that sentence in FR-22 and that item in AC-34 are deleted.
+
+**Folded into the body:** §1 (ADR-0019 link), §5 (a user story), FR-15 (a
+report shown through a pager is delivered), **FR-22** in §6 (replacing the
+tentative text, which the Amendment 2026-08-06 now marks superseded), NFR-3
+and NFR-5 in §7, §8 (`--no-pager` and the long-report behavior), §9
+(**AC-33..AC-37** for FR-22, and **AC-48..AC-52**), and §11 (two risks).

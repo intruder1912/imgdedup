@@ -569,14 +569,20 @@ pub fn deliver(
     report: &str,
     page: &mut dyn FnMut(&PagerCommand, &[&str]) -> Paged,
     write: &mut dyn FnMut(&str) -> io::Result<()>,
+    warn: &mut dyn FnMut(&str),
 ) -> io::Result<()>;
 ```
 
 `deliver`'s arms: `Direct` → `write(report)`. `Paged` →
 `page(pager, &[report, closing_status])`, then `Shown` → `let _ =
-write(closing_status); Ok(())`; `Failed` → `write(report)?` (plus the
-product-owner's optional stderr hint before it), then `let _ =
+write(closing_status); Ok(())`; `Failed` → `warn(line)`, then `write(report)?`, then `let _ =
 write(closing_status); Ok(())`; `NotStarted` → `write(report)`.
+
+`warn` receives the failed-pager line the product-owner settled after this
+ADR was drafted (PRD-0001 FR-22, AC-36: `warning: pager failed: <command>;
+the report follows`, the command escaped); `main.rs` passes `streams::diag`.
+It is called only after `Failed`, and after the pager has exited, so the §4
+invariant holds.
 
 `pager::sys` (private, `#[allow(unsafe_code)]`, every block with a
 `// SAFETY:` comment) holds the platform code: `screen_size` (Unix:
@@ -628,7 +634,7 @@ no run that cannot page pays for the probe.
 5. If `Some`: `closing_status = report::render_closing_status(…)` and
    `Delivery::Paged { … }`; otherwise `Delivery::Direct`.
 6. `pager::deliver(delivery, &rendered, &mut |p, parts| pager::run(
-   pager::command(p, less.as_deref()), parts), &mut streams::write_stdout)`;
+   pager::command(p, less.as_deref()), parts), &mut streams::write_stdout, &mut warn)`;
    `Err(e)` → `streams::undelivered_report_message(&e)` → `streams::diag`,
    and `delivered = false`, exactly as today.
 7. Exit code: unchanged composition (`!delivered` is a run-level failure).
