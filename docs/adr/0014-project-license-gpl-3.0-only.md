@@ -13,8 +13,8 @@
 The repository has shipped with `license = "TBD"` in `Cargo.toml` and a README
 that says "no license is published yet; all rights reserved". The owner decided
 on **GPL-3.0** on 2026-07-19 (recorded in
-[`../planning/batch-plan.md`](../planning/batch-plan.md) and
-[`../planning/status.md`](../planning/status.md)); this ADR formalizes that
+`docs/planning/batch-plan.md` and `docs/planning/status.md`, both removed
+from `main` by ADR-0021 and kept in the git history); this ADR formalizes that
 decision, adds the license text, and settles the two things the bare phrase
 "GPL-3.0" leaves open:
 

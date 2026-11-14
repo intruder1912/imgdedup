@@ -11,7 +11,7 @@ tool.
 > indicator with elapsed time, a durable `--output` run record, and the
 > destructive actions (`--apply` trash / `--apply --delete` permanent) are all
 > shipped. See
-> [`docs/planning/status.md`](../planning/status.md) for the live state.
+> [the issues](https://github.com/intruder1912/imgdedup/issues) for open work.
 
 ## Guide pages
 

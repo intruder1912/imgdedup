@@ -65,7 +65,7 @@ once CI is green and review is addressed.
 Required status checks only gate the merge button when the checks actually run on
 the PR. We require only checks that are present in CI to avoid blocking merges on
 non-existent checks. Whether to "include administrators" in enforcement is chosen
-when protection is applied and recorded in `docs/planning/status.md`.
+when protection is applied and recorded in `docs/planning/status.md` (removed from `main` by ADR-0021; in the git history).
 
 ## Links
 

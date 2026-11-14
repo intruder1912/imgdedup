@@ -68,8 +68,8 @@ jobs:
   # without it a leaked secret would hide whether the dependency audit also
   # failed (and vice versa), turning one red run into two sequential ones.
   #
-  # OWNER ACTION REQUIRED — tracked in docs/planning/status.md under
-  # "Blockers / waiting on owner". `main`'s branch protection requires the
+  # OWNER ACTION (carried out since; kept as the record of why the context
+  # names changed). `main`'s branch protection requires the
   # context names `secret-scan` and `cargo-deny`; neither exists after this
   # change, so both will sit at "Expected — waiting for status to be reported"
   # on this and every later PR until they are replaced with `security`.

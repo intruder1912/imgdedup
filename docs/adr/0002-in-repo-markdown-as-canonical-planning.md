@@ -1,6 +1,9 @@
 # ADR-0002: In-repo Markdown as canonical planning & tracking
 
-- **Status:** accepted
+- **Status:** accepted; superseded in part by
+  [ADR-0021](0021-issue-based-planning-for-a-public-repository.md)
+  (2026-11-14): tasks and status moved to GitHub Issues. PRDs, ADRs and
+  process documents stay in-repo Markdown.
 - **Date:** 2026-06-13
 - **Deciders:** architect, human owner
 - **Related:** [ADR-0001](0001-record-architecture-decisions.md)

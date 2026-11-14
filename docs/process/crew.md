@@ -12,7 +12,7 @@ works — and one person decides it ships.
 
 Owns *what and why*. Elicits requirements (brainstorming, never assuming), writes
 PRDs in [`../prd/`](../prd/), defines acceptance criteria, prioritizes the
-backlog, and owns **functional acceptance** — the product-level sign-off that
+issues, and owns **functional acceptance** — the product-level sign-off that
 shipped behavior matches the PRD (the tester supplies the verifying tests/evidence;
 see below). Hands architecture questions to the architect. Because the role accepts
 the behavior, it also owns **user-facing documentation** for any user-visible
@@ -20,7 +20,7 @@ behavior, riding the feature's PR: **general usage in the top-level `README.md`*
 and **detailed, per-topic pages in [`../guide/`](../guide/)** (a linked collection
 of self-contained guide pages). See
 [ADR-0012](../adr/0012-documentation-ownership-and-placement.md). For feature work,
-**carves each PRD into coherent shippable slices** in the backlog, and is the
+**carves each PRD into coherent shippable slices** (one issue each), and is the
 **PR-open gate** for a slice: the PR opens only once the role has accepted all the
 slice's functional requirements and delivered its docs. May **demand an architect
 review** of any aspect mid-slice ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
@@ -57,8 +57,8 @@ ADRs. Keeps changes small and focused. Maintains **technical documentation**
 Definition of Done, reviewed as code. On a **PRD slice**, **requests an architect
 review** for significant or especially risky/complex changes (its discretion, not
 per-commit), **works review feedback immediately**, and when unsure whether to fix
-now or defer **asks the product-owner to decide** — deferrals become tracked
-backlog tasks ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
+now or defer **asks the product-owner to decide** — deferrals become GitHub
+issues ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 
 ### Tester — [`tester`](../../.claude/agents/tester.md)
 
@@ -104,7 +104,7 @@ Product Owner ──(PRD + acceptance criteria)──► Architect
    │                                        ADR(s) + task breakdown
    │                                              │
    ▼                                              ▼
-Backlog / tasks ◄──────────────────────► Implementer + Tester (TDD)
+GitHub Issues   ◄──────────────────────► Implementer + Tester (TDD)
                                                   │
                                                   ▼
                                           PR ──► Architect review (threads) ◄─┐
@@ -135,17 +135,17 @@ review** of any aspect, independently of whether the implementer requested one
 
 ## Shared rules (all roles)
 
-- Read [`../../CLAUDE.md`](../../CLAUDE.md) first; the repo is the source of truth.
+- Read [`../../CLAUDE.md`](../../CLAUDE.md) first: the repo holds what to build and how, GitHub Issues hold what is open.
 - Brainstorm and grill on gaps before producing PRDs, ADRs, or features.
 - Follow the [SDLC](sdlc.md): classify (feature/fix/chore) → branch (one unit) →
   draft/TDD → local validation → architect review on the branch diff vs `main` →
   open PR ready (review recorded) → owner merge.
 - Use `git` and `gh` CLI only (no MCP) for version control and GitHub.
-- Update planning docs in the same PR as the work.
+- The PR closes its issue, and its description records the unit (ADR-0021).
 
 ## Parallelism
 
 From Phase 1 onward, independent tasks (flagged in
-[`../planning/backlog.md`](../planning/backlog.md)) can be worked by multiple
+the issues) can be worked by multiple
 agents in parallel, as long as they touch disjoint areas and each lands through
 its own PR. The architect serializes review and the owner serializes merges.

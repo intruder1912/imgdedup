@@ -12,7 +12,7 @@ architecture ([ADRs](../adr/)) and implementation.
 3. Write testable requirements with clear acceptance criteria.
 4. Self-review (placeholders, contradictions, ambiguity, scope), then have the
    owner review.
-5. Seed the resulting tasks into [`../planning/backlog.md`](../planning/backlog.md).
+5. Open the resulting tasks as GitHub issues (ADR-0021).
 6. Land it through the normal PR flow and keep this index updated.
 
 ## Index

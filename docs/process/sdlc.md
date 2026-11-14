@@ -2,8 +2,10 @@
 
 This is the authoritative description of how work flows in `imgdedup`. It applies
 to humans and AI agents alike. The goal: high quality, security, and traceability,
-with the **repository as the single source of truth** so anyone can resume work
-from the repo content alone.
+with nothing held in chat or session memory: **what to build and how** is in
+the repository (PRDs, ADRs, process documents), **what is open** is in GitHub
+Issues, and **what happened in a unit** is in its pull request
+([ADR-0021](../adr/0021-issue-based-planning-for-a-public-repository.md)).
 
 ## Principles
 
@@ -28,13 +30,13 @@ from the repo content alone.
         │  Phase work: PRD (product) / ADR (architecture)  — as needed  │
         └───────────────────────────────┬─────────────────────────────┘
                                          │
-   pick task (backlog/tasks) ──► branch ──► brainstorm/design (if needed)
+   pick issue (GitHub Issues) ──► branch ──► brainstorm/design (if needed)
         │                                                     │
         │                                                     ▼
         │                                         TDD: failing test → pass → refactor
         │                                                     │
         ▼                                                     ▼
-   status.md (in progress, rides this PR)         make validate  ──► fix findings
+   label the issue `in progress`                  make validate  ──► fix findings
                                                               │
                                                               ▼
                                   architect review (branch diff vs main) ◄─┐
@@ -69,28 +71,33 @@ from the repo content alone.
    classification table below and
    [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md). A
    **branch = one unit of work**: it carries everything that unit needs —
-   design (PRD/ADR if applicable), TDD code, technical and user docs, **and**
-   the planning/status update — into a **single squash PR**.
+   design (PRD/ADR if applicable), TDD code, technical and user docs — into
+   a **single squash PR** that closes the unit's issue.
 
    | Class | Branch prefix | Lifetime / commits | Rides along | CI weight | Review kind |
    |---|---|---|---|---|---|
-   | **feature** | `feature/…` | a **PRD slice** (see below): longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner: README + `docs/guide/`) + planning update | full CI | in-progress reviews + a heavyweight whole-slice review |
-   | **fix** | `fix/…` | short, few commits | failing test + fix + doc touch-ups + planning update | full CI | scoped code review |
-   | **chore** | `chore/`, `docs/`, `refactor/`, `test/` | process changes, standalone tech/user doc edits, isolated planning/grooming, standalone ADRs/PRDs | the doc/planning/process edit itself | docs-only units skip the Rust matrix | lightweight document review |
+   | **feature** | `feature/…` | a **PRD slice** (see below): longer-lived, many commits | design + TDD code + technical docs (implementer) + user docs (product-owner: README + `docs/guide/`) | full CI | in-progress reviews + a heavyweight whole-slice review |
+   | **fix** | `fix/…` | short, few commits | failing test + fix + doc touch-ups | full CI | scoped code review |
+   | **chore** | `chore/`, `docs/`, `refactor/`, `test/` | process changes, standalone tech/user doc edits, standalone ADRs/PRDs | the doc/process edit itself | docs-only units skip the Rust matrix | lightweight document review |
 
    Rule of thumb: docs that **accompany** a feature ride the feature branch;
-   **standalone** doc/planning work is a chore unit. For **feature** work the unit
+   **standalone** doc work is a chore unit. For **feature** work the unit
    is a **PRD slice**, not a single task — see
    [PRD-slice delivery](#prd-slice-delivery-feature-work) below and
    [ADR-0013](../adr/0013-prd-slice-delivery-cadence.md); `fix`/`chore` keep the
    one-unit-one-PR cadence.
 
-1. **Select work.** Take the next task from
-   [`../planning/backlog.md`](../planning/backlog.md) (each non-trivial task has a
-   spec in [`../planning/tasks/`](../planning/tasks/)). Mark it *in progress* in
-   [`../planning/status.md`](../planning/status.md). The **planning/status update
-   rides the unit's own branch/PR** — there is no separate doc-only PR for it.
-   The status flip for a task lands in that task's own PR.
+1. **Select work.** Take an accepted issue from
+   [GitHub Issues](https://github.com/intruder1912/imgdedup/issues)
+   (`gh issue list --label accepted`), or open one for work that has none.
+   An issue you open for your own work gets its class label (`feature`,
+   `fix` or `chore`) and `accepted`, plus `needs-prd` or `needs-adr` when
+   requirements or a design must come first; the PR that lands the PRD or ADR
+   takes that label off. Put the `in progress` label on the issue when work
+   starts, and take `needs-triage` off if it is still there. There is no
+   planning file to update:
+   the unit's PR closes the issue, and the PR description is the unit's record
+   ([ADR-0021](../adr/0021-issue-based-planning-for-a-public-repository.md)).
 2. **Branch.** From up-to-date `main`, create `feature/<slug>`, `fix/<slug>`,
    `chore/<slug>`, or `docs/<slug>` (see
    [`branching.md`](branching.md)).
@@ -143,7 +150,9 @@ from the repo content alone.
     (`gh workflow run release.yml --ref main`), which refuses any commit whose
     required checks are not green and then releases everything accumulated
     since the last tag (see [`release.md`](release.md)).
-13. **Close the loop.** Ensure planning docs reflect the new reality (done/next).
+13. **Close the loop.** The merged PR closes its issue. Open follow-up work as
+    new issues. If a unit is paused or dropped, take `in progress` off its
+    issue.
 
 ## PRD-slice delivery (feature work)
 
@@ -154,8 +163,8 @@ the whole PRD ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)). `fix`,
 `chore`, and standalone doc/ADR units keep the one-unit-one-PR cadence above; the
 two models coexist.
 
-- **Carving slices.** The **product-owner** groups a PRD's tasks into slices in the
-  backlog (owning scope + acceptance); the **architect** sanity-checks the
+- **Carving slices.** The **product-owner** groups a PRD's tasks into slices, one
+  issue per slice (owning scope + acceptance); the **architect** sanity-checks the
   boundaries for design coherence.
 - **One slice = one branch = one squash PR**, built with granular, well-chosen
   commits. The branch is **CI-free and PR-less until the slice is complete**;
@@ -171,12 +180,13 @@ two models coexist.
   [`../planning/reviews/`](../planning/reviews/)). These reviews are
   **advisory/incremental**. Feedback is **worked immediately**; if the implementer
   is unsure whether to fix **now or defer**, it **asks the product-owner to
-  decide**, and any **deferral is promoted to a tracked backlog task** (noted in the
+  decide**, and any **deferral is opened as a GitHub issue** (noted in the
   log) so nothing is lost.
 - **PR-open gate.** The PR opens **ready** only when the **product-owner has (1)
   confirmed all functional requirements in the slice are accepted and (2) delivered
   all user-facing docs** (README + `docs/guide/`, ADR-0012), plus the standing DoD
-  (`make validate` green, implementer technical docs, planning/status updated).
+  (`make validate` green, implementer technical docs, the PR description
+  records the unit and closes its issue).
 - **Final review + merge.** The architect runs a **full whole-slice review** on the
   opened PR (resolvable threads), **building on the in-progress log** (already-
   reviewed chunks re-confirmed, not re-reviewed wholesale). Then the usual gate
@@ -241,16 +251,15 @@ threads**, not a single prose comment. See
 
 - Acceptance criteria met; behavior covered by meaningful tests (TDD).
 - `make validate` and CI green; security gate satisfied.
-- Conventional Commit / PR title; docs and planning updated.
+- Conventional Commit / PR title; docs updated; the PR closes its issue.
 - **Technical docs** (implementer — rustdoc on public items / `docs/` design
   notes) and **user-facing docs** (product-owner — **general usage in `README.md`**,
   **detailed per-topic pages in `docs/guide/`**) updated with the behavior they
   describe; not deferred to a later doc PR. See
   [ADR-0012](../adr/0012-documentation-ownership-and-placement.md).
-- **Planning/status updated in this same PR** (a free ride on the unit's branch).
 - For a **feature (PRD slice)**: the product-owner has **accepted all the slice's
   functional requirements** and delivered its user docs before the PR opened, and
-  any in-progress-review deferrals were promoted to tracked tasks
+  any in-progress-review deferrals were opened as GitHub issues
   ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 - All review threads resolved and required checks green (the ADR-0003 gate);
   human owner merged.

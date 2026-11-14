@@ -99,6 +99,11 @@ user-facing documentation** (README + `docs/guide/`, ADR-0012) — in addition t
 standing Definition of Done (`make validate` green, implementer technical docs,
 planning/status updated).
 
+*Note, 2026-11-14:* per
+[ADR-0021](0021-issue-based-planning-for-a-public-repository.md), deferred
+findings become GitHub issues, and the pull request description replaces the
+planning/status update.
+
 ### Final review + merge
 
 On the opened PR the architect performs a **full review over the whole slice

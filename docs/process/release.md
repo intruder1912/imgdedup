@@ -148,7 +148,7 @@ runner:
 The Linux artifact carries a **glibc ≥ 2.39** floor (Ubuntu 24.04/Debian
 13/Fedora 40+). `musl` static Linux and any `aarch64` Linux/Windows targets are
 intentionally **not** shipped yet — tracked as a follow-up
-(TASK-0326) to reconsider before a public release, not blocking this private
+(issue #119, formerly TASK-0326) to reconsider before a public release, not blocking this private
 one.
 
 Each archive is named `imgdedup-v<version>-<target-triple>.{tar.gz,zip}` and

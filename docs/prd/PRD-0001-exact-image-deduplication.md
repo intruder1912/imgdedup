@@ -946,7 +946,7 @@ human summary to the terminal), it can be revisited in a new PRD/ADR.
 **Owner decision 3 — scheduling.** FR-19 is specified now but **built in a fresh
 usage window as its own unit** (implementer, TDD) — see
 [TASK-0315](../planning/tasks/TASK-0315-progress-indication.md) and batch 4b in
-the [batch plan](../planning/batch-plan.md). Implementation must not start ahead of
+the batch plan (`docs/planning/batch-plan.md`; removed from `main` by ADR-0021, in the git history). Implementation must not start ahead of
 that window. The stored-results guidance documents **existing** behavior and ships
 immediately in the README and user guide.
 

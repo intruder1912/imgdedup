@@ -71,8 +71,8 @@ jobs:
   #     largest line item in the bill, and per (1) nothing is hidden by
   #     deferring it one run.
   #
-  # OWNER ACTION REQUIRED — tracked in docs/planning/status.md under
-  # "Blockers / waiting on owner". `main`'s branch protection requires the
+  # OWNER ACTION (carried out since; kept as the record of why the context
+  # names changed). `main`'s branch protection requires the
   # context names `markdownlint`, `spellcheck`, `structure`, `linkcheck` and
   # `pr-title`; none of them exist after this change, so they will sit at
   # "Expected — waiting for status to be reported" on this and every later PR
@@ -191,7 +191,6 @@ jobs:
             "docs/process/sdlc.md"
             "docs/planning/roadmap.md"
             "docs/planning/backlog.md"
-            "docs/planning/status.md"
             "docs/prd/README.md"
             "docs/prd/TEMPLATE.md"
             "docs/adr/README.md"

@@ -21,7 +21,7 @@ the options considered, the decision, and its consequences. They use a
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
-| [0002](0002-in-repo-markdown-as-canonical-planning.md) | In-repo Markdown as canonical planning & tracking | accepted |
+| [0002](0002-in-repo-markdown-as-canonical-planning.md) | In-repo Markdown as canonical planning & tracking | accepted; superseded in part by ADR-0021 (planning and tracking moved to GitHub Issues) |
 | [0003](0003-main-branch-protection-and-merge-model.md) | `main` branch protection & merge model | accepted |
 | [0004](0004-conventional-commits-semver-and-releases.md) | Conventional Commits, SemVer & automated releases | accepted |
 | [0005](0005-mandatory-tdd-and-security-gate.md) | Mandatory TDD & security gate | accepted |
@@ -40,6 +40,7 @@ the options considered, the decision, and its consequences. They use a
 | [0018](0018-durable-run-record-and-output-stream-routing.md) | Durable run record (`--output`) & output-stream routing | accepted |
 | [0019](0019-report-paging.md) | Report paging — starting, positioning and waiting for the pager | rejected (2026-11-14; never implemented) |
 | [0020](0020-relicense-mit-or-apache-2.0.md) | Relicense to MIT OR Apache-2.0 | accepted |
+| [0021](0021-issue-based-planning-for-a-public-repository.md) | Issue-based planning for a public repository | accepted |
 
 > The technology-stack and core design ADRs for PRD-0001 (0007–0010) have
 > landed; ADR-0015 closes the release-mechanism question ADR-0004 left open.

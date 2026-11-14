@@ -119,6 +119,11 @@ Cross-cutting grooming not tied to a feature is a **chore planning unit** — a
 small, docs-only branch that **skips the Rust matrix** and gets a fast document
 review.
 
+*Note, 2026-11-14:* replaced by
+[ADR-0021](0021-issue-based-planning-for-a-public-repository.md) §4. Tasks are
+GitHub issues, `status.md` is removed, and a unit's record is its pull request
+description; there is no planning file to update in the pull request.
+
 ### 7. Review adaptation
 
 Because a branch now holds **many commits**, the prior "review the uncommitted

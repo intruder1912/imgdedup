@@ -31,9 +31,8 @@ gaps, and verifying acceptance criteria.
 
 ## Workflow
 
-1. Read `CLAUDE.md`, the PRD, relevant ADRs, and the task file.
-2. Derive a test plan from the acceptance criteria (note it in the task file or
-   PR). Identify edge cases the implementer may have missed.
+1. Read `CLAUDE.md`, the PRD, relevant ADRs, and the unit's GitHub issue.
+2. Derive a test plan from the acceptance criteria (note it in the PR). Identify edge cases the implementer may have missed.
 3. Add/strengthen tests on a `feature/<slug>` or `chore/<slug>` branch under TDD.
 4. `make validate`; ensure the suite is green and meaningful.
 5. Conventional Commit; push; open a PR.

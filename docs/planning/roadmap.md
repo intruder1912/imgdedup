@@ -3,9 +3,10 @@
 The path from an empty repository to a released v1.0 of `imgdedup`. Phases are
 sequential at the milestone level; tasks **within** later phases are
 parallelizable. Each phase is refined in its own brainstorm → PRD/ADR → plan →
-implement → review cycle. This file is the high-level map;
-[`backlog.md`](backlog.md) holds the fine-grained tasks and
-[`status.md`](status.md) the live state.
+implement → review cycle. This file is the high-level map. The work itself
+is tracked in [GitHub Issues](https://github.com/intruder1912/imgdedup/issues)
+([ADR-0021](../adr/0021-issue-based-planning-for-a-public-repository.md));
+[`backlog.md`](backlog.md) is the closed list of tasks up to 2026-11-14.
 
 ## Phase 0 — Foundation *(complete — 2026-06-13)*
 
