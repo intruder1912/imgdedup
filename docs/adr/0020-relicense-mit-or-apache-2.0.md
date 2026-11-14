@@ -106,6 +106,12 @@ that block). Nothing is republished or edited. While the
 repository is private the recipients are the owner and any collaborator with
 access. The README states this in one sentence.
 
+> *Note (2026-11-14, after `v0.7.0` was published):* on the owner's
+> instruction the GitHub Releases `v0.1.0` to `v0.6.0` and their binaries
+> were deleted; the git tags are kept. No binary under `GPL-3.0-only` is
+> offered for download any more. Copies already received stay under that
+> license.
+
 ### Consequences
 
 - **Positive.** The license matches what Rust users and package managers
@@ -121,7 +127,8 @@ access. The README states this in one sentence.
   DCO decision at the first outside pull request. If the old releases are
   still listed when the repository goes public, they remain GPL-licensed
   artifacts beside MIT/Apache ones; whether to keep or delete them is an
-  owner decision for the flip.
+  owner decision for the flip. *(Decided 2026-11-14: deleted; see the note
+  above.)*
 
 ## Pros and cons of the options
 
