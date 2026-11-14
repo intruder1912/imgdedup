@@ -183,6 +183,7 @@ jobs:
             "CHANGELOG.md"
             "LICENSE-MIT"
             "LICENSE-APACHE"
+            "THIRD-PARTY-LICENSES.txt"
             ".claude/agents/product-owner.md"
             ".claude/agents/architect.md"
             ".claude/agents/implementer.md"

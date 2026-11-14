@@ -153,7 +153,8 @@ one.
 
 Each archive is named `imgdedup-v<version>-<target-triple>.{tar.gz,zip}` and
 contains one top-level directory of the same name holding the `imgdedup`
-binary, `LICENSE-MIT`, `LICENSE-APACHE`, and `README.md`. A same-named `.sha256` file (one per
+binary, `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-LICENSES.txt` (from the release after
+`v0.7.0` on), and `README.md`. A same-named `.sha256` file (one per
 artifact, `sha256sum -c` format) accompanies each archive:
 
 ```sh
@@ -228,8 +229,58 @@ for the full reasoning.
 `imgdedup` is licensed `MIT OR Apache-2.0`
 ([ADR-0020](../adr/0020-relicense-mit-or-apache-2.0.md)). Both licenses ask
 that their text and the copyright notice travel with a copy, so every archive
-bundles `LICENSE-MIT` and `LICENSE-APACHE` next to the binary. Neither license
+bundles `LICENSE-MIT` and `LICENSE-APACHE` next to the binary. The binary
+also contains code from the crates it depends on, whose licenses ask the same
+for their own notices: those are collected in `THIRD-PARTY-LICENSES.txt`,
+bundled beside the other two (see
+[Third-party license notices](#third-party-license-notices)). Neither license
 obliges the project to offer source with a binary; the earlier GPLv3 §6
 analysis ([ADR-0014](../adr/0014-project-license-gpl-3.0-only.md), superseded)
 applies only to the releases published under `GPL-3.0-only`, `v0.1.0` to
 `v0.6.0`.
+
+### Third-party license notices
+
+The binary depends on about 80 crates, all under permissive licenses
+(MIT, Apache-2.0, MIT-0, Unicode-3.0). All of those but MIT-0 ask that the
+copyright notice and license text accompany a copy, so every archive bundles
+`THIRD-PARTY-LICENSES.txt` (TASK-0348; first shipped in the release after
+`v0.7.0`).
+
+- **The file is committed, not built at release time.**
+  `scripts/build-release-artifact.sh` only copies it, so the path that
+  produces published binaries runs no extra tool.
+- **`make notices` regenerates it** with
+  [`cargo-about`](https://github.com/EmbarkStudios/cargo-about) from
+  `Cargo.lock`, [`about.toml`](../../about.toml) and the template in
+  `scripts/notices/`. Generation reads only the crate sources `Cargo.lock`
+  pins and does not use the network beyond fetching them. A Linux container
+  and a macOS host produce the same bytes.
+- **CI keeps it current.** The `security` job runs `make notices-check`'s
+  script whenever a dependency file, the configuration or the file itself
+  changes, and fails when the committed file differs from a fresh one.
+- **One file covers all four release targets.** A crate that only one
+  platform links (the `windows*` crates, the `objc2*` crates) is listed in
+  every archive. Crate versions are left out, so most version bumps do not
+  change the file.
+
+When a Dependabot cargo PR fails this check, check out its branch, run
+`make notices`, and push the result to that branch. Dependabot stops
+rebasing a PR once someone else has pushed to its branch, so update that
+branch by hand from then on. Use the `cargo-about` version pinned in
+`security.yml`; another version may format the file differently.
+
+Known limits:
+
+- Procedural-macro crates, and `core-foundation-sys`, are listed although
+  they are not in the binary.
+- The Rust standard library and the crates bundled with it are linked into
+  the binary, but `cargo-about` cannot see them. The file names them in one
+  fixed paragraph that points to `rust-lang/rust` for their license files; it
+  does not reproduce those files.
+- `blake3`, `objc2`, `objc2-encode` and `objc2-foundation` appear with the
+  standard text of their license, because their packages hold no license
+  file the tool finds. `blake3`'s own file is that same standard text. The
+  three `objc2` crates ship no license file and name no copyright holder, so
+  their section shows the MIT text with its `<year> <copyright holders>`
+  placeholder; the file's introduction explains this.

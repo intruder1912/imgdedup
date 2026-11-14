@@ -8,7 +8,7 @@
 # rust-toolchain.toml).
 
 .DEFAULT_GOAL := help
-.PHONY: help validate mdlint spell links shellcheck actionlint build test fmt lint coverage deny release-dry-run release-preflight
+.PHONY: help validate mdlint spell links shellcheck actionlint build test fmt lint coverage deny notices notices-check release-dry-run release-preflight
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -49,6 +49,12 @@ test: ## Run all Rust tests
 
 deny: ## Audit dependencies (advisories/licenses/bans/sources; needs cargo-deny installed)
 	cargo deny check
+
+notices: ## Regenerate THIRD-PARTY-LICENSES.txt after a dependency change (needs cargo-about: brew install cargo-about)
+	scripts/notices.sh
+
+notices-check: ## Check THIRD-PARTY-LICENSES.txt matches Cargo.lock (what CI's security job runs)
+	scripts/notices.sh --check
 
 check-linux: ## Type-check the Linux target from any host (catches cfg-gated code the host never compiles)
 	rustup target add x86_64-unknown-linux-gnu

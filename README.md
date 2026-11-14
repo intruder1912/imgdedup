@@ -318,6 +318,11 @@ Copyright © 2026 the `imgdedup` authors.
 Both license files ship in every release archive next to the binary, and
 `imgdedup --version` prints the license and the URL of the source repository.
 
+The binary is built with third-party Rust libraries under permissive licenses
+(MIT, Apache-2.0 and similar). Their license texts are collected in
+[`THIRD-PARTY-LICENSES.txt`](THIRD-PARTY-LICENSES.txt), which also ships in
+every release archive from the release after `v0.7.0` on.
+
 Releases up to and including `v0.6.0` were published under `GPL-3.0-only` and
 stay under that license for anyone who received them.
 
