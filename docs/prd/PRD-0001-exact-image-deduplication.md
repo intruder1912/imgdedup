@@ -766,10 +766,11 @@ Behavior:
   terminal completion state reports the run's total elapsed time. No
   remaining-time estimate is shown.
 
-AC-33..AC-37 are reserved for FR-22 (paging) and are stated in the
-[Amendment 2026-08-06](#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341);
-the `--output` overwrite rule and the closed-stream behavior (Amendment
-2026-11-13) continue at AC-38.
+AC-33..AC-37 were reserved for FR-22 (paging), which was withdrawn before it
+was built ([Amendment
+2026-11-14](#amendment-2026-11-14--report-paging-fr-22-withdrawn-owner-ruling-task-0340));
+the numbers are not reused. The `--output` overwrite rule and the
+closed-stream behavior (Amendment 2026-11-13) continue at AC-38.
 
 - **AC-38 (FR-20, re-run needs no flag):** Given `run.txt` holds the record of
   an earlier run — human-readable or NDJSON, whatever the new run's format —
@@ -1335,6 +1336,9 @@ in exactly the long runs it is wanted for — the same honesty test that
 rejected an entries-visited tick on 2026-08-05. Recorded as an amendment to
 FR-19 with **AC-32**.
 
+> **Ruling 5 was withdrawn on 2026-11-14** ([Amendment 2026-11-14](#amendment-2026-11-14--report-paging-fr-22-withdrawn-owner-ruling-task-0340)).
+> Its text is kept for the record.
+
 **Ruling 5 — page the human-readable report on an interactive terminal, as a
 second, lower-priority slice.** The `git log` pattern still earns its place:
 it is the only mechanism that requires **no foresight**, and foresight is what
@@ -1401,6 +1405,11 @@ in §6, the elapsed-time amendment inside **FR-19** in §6, NFR-3's narrowing in
 AC-20/AC-21/AC-22/AC-23/AC-24 re-scoped in place). §4's `--output <file>`
 non-goal is deleted and the Amendment 2026-07-19's decision 2 is marked
 superseded there.
+
+> **Withdrawn 2026-11-14.** FR-22 and AC-33..AC-37 below were never folded
+> into the body and never built. The owner withdrew them
+> ([Amendment 2026-11-14](#amendment-2026-11-14--report-paging-fr-22-withdrawn-owner-ruling-task-0340)); the
+> text is kept for the record only.
 
 Only **FR-22 (paging)** is still tentative and therefore still stated here in
 full, together with its acceptance criteria. It is **not** in the body and no
@@ -1474,6 +1483,10 @@ below is answered.
 
 ### Open question — for the human owner, and only for the FR-22 slice
 
+> **Closed 2026-11-14.** The owner first answered it on 2026-11-13 (on by
+> default, the Windows gap accepted) and then withdrew FR-22 altogether
+> ([Amendment 2026-11-14](#amendment-2026-11-14--report-paging-fr-22-withdrawn-owner-ruling-task-0340)).
+
 Questions on the flag name, the TTY-conditional stdout rule, the NDJSON record
 format, and whether the record file duplicates or replaces terminal output were
 **all answered by the owner on 2026-08-06** and are recorded as decided in
@@ -1522,7 +1535,8 @@ so a later reader need not reconstruct it:
    reasoning is scoped to the indeterminate walk state so it no longer reads as
    contradicting AC-32 or FR-20's always-timestamped record milestones.
 
-The FR-22 questions below remain open, with that slice.
+The FR-22 questions below were left open with that slice and lapsed when
+FR-22 was withdrawn on 2026-11-14.
 
 For FR-20 (the record file) — **closed, retained for the record**:
 
@@ -1568,7 +1582,7 @@ For FR-21 (the stream model) — **closed, retained for the record**:
   arguable rather than deciding it silently. **Resolved** — the apply-time
   lines were the one arguable case; see item 1 above.
 
-For FR-22 (paging) — **still open**, and needed before that second slice:
+For FR-22 (paging) — **lapsed; FR-22 was withdrawn on 2026-11-14**:
 
 - Whether `$PAGER` is executed **through a shell** (needed for the common
   `PAGER="less -R"` form, as `git` does) or exec'd directly, and what that
@@ -1625,7 +1639,8 @@ documentation. The owner overturned that.
   never a redirected stdout, never under `--json`.
 - **FR-22 (paging), when it is taken up,** must reconcile AC-35 with ruling 4:
   quitting the pager early is a normal outcome and keeps the tool's own exit
-  code, so a report handed to the pager counts as delivered.
+  code, so a report handed to the pager counts as delivered. *(Moot: FR-22
+  was withdrawn on 2026-11-14.)*
 
 **Folded into the body:** FR-15 (closed output streams), FR-20 (the overwrite
 rule; "behaves like `>`" removed), §8 (`--overwrite-output` and the existing
@@ -1638,3 +1653,33 @@ only a reader that went away (a broken pipe) stays silent; any other cause
 (a full disk behind `> file`, an I/O error) prints one
 `error: could not write the report to standard output: <reason>` line on
 stderr. Folded into FR-15 and **AC-47**.
+
+## Amendment 2026-11-14 — report paging (FR-22) withdrawn (owner ruling, TASK-0340)
+
+**Owner ruling, 2026-11-14: `imgdedup` will not page its report.** The
+tentative **FR-22** and **AC-33..AC-37** of the
+[Amendment 2026-08-06](#amendment-2026-08-06--durable-run-record-stream-model-and-report-paging-product-owner-ruling-task-0340--task-0341)
+are withdrawn. They were never folded into the body and no code was written,
+so no shipped behavior changes: the report prints exactly as it does today.
+
+**Why.** Paging was designed in full on 2026-11-13 and 2026-11-14 (the
+[design](../superpowers/specs/2026-11-13-report-paging-design.md) and
+[ADR-0019](../adr/0019-report-paging.md), both kept as a record) and the owner
+then decided against it:
+
+- A report longer than the terminal's scrollback is the cost of starting a
+  large run without `--output <file>` or a redirect. In the owner's words,
+  "it is bad luck if one forgets the correct flags."
+- The owner wants to drive the project more towards **separate analysis,
+  reporting and user-interface functions**, so that usability problems of
+  this kind can be solved differently in the future. That direction is not
+  specified here; it starts with an owner brainstorm, tracked as TASK-0346.
+
+**What stands.** The ways to keep or read a long report are the shipped ones:
+`--output <file>` (FR-20), which also survives an interrupted run; redirecting
+or piping stdout; and `--json`. Ruling 5 of the Amendment 2026-08-06 and the
+"FR-22, when it is taken up" note in the Amendment 2026-11-13 are moot.
+
+**Not folded into the body:** nothing to fold. §9's note on the reserved
+criteria now says that AC-33..AC-37 are withdrawn and not reused. There is no
+`--no-pager` flag, and `$PAGER` is not read.

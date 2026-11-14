@@ -38,8 +38,10 @@ the options considered, the decision, and its consequences. They use a
 | [0016](0016-ai-agent-automation-plugin.md) | AI-agent automation — Claude Code plugin (skill, command, operator agent) | accepted |
 | [0017](0017-performance-instrumentation-tracing-spans.md) | Performance instrumentation — `tracing` spans + an opt-in `--timings` consumer | accepted |
 | [0018](0018-durable-run-record-and-output-stream-routing.md) | Durable run record (`--output`) & output-stream routing | accepted |
+| [0019](0019-report-paging.md) | Report paging — starting, positioning and waiting for the pager | rejected (2026-11-14; never implemented) |
 
 > The technology-stack and core design ADRs for PRD-0001 (0007–0010) have
 > landed; ADR-0015 closes the release-mechanism question ADR-0004 left open.
 >
-> Status values: `proposed` → `accepted` → `superseded` → `deprecated`.
+> Status values: `proposed` → `accepted` → `superseded` → `deprecated`; a
+> proposal that is turned down is `rejected` and kept as a record.

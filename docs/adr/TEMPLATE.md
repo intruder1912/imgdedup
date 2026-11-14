@@ -1,6 +1,6 @@
 # ADR-XXXX: <Title>
 
-- **Status:** proposed | accepted | superseded by ADR-YYYY | deprecated
+- **Status:** proposed | accepted | rejected | superseded by ADR-YYYY | deprecated
 - **Date:** YYYY-MM-DD
 - **Deciders:** architect, human owner
 - **Related:** <PRDs, other ADRs, tasks>

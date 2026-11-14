@@ -7,9 +7,61 @@ first file to read when resuming work.
 owner-approved **[batch plan](batch-plan.md)** (2026-07-19): housekeeping →
 S2 → test tooling → S3 → S4 + field validation → v0.1.0 private release →
 docs pass → AI automation, batched within Claude usage limits.
-**Last updated:** 2026-11-13
+**Last updated:** 2026-11-14
 
 ## In progress
+
+- _Session 38 (docs: report paging designed, then withdrawn — TASK-0340 /
+  FR-22), 2026-11-13 and 2026-11-14 — branch `docs/withdraw-report-paging`
+  (started as `feat/report-paging`)._ **Outcome: `imgdedup` will not page its
+  report. No code was written; shipped behavior is unchanged.**
+
+  What happened: on 2026-11-13 the owner brainstormed and approved a
+  [design](../superpowers/specs/2026-11-13-report-paging-design.md) (a pager
+  opened at the end of a long report, on by default, with a closing status
+  left in the terminal). On 2026-11-14 the architect wrote
+  [ADR-0019](../adr/0019-report-paging.md) and the product-owner drafted the
+  PRD amendment. The owner then withdrew the feature the same day:
+
+  - forgetting `--output` or a redirect before a large run is accepted as the
+    user's cost;
+  - the owner wants to drive the project more towards **separate analysis,
+    reporting and user-interface functions**, so that usability problems of
+    this kind can be solved differently in the future. That direction is unspecified and starts with
+    an owner brainstorm: new **TASK-0346**.
+
+  What this unit leaves in the repo: PRD-0001 Amendment 2026-11-14 withdraws
+  FR-22 and AC-33..AC-37 (numbers not reused); ADR-0019 is kept as `rejected`
+  for its measurements on `less` and external pagers; the design is marked
+  withdrawn; the implementation plan is deleted; TASK-0340 is closed. The
+  product-owner's FR-22 fold-in draft was not kept (it stays reachable from
+  this PR's commit list on GitHub after the squash merge). The withdrawal text
+  in the PRD was written by the orchestrator from the owner's ruling, not by
+  the product-owner. The architect's lightweight document review of the
+  withdrawal required four text changes, all applied: three places where the
+  orchestrator's wording gave the owner motives or design direction the owner
+  had not stated, and a stale sentence in TASK-0340's row.
+
+  **Resume point:** no unit is in progress. Open rows: TASK-0346 (owner
+  brainstorm), TASK-0339 (needs an architect ADR), TASK-0326 / 0336 / 0337
+  (wait on the repo going public).
+
+  Also recorded here: PR #110 (TASK-0345, session 37) merged 2026-11-13 as
+  squash `cc74999`; its usage was 22% of a 5h window against a 15–20%
+  estimate.
+
+  Usage, 2026-11-14 (5h window from 6%, weekly from 14%): the design batch —
+  architect 200k and product-owner 164k subagent tokens — was estimated at
+  25–35% of the window and cost **32%** (6% → 38%; weekly 14% → 18%). All of
+  it went into a design that was then withdrawn. The withdrawal itself —
+  written inline, plus one architect review pass (47k subagent tokens) and the
+  owner's question-and-answer round — cost a further 13%, ending at **51%** of
+  the window and 20% weekly (owner's `/usage` reading at the point the PR was
+  opened). Lesson for the batch plan (the orchestrator's observation, not the
+  owner's stated reason): the owner withdrew the feature only after the full
+  ADR and PRD passes. For a feature whose value is in doubt, putting a
+  one-page mechanism sketch and the direction question to the owner before
+  those passes would have cost a few percent instead of 32.
 
 - _Session 37 (fix: say why a report could not be written, TASK-0345),
   2026-11-13 — branch `fix/undelivered-report-message`._ Since TASK-0342 a
