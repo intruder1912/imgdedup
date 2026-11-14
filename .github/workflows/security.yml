@@ -181,7 +181,7 @@ jobs:
           set -euo pipefail
           # Installs the toolchain rust-toolchain.toml pins, and fails here,
           # visibly, if that download fails. (`rustup show` only reports.)
-          rustup toolchain install
+          rustup toolchain install --no-self-update
           scripts/notices.sh --check
 
   # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,

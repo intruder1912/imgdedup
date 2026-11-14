@@ -356,7 +356,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust toolchain
-        run: rustup show  # reads rust-toolchain.toml; installs the pinned channel + components
+        # No arguments: installs the channel and components rust-toolchain.toml
+        # pins, and fails here if that download fails. (`rustup show` only
+        # reports since rustup 1.28; the first cargo call would install it.)
+        # --no-self-update: the job must not replace rustup itself midway.
+        run: rustup toolchain install --no-self-update
 
       # TASK-0330 (CI-minutes optimization). Against the measurement tabulated
       # above, macOS is the most expensive job in the repository and yet the

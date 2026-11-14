@@ -62,9 +62,11 @@ docs pass → AI automation, batched within Claude usage limits.
   file; (F4) two inaccurate sentences in `release.md`; (F5) ADR-0020 gained a
   dated note; (F6) the guide and `release.md` now say the file ships from the
   release after `v0.7.0`; (F7) the check has its own path filter, so editing
-  only the template does not also run `cargo-deny`. Left for a separate
-  chore: `ci.yml` and `release.yml` carry the same wrong
-  "`rustup show` installs" comment.
+  only the template does not also run `cargo-deny`. `ci.yml`,
+  `release.yml` and the release pre-flight had the same `rustup show` line;
+  on the owner's instruction they were changed to `rustup toolchain install`
+  in this PR too. The `release.yml` and pre-flight changes have not been run;
+  `ci.yml`'s and `security.yml`'s run on the PR.
 
   Not run yet: the `security.yml` steps themselves. They run for the first
   time on this PR.
