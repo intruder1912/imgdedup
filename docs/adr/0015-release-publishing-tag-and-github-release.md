@@ -369,6 +369,11 @@ published assets become anonymously downloadable and this analysis no longer
 holds, so TASK-0219 must complete before that flip — recorded as an explicit
 dependency on its backlog row.
 
+> *Note (2026-11-14):* superseded for releases after `v0.6.0` by
+> [ADR-0020](0020-relicense-mit-or-apache-2.0.md); archives now bundle
+> `LICENSE-MIT` and `LICENSE-APACHE`, and this §6 analysis applies only to
+> `v0.1.0`–`v0.6.0`.
+
 **Not in scope:** GPG signing, macOS codesigning/notarization, Windows
 Authenticode — all require an owner-managed signing identity and long-lived
 secrets, which is exactly what this ADR's chosen option (no standing

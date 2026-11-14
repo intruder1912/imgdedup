@@ -1,6 +1,8 @@
 # ADR-0014: Project license — GPL-3.0-only
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-0020](0020-relicense-mit-or-apache-2.0.md)
+  (2026-11-14); it still describes the license of releases `v0.1.0` to
+  `v0.6.0`
 - **Date:** 2026-08-02
 - **Deciders:** human owner (license family), architect (SPDX refinement)
 - **Related:** [TASK-0202](../planning/backlog.md), [ADR-0007](0007-technology-stack-rust-clap.md),
@@ -517,7 +519,7 @@ not by itself change this analysis.
 ## Links
 
 - [GNU GPL v3.0](https://www.gnu.org/licenses/gpl-3.0.txt) — the text in
-  [`LICENSE`](../../LICENSE), verbatim
+  `LICENSE` (removed by ADR-0020; in the tree up to tag `v0.6.0`), verbatim
   (SHA-256 `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986`).
 - [SPDX license list](https://spdx.org/licenses/) — `GPL-3.0` is deprecated in
   favor of `GPL-3.0-only` / `GPL-3.0-or-later`.

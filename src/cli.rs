@@ -2,7 +2,7 @@ use clap::{ArgAction, Parser, ValueEnum};
 use std::path::PathBuf;
 
 /// The GNU-conventional license/copyright block printed by `imgdedup
-/// --version` (ADR-0014's TASK-0219 amendment). `-V` keeps printing exactly
+/// --version` (ADR-0014's TASK-0219 amendment; the license line is ADR-0020's). `-V` keeps printing exactly
 /// `imgdedup <version>` — see [`Cli`]'s `long_version`/`version` wiring.
 ///
 /// clap prepends the binary name itself (`imgdedup `) when it renders
@@ -12,9 +12,9 @@ use std::path::PathBuf;
 /// double-print the binary name).
 ///
 /// Wording is pinned by the ADR, not left to taste: ASCII `(C)` (not `©`, for
-/// legacy Windows console code pages), the SPDX identifier `GPL-3.0-only`
-/// rather than GNU's bare `GPLv3`/`+`-suffix convention, every line ≤ 80
-/// columns (hence `gnu.org` rather than `www.gnu.org`), no trailing period on
+/// legacy Windows console code pages), the SPDX expression `MIT OR Apache-2.0`
+/// followed by the names of the two license files that ship beside the
+/// binary, every line ≤ 80 columns, no trailing period on
 /// the three metadata lines (`Copyright`/`License`/`Source`, so a URL is
 /// never selected with a stray `.`), and the two warranty sentences verbatim
 /// from GNU's own convention. The `Source:` URL comes from
@@ -23,7 +23,7 @@ use std::path::PathBuf;
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     "\nCopyright (C) 2026 the imgdedup authors\n",
-    "License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>\n",
+    "License MIT OR Apache-2.0: see LICENSE-MIT and LICENSE-APACHE\n",
     "This is free software: you are free to change and redistribute it.\n",
     "There is NO WARRANTY, to the extent permitted by law.\n",
     "Source: ",
@@ -467,7 +467,7 @@ mod tests {
         format!(
             "imgdedup {}\n\
              Copyright (C) 2026 the imgdedup authors\n\
-             License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>\n\
+             License MIT OR Apache-2.0: see LICENSE-MIT and LICENSE-APACHE\n\
              This is free software: you are free to change and redistribute it.\n\
              There is NO WARRANTY, to the extent permitted by law.\n\
              Source: https://github.com/intruder1912/imgdedup\n",

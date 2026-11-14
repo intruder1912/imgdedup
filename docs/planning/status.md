@@ -11,6 +11,35 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 39 (feat: relicense to `MIT OR Apache-2.0`, TASK-0347),
+  2026-11-14 — branch `feat/relicense-mit-or-apache`._ Owner decision (given
+  without a stated reason, in a conversation about going public and
+  package-manager distribution): the project moves from `GPL-3.0-only` to `MIT OR Apache-2.0`.
+  [ADR-0020](../adr/0020-relicense-mit-or-apache-2.0.md) supersedes ADR-0014.
+  `LICENSE` is replaced by `LICENSE-MIT` and `LICENSE-APACHE` (the Apache
+  text is the canonical file, checksum recorded in the ADR); the manifests,
+  the release script, the CI structure check, README, CONTRIBUTING, the
+  release docs and `deny.toml`'s comments follow. The one code change is the
+  license line of `--version`, with both pinning tests changed first and seen
+  to fail. TASK-0336 is narrowed: its GPL checks no longer apply. The ADR was
+  written by the orchestrator from the owner's ruling and reviewed by the
+  architect with the rest of the diff.
+
+  Architect review: changes required, all applied — the code, license files,
+  metadata and scripts were confirmed correct; the three must-fixes were in
+  the ADR and planning prose (a false claim that every old release's
+  `--version` names the GPL, when only `v0.6.0` does; considerations written
+  as if they were the owner's reasons; a missing full stop). ADR-0015's GPL
+  paragraph gained a dated note. Raised as TASK-0348: release archives carry
+  no third-party license notices. Not fixed here: `docs/process/commits.md`
+  says a breaking change bumps the major version only after `1.0.0`, but the
+  configured analyzer would go from `0.x` straight to `1.0.0`.
+
+  **Also on 2026-11-14: `v0.6.0` was published** (release workflow dispatched
+  on the owner's instruction against `4878c89`; four platform archives with
+  checksums). It is the last release under `GPL-3.0-only`; `v0.1.0`–`v0.6.0`
+  stay under that license.
+
 - _Session 38 (docs: report paging designed, then withdrawn — TASK-0340 /
   FR-22), 2026-11-13 and 2026-11-14 — branch `docs/withdraw-report-paging`
   (started as `feat/report-paging`)._ **Outcome: `imgdedup` will not page its

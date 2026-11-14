@@ -10,8 +10,10 @@ all-features = true
 # Defaults: vulnerabilities are errors; unmaintained/unsound/yanked warn.
 
 [licenses]
-# Dependency licenses must be GPL-3.0-compatible: imgdedup itself is
-# GPL-3.0-only (ADR-0014). Everything currently in the tree is permissive.
+# Dependency licenses must be permissive: imgdedup itself is
+# MIT OR Apache-2.0 (ADR-0020), and a copyleft dependency would put terms on
+# the binary that the project's own license does not. Everything currently
+# in the tree is permissive.
 allow = [
   "MIT",
   "MIT-0",
@@ -23,7 +25,7 @@ allow = [
   "Zlib",
   "Unicode-3.0",
 ]
-# imgdedup itself is publish = false, so its own (GPL-3.0-only) license is not
+# imgdedup itself is publish = false, so its own (MIT OR Apache-2.0) license is not
 # checked against the allow-list above — that list governs dependencies.
 private = { ignore = true }
 

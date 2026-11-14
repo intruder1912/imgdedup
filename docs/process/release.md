@@ -153,7 +153,7 @@ one.
 
 Each archive is named `imgdedup-v<version>-<target-triple>.{tar.gz,zip}` and
 contains one top-level directory of the same name holding the `imgdedup`
-binary, `LICENSE`, and `README.md`. A same-named `.sha256` file (one per
+binary, `LICENSE-MIT`, `LICENSE-APACHE`, and `README.md`. A same-named `.sha256` file (one per
 artifact, `sha256sum -c` format) accompanies each archive:
 
 ```sh
@@ -223,15 +223,13 @@ byte-for-byte rehearsal of that leg. See
 [ADR-0015's 2026-08-05 TASK-0334 amendment](../adr/0015-release-publishing-tag-and-github-release.md#amendment-2026-08-05--local-release-pipeline-pre-flight-task-0334)
 for the full reasoning.
 
-### Licensing note (GPLv3 §6)
+### Licensing note
 
-Distributing a binary triggers the GPLv3 §6 obligation to make the
-corresponding source available. While this repository is **private**, every
-recipient of a release asset already has repository (source) access by the
-same grant, and GitHub additionally attaches an auto-generated source archive
-to every Release — so no separate written offer or source bundle is needed
-right now. `LICENSE` is still bundled in each archive as GPLv3 §4/§5 hygiene.
-This position **must be re-checked before the repository goes public**
-(TASK-0219), at which point already-published assets become anonymously
-downloadable and the §6 analysis above no longer holds — see
-[ADR-0014](../adr/0014-project-license-gpl-3.0-only.md).
+`imgdedup` is licensed `MIT OR Apache-2.0`
+([ADR-0020](../adr/0020-relicense-mit-or-apache-2.0.md)). Both licenses ask
+that their text and the copyright notice travel with a copy, so every archive
+bundles `LICENSE-MIT` and `LICENSE-APACHE` next to the binary. Neither license
+obliges the project to offer source with a binary; the earlier GPLv3 §6
+analysis ([ADR-0014](../adr/0014-project-license-gpl-3.0-only.md), superseded)
+applies only to the releases published under `GPL-3.0-only`, `v0.1.0` to
+`v0.6.0`.

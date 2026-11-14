@@ -102,7 +102,7 @@ fi
 # "imgdedup <version>" with no trailing content. This is the assertion that
 # catches a version-stamping failure before a mislabeled binary is published
 # (ADR-0015); `--version` (below) is the separate GNU-style multi-line
-# license/copyright block (ADR-0014's TASK-0219 amendment), which cannot be
+# license/copyright block (ADR-0014's TASK-0219 amendment, ADR-0020), which cannot be
 # compared by exact equality against a one-liner.
 got="$("$bin" -V)"
 want="imgdedup $version"
@@ -133,7 +133,7 @@ stage="$out_dir/.stage-$$"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/$stem"
 cp "$bin" "$stage/$stem/"
-cp LICENSE README.md "$stage/$stem/"
+cp LICENSE-MIT LICENSE-APACHE README.md "$stage/$stem/"
 
 (
   cd "$stage"
