@@ -11,6 +11,26 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 40 (docs: record `v0.7.0` and the release clean-up; planning
+  sync), 2026-11-14 — branch `docs/record-v0.7.0-and-release-cleanup`._
+  PR #114 (TASK-0347, session 39) merged as squash `fa5bb81`. On the owner's
+  instruction the release workflow was then dispatched against it:
+  **`v0.7.0` is published, the first release under `MIT OR Apache-2.0`**.
+  Checked on the downloaded macOS archive: the checksum matches, the archive
+  holds `LICENSE-MIT` and `LICENSE-APACHE`, and `--version` names the new
+  license.
+
+  Also on the owner's instruction, **the 16 GitHub Releases `v0.1.0` to
+  `v0.6.0` were deleted** with their binaries. Their git tags are kept: the
+  release notes' compare links and ADR-0014 refer to them, and the source at
+  those tags is in the history regardless. `v0.7.0` is the only release
+  listed. ADR-0020 and TASK-0336 are updated to say so; that closes
+  TASK-0336's "keep or delete the GPL releases" question.
+
+  **Resume point:** no unit is in progress. Open rows: TASK-0346 (owner
+  brainstorm), TASK-0348 (third-party notices), TASK-0339 (architect ADR),
+  TASK-0337 / TASK-0336 / TASK-0326 (going public).
+
 - _Session 39 (feat: relicense to `MIT OR Apache-2.0`, TASK-0347),
   2026-11-14 — branch `feat/relicense-mit-or-apache`._ Owner decision (given
   without a stated reason, in a conversation about going public and
