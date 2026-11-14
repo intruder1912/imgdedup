@@ -28,7 +28,7 @@ docs pass → AI automation, batched within Claude usage limits.
   What landed: `about.toml` and a plain-text template
   (`scripts/notices/`); `scripts/notices.sh` (`make notices`,
   `make notices-check`); a pinned, checksum-verified `cargo-about` 0.9.3 and
-  the check in `security.yml`, under the same path filter as `cargo-deny`;
+  the check in `security.yml`, under its own `notices` path filter;
   the copy in `scripts/build-release-artifact.sh`; the CI structure check;
   `release.md`, README, CONTRIBUTING and the getting-started guide. The README
   and guide lines are one-sentence factual additions written by the
@@ -65,11 +65,21 @@ docs pass → AI automation, batched within Claude usage limits.
   only the template does not also run `cargo-deny`. `ci.yml`,
   `release.yml` and the release pre-flight had the same `rustup show` line;
   on the owner's instruction they were changed to `rustup toolchain install`
-  in this PR too. The `release.yml` and pre-flight changes have not been run;
-  `ci.yml`'s and `security.yml`'s run on the PR.
+  in this PR too, with `--no-self-update` so a job does not replace rustup
+  midway. Two review nits (F8, F9) were comment and wording fixes.
 
-  Not run yet: the `security.yml` steps themselves. They run for the first
-  time on this PR.
+  PR CI on the first commit ran both new `security` steps; the notices
+  check passed on Ubuntu. The release pre-flight was then run on the second
+  commit: its Linux container leg and its macOS leg both installed the
+  toolchain with the new command and produced archives that contain
+  `THIRD-PARTY-LICENSES.txt`. `release.yml` itself runs only when a release
+  is dispatched, so its changed line has not run.
+
+  A second, short architect pass confirmed the fixes and the
+  `rustup toolchain install` change, and required three text corrections,
+  applied: two stale sentences in this entry, and the standard-library
+  paragraph in the notices file, which claimed `MIT OR Apache-2.0` without
+  the Rust project's own "except as otherwise noted".
 
 - _Session 40 (docs: record `v0.7.0` and the release clean-up; planning
   sync), 2026-11-14 — branch `docs/record-v0.7.0-and-release-cleanup`._
