@@ -18,10 +18,10 @@ One entry per review; summarize into the PR description when the slice opens.
 | # | Finding | Severity | Disposition |
 |---|---|---|---|
 | 1 | <finding> | blocking / should-fix / nit | fixed-now (commit `<sha>`) |
-| 2 | <finding> | should-fix | **deferred** → TASK-XXXX (PO decision: defer) |
+| 2 | <finding> | should-fix | **deferred** → #NNN (PO decision: defer) |
 
 Notes: <anything the final reviewer should know>
 
 ## Deferrals summary
 
-- TASK-XXXX — <deferred finding> (from Review N).
+- #NNN — <deferred finding> (from Review N).

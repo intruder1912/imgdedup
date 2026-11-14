@@ -18,9 +18,10 @@ is the single source of truth: if a rule matters, it is written down here or in
 See [`docs/process/sdlc.md`](docs/process/sdlc.md) for the authoritative version.
 Summary:
 
-1. **Pick a task** from [`docs/planning/backlog.md`](docs/planning/backlog.md)
-   (or its task file in [`docs/planning/tasks/`](docs/planning/tasks/)). Mark it
-   in progress in [`docs/planning/status.md`](docs/planning/status.md).
+1. **Start from an accepted issue** (see
+   [Issues and pull requests](#issues-and-pull-requests)). Work is tracked in
+   [GitHub Issues](https://github.com/intruder1912/imgdedup/issues); the unit
+   being worked on carries the `in progress` label.
 2. **Create a branch**: `feature/<slug>`, `fix/<slug>`, `chore/<slug>`,
    `docs/<slug>`. See [`docs/process/branching.md`](docs/process/branching.md).
 3. **Implement** using TDD (failing test → pass → refactor).
@@ -32,7 +33,25 @@ Summary:
    that follows [`.github/pull_request_template.md`](.github/pull_request_template.md).
 7. **CI must pass.** The **architect** agent reviews (as PR comments).
 8. **The human owner merges** (squash). The branch auto-deletes.
-9. **Update the planning docs** (status/backlog) in the same PR.
+9. **The PR closes its issue** (`Closes #123` in the description). The PR
+   description is the record of the unit: what was verified, what the review
+   found, what was not done.
+
+## Issues and pull requests
+
+- **Issues are welcome**: bug reports, feature requests, questions about
+  behavior. The owner triages them. A new issue carries `needs-triage`; one
+  the owner wants done gets `accepted`.
+- **Open a pull request only for an accepted issue.** A feature here needs
+  written requirements and tests first, so agreeing on the change before the
+  code saves you work. A pull request without an accepted issue will be
+  pointed here and closed or left until the issue is settled.
+- **Exception:** typos, broken links and one-line documentation corrections
+  can be sent as a pull request directly.
+- **Security problems do not go in issues.** See [`SECURITY.md`](SECURITY.md).
+
+The decision is recorded in
+[ADR-0021](docs/adr/0021-issue-based-planning-for-a-public-repository.md).
 
 ## Local validation
 

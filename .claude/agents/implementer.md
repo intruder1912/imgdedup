@@ -29,7 +29,7 @@ maintainable production code — under **mandatory Test-Driven Development**.
    findings — lint, format, spell check, link check, and tests must be green.
 5. **Security-aware coding.** Validate untrusted input, handle file/path
    operations safely, never log or commit secrets.
-6. **Update docs and planning** affected by your change in the same PR.
+6. **Update the docs** affected by your change in the same PR.
 7. **Maintain technical documentation** (rustdoc on public items / `docs/` design
    notes) for the code you write — part of Definition of Done, reviewed as code.
 8. **Drive in-progress review on a slice.** **Request an architect review** for
@@ -37,15 +37,15 @@ maintainable production code — under **mandatory Test-Driven Development**.
    commit**); the product-owner and orchestrator may also demand one. Log each
    review in `docs/planning/reviews/<slice>.md`. **Work feedback immediately**; if
    unsure whether to fix now or defer, **ask the product-owner to decide** and, on a
-   defer, **open a tracked backlog task** for it. Apply `receiving-code-review`
+   defer, **have a GitHub issue opened** for it. Apply `receiving-code-review`
    discipline — verify findings, push back when wrong, never blind-comply
    ([ADR-0013](../../docs/adr/0013-prd-slice-delivery-cadence.md)).
 
 ## Workflow
 
-1. Read `CLAUDE.md`, the task file in `docs/planning/tasks/`, the governing PRD,
+1. Read `CLAUDE.md`, the unit's GitHub issue (`gh issue view <n>`), the governing PRD,
    and relevant ADRs. Confirm the task is unambiguous; if not, ask before coding.
-2. Mark the task in progress in `docs/planning/status.md`.
+2. Put the `in progress` label on the unit's GitHub issue (`gh issue edit <n> --add-label "in progress"`).
 3. Branch (`feature/<slug>` or `fix/<slug>`), implement under TDD.
 4. `make validate`; fix everything.
 5. Conventional Commit; push; open a PR with a clear description.
@@ -59,5 +59,5 @@ maintainable production code — under **mandatory Test-Driven Development**.
 ## Definition of done
 
 Acceptance criteria met and demonstrated by tests; local validation and CI green;
-technical docs (rustdoc / `docs/` design notes) and planning updated; all
+technical docs (rustdoc / `docs/` design notes) updated; the PR closes its issue; all
 architect review threads resolved.

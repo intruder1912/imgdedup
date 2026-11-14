@@ -21,7 +21,7 @@
 The owner wants to be able to **assess `imgdedup`'s performance on large, real
 image sets** — motivated by session 29's informal `/usr/bin/time -l` numbers on a
 2,021-file / 5.72 GB real photo corpus (recorded in
-[`../planning/status.md`](../planning/status.md)). Those numbers are a single
+`docs/planning/status.md` (removed from `main` by ADR-0021; in the git history)). Those numbers are a single
 wall-clock total: **0.50 s for the whole run**, with no way to say how much of it
 was the tree walk, magic-byte confirmation, hashing, byte-verification, or
 report rendering. `tests/scale.rs` (`make scale`, NFR-4) is and remains the
@@ -536,7 +536,7 @@ exception does not apply and is not claimed.
   question left open there.
 - [ADR-0008](0008-core-deduplication-algorithm-and-semantics.md) — the pipeline
   whose stages the spans mirror.
-- [`../planning/status.md`](../planning/status.md) session 29 — the informal
+- `docs/planning/status.md` (removed from `main` by ADR-0021; in the git history), session 29 — the informal
   real-corpus numbers that prompted this, and the breakdown they cannot give.
 - [`../planning/reviews/e2e-scale.md`](../planning/reviews/e2e-scale.md) — the
   NFR-4 method `tests/scale.rs` still owns.

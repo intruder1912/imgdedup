@@ -14,7 +14,7 @@ with short-lived topic branches merged via reviewed pull requests.
 
 Create from up-to-date `main`. A **branch = one unit of work**: it carries
 everything that unit needs — design (PRD/ADR if applicable), TDD code, technical
-and user docs, **and** the planning/status update — into one squash PR. Classify
+and user docs — into one squash PR that closes the unit's issue. Classify
 the unit up front as **feature**, **fix**, or **chore**, which sets the cadence
 (prefix, lifetime, CI weight, review kind); see
 [ADR-0011](../adr/0011-unit-of-work-cadence-and-planning-gate.md). Docs that

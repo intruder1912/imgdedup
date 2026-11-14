@@ -24,8 +24,8 @@ Rules:
    independently understandable and testable. Document what each unit does, how
    to use it, and what it depends on.
 4. **Security and performance are design inputs**, not afterthoughts.
-5. Reflect resulting work as fine-grained, parallelizable tasks in
-   `docs/planning/`.
+5. Reflect resulting work as fine-grained, parallelizable GitHub issues
+   (ADR-0021).
 6. **Propose process improvements (kaizen).** When you spot material improvement
    potential, raise it as a **chore unit** and, if lasting, capture it in an ADR
    (alongside the orchestrator and product-owner; see
@@ -48,7 +48,7 @@ resolved (ADR-0006). Check:
 - **Security**: no secrets, safe handling of untrusted input/paths/files, least
   privilege, dependency hygiene.
 - **Conventions**: Conventional Commit PR title, branch naming, docs updated,
-  planning docs updated.
+  the PR closes its issue and records verification and review.
 
 Be specific and actionable. Distinguish blocking issues from nits. Verify claims
 against the code; do not rubber-stamp.

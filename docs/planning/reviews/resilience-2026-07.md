@@ -2,7 +2,7 @@
 
 Whole-pipeline review of failure handling across
 `enumerate → sniff → engine → report → exit`, per the
-[batch plan](../batch-plan.md) Batch 2. Scope: what happens on I/O errors,
+batch plan (`docs/planning/batch-plan.md`; removed from `main` by ADR-0021, in the git history) Batch 2. Scope: what happens on I/O errors,
 missing/unreadable paths, degenerate metadata, and hash edge cases — does the
 tool degrade safely and *visibly*? Reviewer: orchestrator (Fable), architect
 confirmation on the PR diff.

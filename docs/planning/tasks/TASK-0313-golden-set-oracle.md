@@ -23,7 +23,7 @@ oracle is a **generated golden set, not real photos**). This task delivers:
 
 ## Context & links
 
-- Batch 4 of the [batch plan](../batch-plan.md); owner decisions recorded there.
+- Batch 4 of the batch plan (`docs/planning/batch-plan.md`; removed from `main` by ADR-0021, in the git history); owner decisions recorded there.
 - **PRD-0001** — the golden set exercises FR-1..FR-5, FR-9/FR-10 (keeper
   rules), FR-14/NFR-3 (`--json`, determinism), FR-17/AC-18 (hard links).
 - **ADR-0008** — keeper total order and the hard-link anchor rule the expected

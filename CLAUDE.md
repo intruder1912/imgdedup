@@ -12,16 +12,31 @@ near-duplicate images. The product requirements are developed in
 [`docs/adr/`](docs/adr/). **Do not invent product scope or pick a tech stack —
 those are defined through PRDs and ADRs first.**
 
-## 2. The single source of truth is the repository
+## 2. Where the truth lives: the repository and its issue tracker
 
-All planning, status, decisions, and process live **in this repo as Markdown**.
-Never rely on chat/session memory for project state. To know where things stand,
-read [`docs/planning/status.md`](docs/planning/status.md). To know what to do
-next, read [`docs/planning/backlog.md`](docs/planning/backlog.md) and the task
-files in [`docs/planning/tasks/`](docs/planning/tasks/).
+Never rely on chat/session memory for project state
+([ADR-0021](docs/adr/0021-issue-based-planning-for-a-public-repository.md)).
 
-When you make progress, **update these files in the same PR** so the next agent
-or human can resume from the repo alone.
+- **What to build and how** lives **in this repo as Markdown**: PRDs, ADRs and
+  the process documents. They are authoritative.
+- **What is open** lives in **GitHub Issues**. Every unit of work is an issue.
+  To know where things stand, run `gh issue list` and `gh pr list`: open
+  issues are the work to do, the label `in progress` marks the unit being
+  worked on, open PRs are the work under review, and the latest release
+  (`gh release list`) is what has shipped.
+- **What happened in a unit** is recorded in its PR description: what was
+  verified and how, what the review found, what was not done or not run. The
+  PR closes its issue (`Closes #123`).
+
+An issue opened for our own work gets its class label (`feature`, `fix`,
+`chore`) and `accepted`, plus `needs-prd` / `needs-adr` where one must come
+first. When you start a unit, put `in progress` on its issue; take it off if
+the unit is paused or dropped. When a decision outlives
+the unit, record it in an ADR or PRD, not only in the issue or the PR.
+
+[`docs/planning/backlog.md`](docs/planning/backlog.md) and
+[`docs/planning/tasks/`](docs/planning/tasks/) are closed records of the work up
+to 2026-11-14, kept so `TASK-XXXX` references resolve. Do not add to them.
 
 ## 3. The agent crew
 
@@ -58,8 +73,8 @@ The **human owner is the only one who merges PRs** (see §5).
 6. **One unit of work = one branch = one focused PR.** Classify the unit up front
    as **feature**, **fix**, or **chore** (this sets the cadence — prefix, CI
    weight, review kind). A branch carries everything that unit needs — design,
-   TDD code, technical/user docs, **and** the planning/status update — into one
-   squash PR; planning/doc updates ride that PR (no separate doc-only PR). Choose
+   TDD code and technical/user docs — into one squash PR that closes the
+   unit's issue; doc updates ride that PR (no separate doc-only PR). Choose
    commit granularity to match the work. **For feature work the unit is a PRD
    slice** — a coherent shippable increment of a PRD (product-owner-carved),
    reviewed in-progress on the branch and opened as one PR when the product-owner
@@ -75,9 +90,9 @@ The **human owner is the only one who merges PRs** (see §5).
 Full detail in [`docs/process/sdlc.md`](docs/process/sdlc.md). In short:
 
 ```
-classify unit (feature/fix/chore) → branch (one unit of work)
+pick/open the issue → classify unit (feature/fix/chore) → branch (one unit of work)
   → brainstorm/design if needed → produce/iterate artifact (TDD for code),
-    incl. tech/user docs + planning update → local validation (make validate)
+    incl. tech/user docs → local validation (make validate)
   → architect review on the branch diff vs main (iterate until converged)
   → hold the PR until converged → open PR ready (conventional title; record review)
   → ci-gate + required checks pass → architect confirms → HUMAN OWNER merges (squash)
@@ -102,7 +117,8 @@ self-approval deadlock — see
 - `CLAUDE.md` — you are here.
 - `.claude/agents/` — subagent role definitions.
 - `docs/process/` — SDLC, branching, commits, release, crew.
-- `docs/planning/` — roadmap, backlog, status, per-task specs.
+- `docs/planning/` — roadmap; the closed backlog and task specs up to
+  2026-11-14 (ADR-0021); review records. Open work is in GitHub Issues.
 - `docs/prd/` — product requirements documents (+ template).
 - `docs/adr/` — architecture decision records (+ template).
 - `docs/guide/` — user-facing guide (detailed, per-topic pages; product-owner-owned,

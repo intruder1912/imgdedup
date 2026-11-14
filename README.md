@@ -10,7 +10,7 @@ duplicate images.
 > shipped:** `--apply` moves duplicates to the OS trash, and `--apply --delete`
 > removes them permanently. A plain run is still always a dry run — nothing
 > changes on disk unless you pass `--apply`. See
-> [`docs/planning/status.md`](docs/planning/status.md) for the live state and
+> [the issues](https://github.com/intruder1912/imgdedup/issues) for open work and
 > [`docs/planning/roadmap.md`](docs/planning/roadmap.md) for the path to v1.0.
 
 ## What it does
@@ -289,7 +289,7 @@ content alone.
 | Understand the AI agent setup | [`CLAUDE.md`](CLAUDE.md) and [`docs/process/crew.md`](docs/process/crew.md) |
 | Contribute (humans or agents) | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Follow the development cycle | [`docs/process/sdlc.md`](docs/process/sdlc.md) |
-| See what's planned / in progress | [`docs/planning/`](docs/planning/) |
+| See what's planned / in progress | [Issues](https://github.com/intruder1912/imgdedup/issues); direction in [`docs/planning/roadmap.md`](docs/planning/roadmap.md) |
 | Read product requirements | [`docs/prd/`](docs/prd/) |
 | Read architecture decisions | [`docs/adr/`](docs/adr/) |
 | Report a security issue | [`SECURITY.md`](SECURITY.md) |

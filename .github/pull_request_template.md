@@ -8,7 +8,7 @@ See docs/process/commits.md.
 
 <!-- What does this change do, and why? Link the task/PRD/ADR. -->
 
-- Task: <!-- TASK-XXXX or link to docs/planning/tasks/… -->
+- Issue: <!-- Closes #123 -->
 - Related PRD/ADR: <!-- if any -->
 
 ## Changes
@@ -27,7 +27,7 @@ See docs/process/commits.md.
 
 - [ ] PR title is a valid Conventional Commit
 - [ ] Docs updated (README/CLAUDE/process as needed)
-- [ ] Planning updated (`docs/planning/status.md`, `backlog.md`)
+- [ ] Closes its issue (`Closes #…` above), or is a trivial fix that needs none (CONTRIBUTING.md)
 - [ ] No secrets committed; security considerations reviewed
 - [ ] Architect review requested — or the dispatch skipped and the
       orchestrator's direct verification recorded above, per the

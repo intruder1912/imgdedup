@@ -11,6 +11,9 @@ A task spec should contain:
 - **Notes / constraints** — anything the implementer/tester must respect.
 - **Out of scope** — what this task deliberately does not cover.
 
-Keep specs in sync with [`../backlog.md`](../backlog.md) and
-[`../status.md`](../status.md). Phase 0 tasks are tracked directly in the backlog
+**Frozen 2026-11-14 (ADR-0021).** New work is specified in its GitHub issue,
+and in a PRD or ADR where one is needed; no new task files are added here.
+These files are kept so `TASK-XXXX` references still resolve.
+
+Specs were kept in sync with [`../backlog.md`](../backlog.md). Phase 0 tasks are tracked directly in the backlog
 table; dedicated spec files begin in Phase 1 as the product work is decomposed.

@@ -15,8 +15,8 @@ for each review:
 - what was reviewed (commit range), when, and why (implementer-requested, or
   product-owner/orchestrator-demanded);
 - findings, each marked **fixed-now** or **deferred**;
-- for deferrals: the product-owner's now-vs-defer decision and the **backlog task
-  the deferral became** (deferred findings are always promoted to tracked tasks —
+- for deferrals: the product-owner's now-vs-defer decision and the **GitHub
+  issue the deferral became** (deferred findings are always opened as issues —
   nothing is lost).
 
 When the slice's PR opens, the log is **summarized into the PR description** so the

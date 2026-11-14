@@ -21,9 +21,10 @@ gh release view v0.1.0
 ```
 
 Unreleased work in progress is tracked in
-[`docs/planning/status.md`](docs/planning/status.md); the release procedure is
+[GitHub Issues](https://github.com/intruder1912/imgdedup/issues); the release procedure is
 [`docs/process/release.md`](docs/process/release.md).
 
 > **Before the first release.** No version has been published yet. Everything up
 > to this point is foundation work — governance, process, planning, CI, and the
-> PRD-0001 implementation slices — recorded in `docs/planning/status.md`.
+> PRD-0001 implementation slices — recorded in `docs/planning/status.md`
+> (removed from `main` by ADR-0021; in the git history).
