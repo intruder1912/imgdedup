@@ -177,7 +177,7 @@ repository and not in issues.
   review-log README and template in `docs/planning/reviews/`; the
   pull request template; the required-files list in `ci.yml`; the planning
   links in `README.md`, `docs/guide/README.md`, `docs/prd/README.md` and
-  `CONTRIBUTING.md`; a status line on ADR-0002 and a note on ADR-0011 §6.
+  `CONTRIBUTING.md`; a status line on ADR-0002 and notes on ADR-0011 §6 and ADR-0013.
 - Older ADRs, PRD-0001 and `CHANGELOG.md` link to `status.md` in places.
   Those links are changed to plain text naming the file and "removed from
   `main` by ADR-0021", so the link check passes and the history stays

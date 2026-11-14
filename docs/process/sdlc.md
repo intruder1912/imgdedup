@@ -259,7 +259,7 @@ threads**, not a single prose comment. See
   [ADR-0012](../adr/0012-documentation-ownership-and-placement.md).
 - For a **feature (PRD slice)**: the product-owner has **accepted all the slice's
   functional requirements** and delivered its user docs before the PR opened, and
-  any in-progress-review deferrals were promoted to tracked tasks
+  any in-progress-review deferrals were opened as GitHub issues
   ([ADR-0013](../adr/0013-prd-slice-delivery-cadence.md)).
 - All review threads resolved and required checks green (the ADR-0003 gate);
   human owner merged.
