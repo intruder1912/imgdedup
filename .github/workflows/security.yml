@@ -112,6 +112,17 @@ jobs:
               - 'Cargo.lock'
               - 'deny.toml'
               - '.github/workflows/security.yml'
+            # Everything the notices check reads. Its own filter, so an edit
+            # to the template or the notices file alone does not also run the
+            # dependency audit (and its billed minute).
+            notices:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'about.toml'
+              - 'THIRD-PARTY-LICENSES.txt'
+              - 'scripts/notices.sh'
+              - 'scripts/notices/**'
+              - '.github/workflows/security.yml'
 
       # Rust dependency audit (TASK-0208). cargo-deny covers RUSTSEC advisories
       # (superseding a standalone cargo-audit) plus license, bans, and source
@@ -135,6 +146,43 @@ jobs:
         with:
           command: check
           rust-version: stable
+
+      # Third-party license notices (TASK-0348). THIRD-PARTY-LICENSES.txt is a
+      # committed file that every release archive bundles; this fails when it
+      # no longer matches what Cargo.lock, about.toml and the template produce,
+      # so a dependency change cannot leave the published notices behind. The
+      # fix is `make notices` on the PR's branch. Fail-closed like the audit
+      # above, on its own `notices` filter, and without the schedule: the file
+      # cannot go stale without a commit.
+      #
+      # cargo-about is pinned and checksum-verified like `ci.yml`'s tools. The
+      # checksum is the one GitHub reports for the release asset, checked by
+      # hand; bump both together. A newer version may format the file
+      # differently, so regenerate it in the same PR as a bump.
+      - name: Install pinned cargo-about
+        id: install-cargo-about
+        if: ${{ !cancelled() && github.event_name != 'schedule' && (steps.filter.outcome != 'success' || steps.filter.outputs.notices == 'true') }}
+        env:
+          CARGO_ABOUT_VERSION: "0.9.3"
+          CARGO_ABOUT_SHA256: "3ad1e94ea1e63d69d1961f4fb15ccbbe9575d906111f96d2cb4dce6df48f71b4"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          stem="cargo-about-${CARGO_ABOUT_VERSION}-x86_64-unknown-linux-musl"
+          curl -sfLO "https://github.com/EmbarkStudios/cargo-about/releases/download/${CARGO_ABOUT_VERSION}/${stem}.tar.gz"
+          echo "${CARGO_ABOUT_SHA256}  ${stem}.tar.gz" | sha256sum -c
+          tar -xzf "${stem}.tar.gz" "${stem}/cargo-about"
+          install -m 755 "${stem}/cargo-about" /usr/local/bin/cargo-about
+      - name: Check third-party license notices are up to date
+        # Skipped, not failed, when the install did not succeed: the job is
+        # already red in that case.
+        if: ${{ !cancelled() && steps.install-cargo-about.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          # Installs the toolchain rust-toolchain.toml pins, and fails here,
+          # visibly, if that download fails. (`rustup show` only reports.)
+          rustup toolchain install --no-self-update
+          scripts/notices.sh --check
 
   # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,
   # which is unavailable on free private repositories. Dependency-review is

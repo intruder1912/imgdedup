@@ -83,7 +83,10 @@ inclusion in `imgdedup` by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions. Do not
 paste in code whose license is unknown or not permissive — including
 dependencies: new crates must satisfy the allow-list in
-[`deny.toml`](deny.toml), which CI enforces.
+[`deny.toml`](deny.toml), which CI enforces. A change to the dependency set
+also means regenerating
+[`THIRD-PARTY-LICENSES.txt`](THIRD-PARTY-LICENSES.txt) with `make notices`
+(needs `cargo-about`); CI fails when that file is out of date.
 
 ## Security
 

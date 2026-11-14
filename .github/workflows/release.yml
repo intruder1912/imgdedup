@@ -374,7 +374,11 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned Rust toolchain
-        run: rustup show # reads rust-toolchain.toml; installs the pinned channel + components
+        # No arguments: installs the channel and components rust-toolchain.toml
+        # pins, and fails here if that download fails. (`rustup show` only
+        # reports since rustup 1.28; the first cargo call would install it.)
+        # --no-self-update: the job must not replace rustup itself midway.
+        run: rustup toolchain install --no-self-update
 
       # Deliberately NOT cargo-cached, unlike ci.yml's `rust` job (TASK-0330).
       # Measured 2026-08-01..04 (per-job durations from the Actions API, billed
@@ -387,7 +391,7 @@ jobs:
       #   x86_64-pc-windows-msvc      12     122s          62              24
       #
       # Two legs already finish inside the one-minute floor, and on the other
-      # two the non-build fixed costs alone (checkout, `rustup show` installing
+      # two the non-build fixed costs alone (checkout, `rustup toolchain install` fetching
       # the pinned toolchain, packaging, `gh release upload`) plus a cache
       # restore land the job in the same billing minute it occupies today — so
       # the expected saving is roughly zero. Against that: a restored `target`

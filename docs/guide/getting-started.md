@@ -32,7 +32,8 @@ Windows artifacts are `.zip` rather than `.tar.gz` (unzip instead of `tar`).
 Once the repository is public, the same assets are downloadable with a plain
 `curl -LO <asset URL>`.
 
-The archive also contains `LICENSE-MIT`, `LICENSE-APACHE` and `README.md`. Binaries are unsigned:
+The archive also contains `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-LICENSES.txt` (the licenses
+of the libraries built into the binary; in releases after `v0.7.0`) and `README.md`. Binaries are unsigned:
 on macOS, a browser-downloaded archive is quarantined by Gatekeeper — clear
 the flag after verifying the checksum (`xattr -d com.apple.quarantine
 ./imgdedup`; `gh`/`curl` downloads are not quarantined, so the attribute may

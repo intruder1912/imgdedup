@@ -174,7 +174,7 @@ podman run --rm \
   imgdedup-release-preflight \
   bash -c '
     set -euo pipefail
-    rustup show
+    rustup toolchain install --no-self-update # the toolchain rust-toolchain.toml pins
     linux_target="$(rustc -vV | sed -n "s/^host: //p")"
     echo -n "$linux_target" > /work/out-linux-target
     if [ "$linux_target" != "x86_64-unknown-linux-gnu" ]; then
@@ -193,7 +193,7 @@ host="$(rustc -vV | sed -n 's/^host: //p')"
 if [ "$host" = "aarch64-apple-darwin" ]; then
   (
     cd "$worktree_dir"
-    rustup show
+    rustup toolchain install --no-self-update # the toolchain rust-toolchain.toml pins
     ./scripts/build-release-artifact.sh \
       aarch64-apple-darwin "$version" "$tag" tar.gz "$worktree_dir/out-macos"
   )

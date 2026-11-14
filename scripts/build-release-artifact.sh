@@ -133,7 +133,11 @@ stage="$out_dir/.stage-$$"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/$stem"
 cp "$bin" "$stage/$stem/"
-cp LICENSE-MIT LICENSE-APACHE README.md "$stage/$stem/"
+# THIRD-PARTY-LICENSES.txt holds the license notices of the crates linked
+# into the binary (TASK-0348). It is a committed file that the `security` CI
+# job keeps in step with Cargo.lock (scripts/notices.sh), so this script only
+# copies it and needs no generator on the release path.
+cp LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.txt README.md "$stage/$stem/"
 
 (
   cd "$stage"

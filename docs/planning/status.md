@@ -11,6 +11,76 @@ docs pass → AI automation, batched within Claude usage limits.
 
 ## In progress
 
+- _Session 41 (chore: third-party license notices in release archives,
+  TASK-0348), 2026-11-14 — branch `chore/third-party-license-notices`._
+  Every release archive now also carries `THIRD-PARTY-LICENSES.txt`, the
+  license texts of the crates linked into the binary. `v0.7.0` does not have
+  it; the next release is the first that does.
+
+  Owner decision (asked before building): **commit the file and check it in
+  CI**, rather than generate it on each release leg. The release script only
+  copies it, so no new tool runs on the path that builds published binaries,
+  and a dependency's license change shows up as a diff in review. The accepted
+  cost: a Dependabot cargo PR that changes the notices fails the `security`
+  job until `make notices` is run on its branch. Crate versions are left out
+  of the file to keep that rare.
+
+  What landed: `about.toml` and a plain-text template
+  (`scripts/notices/`); `scripts/notices.sh` (`make notices`,
+  `make notices-check`); a pinned, checksum-verified `cargo-about` 0.9.3 and
+  the check in `security.yml`, under its own `notices` path filter;
+  the copy in `scripts/build-release-artifact.sh`; the CI structure check;
+  `release.md`, README, CONTRIBUTING and the getting-started guide. The README
+  and guide lines are one-sentence factual additions written by the
+  orchestrator, not by the product-owner.
+
+  Checked by hand: a Linux container (`cargo-about` 0.9.3, aarch64 musl
+  build) reports the macOS-generated file as up to date, so the CI check does
+  not depend on the generating machine; a rehearsal archive built with
+  `build-release-artifact.sh` from a throwaway copy contains the file with
+  mode `0644`. The file is `.txt`, not Markdown as first proposed to the
+  owner: license texts would fail the Markdown lint, spell check and link
+  check.
+
+  Known limits, also in `release.md`: procedural-macro crates are listed
+  although they are not in the binary; `blake3` and the three `objc2*` crates
+  appear with the standard text of their license because their packages hold
+  no license file the tool finds. The 12 `windows*` crates needed an explicit
+  pointer to their `license-mit` file in `about.toml`, pinned by checksum.
+
+  Architect review of the uncommitted diff: changes required, all applied.
+  It confirmed the file lists every third-party crate the four targets link,
+  that no dependency ships an Apache `NOTICE` file, and that the workflow
+  conditions fail closed. Fixed: (F1) `rustup show` does not install the
+  pinned toolchain since rustup 1.28, so the first cargo call would have
+  installed it with its output discarded — the step now runs
+  `rustup toolchain install` and the script tests for `cargo-about` without
+  calling cargo; (F2) the Rust standard library, linked into every binary,
+  was not mentioned — the file now names it in a fixed paragraph and
+  `release.md` lists it as a limit; (F3) the `objc2*` section shows the MIT
+  text's `<year> <copyright holders>` placeholder, now explained in the
+  file; (F4) two inaccurate sentences in `release.md`; (F5) ADR-0020 gained a
+  dated note; (F6) the guide and `release.md` now say the file ships from the
+  release after `v0.7.0`; (F7) the check has its own path filter, so editing
+  only the template does not also run `cargo-deny`. `ci.yml`,
+  `release.yml` and the release pre-flight had the same `rustup show` line;
+  on the owner's instruction they were changed to `rustup toolchain install`
+  in this PR too, with `--no-self-update` so a job does not replace rustup
+  midway. Two review nits (F8, F9) were comment and wording fixes.
+
+  PR CI on the first commit ran both new `security` steps; the notices
+  check passed on Ubuntu. The release pre-flight was then run on the second
+  commit: its Linux container leg and its macOS leg both installed the
+  toolchain with the new command and produced archives that contain
+  `THIRD-PARTY-LICENSES.txt`. `release.yml` itself runs only when a release
+  is dispatched, so its changed line has not run.
+
+  A second, short architect pass confirmed the fixes and the
+  `rustup toolchain install` change, and required three text corrections,
+  applied: two stale sentences in this entry, and the standard-library
+  paragraph in the notices file, which claimed `MIT OR Apache-2.0` without
+  the Rust project's own "except as otherwise noted".
+
 - _Session 40 (docs: record `v0.7.0` and the release clean-up; planning
   sync), 2026-11-14 — branch `docs/record-v0.7.0-and-release-cleanup`._
   PR #114 (TASK-0347, session 39) merged as squash `fa5bb81`. On the owner's

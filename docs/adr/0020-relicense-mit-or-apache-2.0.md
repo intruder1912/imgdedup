@@ -78,6 +78,10 @@ the first release after `v0.6.0`.**
 - **Release archives** bundle `LICENSE-MIT` and `LICENSE-APACHE` next to the
   binary (`scripts/build-release-artifact.sh`). Both licenses ask for their
   text and the copyright notice to accompany a copy.
+  *Note, 2026-11-14 (TASK-0348):* from the release after `v0.7.0` the
+  archives also bundle `THIRD-PARTY-LICENSES.txt`, the license notices of the
+  crates the binary is built from; see
+  [`release.md`](../process/release.md#third-party-license-notices).
 - **Contributions.** `README.md` and `CONTRIBUTING.md` carry the usual
   statement: a contribution submitted for inclusion is dual licensed as
   above unless its author says otherwise.
