@@ -53,13 +53,15 @@ docs pass → AI automation, batched within Claude usage limits.
   Usage, 2026-11-14 (5h window from 6%, weekly from 14%): the design batch —
   architect 200k and product-owner 164k subagent tokens — was estimated at
   25–35% of the window and cost **32%** (6% → 38%; weekly 14% → 18%). All of
-  it went into a design that was then withdrawn. The withdrawal itself was
-  written inline plus one architect review pass (47k subagent tokens). Lesson
-  for the batch plan (the orchestrator's observation, not the owner's stated
-  reason): the owner withdrew the feature only after the full ADR and PRD
-  passes. For a feature whose value is in doubt, putting a one-page mechanism
-  sketch and the direction question to the owner before those passes would
-  have cost a few percent instead of 32.
+  it went into a design that was then withdrawn. The withdrawal itself —
+  written inline, plus one architect review pass (47k subagent tokens) and the
+  owner's question-and-answer round — cost a further 13%, ending at **51%** of
+  the window and 20% weekly (owner's `/usage` reading at the point the PR was
+  opened). Lesson for the batch plan (the orchestrator's observation, not the
+  owner's stated reason): the owner withdrew the feature only after the full
+  ADR and PRD passes. For a feature whose value is in doubt, putting a
+  one-page mechanism sketch and the direction question to the owner before
+  those passes would have cost a few percent instead of 32.
 
 - _Session 37 (fix: say why a report could not be written, TASK-0345),
   2026-11-13 — branch `fix/undelivered-report-message`._ Since TASK-0342 a
