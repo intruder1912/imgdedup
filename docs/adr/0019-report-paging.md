@@ -1,19 +1,36 @@
 # ADR-0019: Report paging — starting, positioning and waiting for the pager
 
-- **Status:** proposed (becomes `accepted` in the FR-22 slice's PR, the way
-  ADR-0018 went from `proposed` to `accepted` in #107)
+- **Status:** rejected (2026-11-14, owner ruling — see the note below; never
+  accepted, never implemented)
 - **Date:** 2026-11-14
 - **Deciders:** architect, human owner
 - **Related:** [PRD-0001](../prd/PRD-0001-exact-image-deduplication.md) — the
   tentative FR-22 and AC-33..AC-37 (Amendment 2026-08-06), FR-15, AC-46,
   AC-47; the owner-approved
-  [design](../superpowers/specs/2026-11-13-report-paging-design.md) and its
-  [implementation plan](../superpowers/plans/2026-11-13-report-paging.md);
+  [design](../superpowers/specs/2026-11-13-report-paging-design.md) (its
+  implementation plan was deleted with the withdrawal);
   [ADR-0018](0018-durable-run-record-and-output-stream-routing.md) (§3
   durability, §8 stream routing, "Writers that cannot panic");
   [ADR-0017](0017-performance-instrumentation-tracing-spans.md) (`--timings`,
   `process::exit` runs no destructors); [ADR-0005](0005-mandatory-tdd-and-security-gate.md)
   (security gate); TASK-0340.
+
+> **Rejected on 2026-11-14, the day it was drafted.** After reading this
+> design the owner decided that `imgdedup` will not page its report:
+> forgetting `--output` or a redirect before a large run is accepted as the
+> user's cost, and the owner wants the product to move towards separate
+> analysis, reporting and user-interface functions, so that usability
+> problems of this kind can be solved differently in the future (TASK-0346). FR-22 is withdrawn in
+> [PRD-0001's Amendment 2026-11-14](../prd/PRD-0001-exact-image-deduplication.md#amendment-2026-11-14--report-paging-fr-22-withdrawn-owner-ruling-task-0340).
+>
+> Nothing below was built: there is no `src/pager.rs`, no `--no-pager`, no
+> `unsafe` code and no new direct dependency. The text is kept unchanged as a
+> record, because its measurements (how `less` treats `+G`, `-F`, `-X` and a
+> user's `LESS`; shell exit statuses; Ctrl-C under a pager) would be needed
+> again by any later design that starts an external viewer. Where it says
+> "the tool does" or refers to plan tasks, read "the tool would have done".
+> The product-owner's later answers to §7 (a failed-pager warning line, the
+> closing-status wording) were part of a PRD draft that was not kept.
 
 ## Context and problem statement
 
@@ -569,20 +586,14 @@ pub fn deliver(
     report: &str,
     page: &mut dyn FnMut(&PagerCommand, &[&str]) -> Paged,
     write: &mut dyn FnMut(&str) -> io::Result<()>,
-    warn: &mut dyn FnMut(&str),
 ) -> io::Result<()>;
 ```
 
 `deliver`'s arms: `Direct` → `write(report)`. `Paged` →
 `page(pager, &[report, closing_status])`, then `Shown` → `let _ =
-write(closing_status); Ok(())`; `Failed` → `warn(line)`, then `write(report)?`, then `let _ =
+write(closing_status); Ok(())`; `Failed` → `write(report)?` (plus the
+product-owner's optional stderr hint before it), then `let _ =
 write(closing_status); Ok(())`; `NotStarted` → `write(report)`.
-
-`warn` receives the failed-pager line the product-owner settled after this
-ADR was drafted (PRD-0001 FR-22, AC-36: `warning: pager failed: <command>;
-the report follows`, the command escaped); `main.rs` passes `streams::diag`.
-It is called only after `Failed`, and after the pager has exited, so the §4
-invariant holds.
 
 `pager::sys` (private, `#[allow(unsafe_code)]`, every block with a
 `// SAFETY:` comment) holds the platform code: `screen_size` (Unix:
@@ -634,7 +645,7 @@ no run that cannot page pays for the probe.
 5. If `Some`: `closing_status = report::render_closing_status(…)` and
    `Delivery::Paged { … }`; otherwise `Delivery::Direct`.
 6. `pager::deliver(delivery, &rendered, &mut |p, parts| pager::run(
-   pager::command(p, less.as_deref()), parts), &mut streams::write_stdout, &mut warn)`;
+   pager::command(p, less.as_deref()), parts), &mut streams::write_stdout)`;
    `Err(e)` → `streams::undelivered_report_message(&e)` → `streams::diag`,
    and `delivered = false`, exactly as today.
 7. Exit code: unchanged composition (`!delivered` is a run-level failure).
@@ -849,8 +860,8 @@ prints as today.
 
 - [Report paging design](../superpowers/specs/2026-11-13-report-paging-design.md)
   — the owner's decisions this ADR implements.
-- [Implementation plan](../superpowers/plans/2026-11-13-report-paging.md) —
-  Tasks 3–5 updated to this ADR.
+- The implementation plan this ADR updated (Tasks 3–5) was deleted when the
+  ADR was rejected; it is in the branch history of the withdrawal PR only.
 - [ADR-0018](0018-durable-run-record-and-output-stream-routing.md) — stream
   routing (§8), the record's durability (§3, §7), "Writers that cannot
   panic".

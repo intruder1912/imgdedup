@@ -1,7 +1,11 @@
 # Report paging and the closing status — design (TASK-0340, FR-22)
 
 - **Date:** 2026-11-13
-- **Status:** awaiting owner approval (all owner questions answered)
+- **Status:** withdrawn 2026-11-14. The owner approved this design on
+  2026-11-13 and, after [ADR-0019](../../adr/0019-report-paging.md) was
+  drafted, decided not to page the report at all (PRD-0001 Amendment
+  2026-11-14; follow-on direction in TASK-0346). Nothing was built. Kept as
+  a record.
 - **Size:** a project — one feature slice with its own ADR and a PRD-0001
   amendment
 - **Replaces:** the tentative FR-22 text and AC-33..AC-37 in PRD-0001's
