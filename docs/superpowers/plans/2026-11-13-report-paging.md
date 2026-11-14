@@ -6,7 +6,7 @@
 
 **Architecture:** The paging decision is a pure function of facts probed once in `main.rs`, like `streams::route`. A new module `src/pager.rs` owns starting the pager, feeding it, and waiting for it. The closing status is rendered by `report.rs` from the same data as the report. Nothing in the report's bytes, the `--output` record or redirected stdout changes.
 
-**Tech Stack:** Rust, `std::process`; no new crates unless ADR-0019 rules one in (terminal height).
+**Tech Stack:** Rust, `std::process`; no new crates. ADR-0019 makes `libc` (Unix) and `windows-sys` (Windows) direct dependencies for the terminal size and `SIGINT`; both are already in `Cargo.lock`.
 
 **Spec:** [`docs/superpowers/specs/2026-11-13-report-paging-design.md`](../specs/2026-11-13-report-paging-design.md) — owner-approved 2026-11-13.
 
@@ -61,9 +61,9 @@ Run each batch in a **fresh session**; A and B fit one window together, C needs 
 
 ### Task 1: ADR-0019 (architect)
 
-- [ ] **Step 1:** Dispatch the `architect` agent with the spec. It must decide, with reasons, each item under the spec's "Left to the architect": (1) starting `$PAGER` — through a shell or split and exec'd, and the security statement; (2) how "opened at the end" and "only when it does not fit" are achieved for `less` and what is promised for other pagers, including whether the tool learns the terminal height itself and how; (3) the screen after exit (`-X` or not); (4) ordering against progress and apply-time lines; (5) the pipe: early quit, waiting, Ctrl-C; (6) when the `--output` completion document is written relative to the pager.
-- [ ] **Step 2:** The ADR must end with the exact interface for `src/pager.rs` and the `less` arguments or environment the tool sets. Update Tasks 3–5 of this plan where it differs.
-- [ ] **Step 3:** `make validate`; commit `docs(adr): ADR-0019 report paging`.
+- [x] **Step 1:** Dispatch the `architect` agent with the spec. It must decide, with reasons, each item under the spec's "Left to the architect": (1) starting `$PAGER` — through a shell or split and exec'd, and the security statement; (2) how "opened at the end" and "only when it does not fit" are achieved for `less` and what is promised for other pagers, including whether the tool learns the terminal height itself and how; (3) the screen after exit (`-X` or not); (4) ordering against progress and apply-time lines; (5) the pipe: early quit, waiting, Ctrl-C; (6) when the `--output` completion document is written relative to the pager.
+- [x] **Step 2:** The ADR must end with the exact interface for `src/pager.rs` and the `less` arguments or environment the tool sets. Update Tasks 3–5 of this plan where it differs. *Done: [ADR-0019](../../adr/0019-report-paging.md) (`proposed`); Tasks 3–5 below follow it. One question for the owner is open in the ADR (unset or empty `TERM` on Unix counts as `dumb`); Task 3 implements the recommendation unless the owner rules otherwise.*
+- [x] **Step 3:** `make validate`; commit `docs(adr): ADR-0019 report paging`.
 
 ### Task 2: PRD-0001 amendment (product-owner)
 
@@ -72,30 +72,41 @@ Run each batch in a **fresh session**; A and B fit one window together, C needs 
 
 ### Task 3: The paging decision
 
-**Files:** `src/streams.rs`, `src/cli.rs`, `src/main.rs`.
+**Files:** `src/streams.rs`, `src/pager.rs` (create, `PagerCommand` only), `src/cli.rs`, `src/record.rs`, `src/main.rs`.
 
-**Interfaces — produces:**
+**Interfaces — produces (ADR-0019, "The interface"):**
 
 ```rust
+// src/pager.rs
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PagerCommand {
+    /// `$PAGER` unset (never on Windows): `less`, found on `PATH`.
+    Less,
+    /// `$PAGER`'s value, run by the platform's command interpreter.
+    Shell(OsString),
+}
+
+// src/streams.rs
 pub struct PagingFacts<'a> {
     pub json: bool,
     pub no_pager: bool,
     pub timings: bool,
     pub stdout_tty: bool,
     pub stdin_tty: bool,
-    pub term: Option<&'a str>,      // $TERM
-    pub pager_env: Option<&'a str>, // $PAGER
+    pub term: Option<&'a OsStr>,      // $TERM
+    pub pager_env: Option<&'a OsStr>, // $PAGER
     pub windows: bool,
 }
 
-/// `None`: do not page. `Some(cmd)`: the pager command to start.
-pub fn should_page(facts: &PagingFacts<'_>) -> Option<String>;
+/// `None`: do not page. Every condition but "does not fit" (that is
+/// `pager::fits`, Task 5).
+pub fn should_page(facts: &PagingFacts<'_>) -> Option<pager::PagerCommand>;
 ```
 
-- [ ] **Step 1: Failing unit tests** in `src/streams.rs`, one per constraint: each of `json`, `no_pager`, `timings`, `!stdout_tty`, `!stdin_tty`, `term == Some("dumb")`, `pager_env == Some("")`, `pager_env == Some("cat")` gives `None`; unset `PAGER` gives `Some("less")` off Windows and `None` on Windows; `PAGER="less -R"` gives `Some("less -R")`. Plus a table test over all boolean combinations asserting `None` whenever any disabling fact is set.
+- [ ] **Step 1: Failing unit tests** in `src/streams.rs`, one per constraint: each of `json`, `no_pager`, `timings`, `!stdout_tty`, `!stdin_tty`, `term == Some("dumb")`, `pager_env == Some("")`, `pager_env == Some("cat")` gives `None`; off Windows, `term == None` and `term == Some("")` give `None` too (ADR-0019 §8; on Windows they do not disable paging); unset `PAGER` gives `Some(PagerCommand::Less)` off Windows and `None` on Windows; `PAGER="less -R"` gives `Some(Shell("less -R"))`; `PAGER=" cat"` and `PAGER="/bin/cat"` give `Some(Shell(..))` (only the exact value `cat` disables); on Unix a non-UTF-8 `PAGER` is passed through byte-for-byte. Plus a table test over all boolean combinations asserting `None` whenever any disabling fact is set.
 - [ ] **Step 2:** Run — fails to compile.
-- [ ] **Step 3:** Implement `should_page`; add `--no-pager` to `Cli` (help text: `Do not show a long report through a pager. By default, on an interactive terminal, a report longer than the screen opens in a pager positioned at its end.`); probe the facts in `main.rs` next to the existing `route` call. "Fits on the screen" is not part of this function — it is decided per ADR-0019.
-- [ ] **Step 4:** `cargo test`; extend `help_lists_all_flags` with `--no-pager`.
+- [ ] **Step 3:** Implement `should_page` and the `PagerCommand` type; add `--no-pager` to `Cli` (help text: `Do not show a long report through a pager. By default, on an interactive terminal, a report longer than the screen opens in a pager positioned at its end.`); add `no_pager` to `record::Invocation` and to both record headers (human `no-pager=`, NDJSON `invocation.no_pager`) — the header names every flag (ADR-0018 implementation note 10); probe the facts in `main.rs` next to the existing `route` call — `stdout_tty` is probed once and shared with `route`; `TERM`, `PAGER` and `LESS` are read with `std::env::var_os`. "Fits on the screen" is not part of this function — it is `pager::fits` (Task 5), and the terminal size is probed only when `should_page` returns `Some`.
+- [ ] **Step 4:** `cargo test`; extend `help_lists_all_flags` with `--no-pager`; extend the record-header tests with `no-pager=`.
 - [ ] **Step 5:** Commit `feat(output): the paging decision (FR-22)`.
 
 ### Task 4: The closing status
@@ -117,27 +128,49 @@ pub fn should_page(facts: &PagingFacts<'_>) -> Option<String>;
 
 ### Task 5: The pager
 
-**Files:** `src/pager.rs` (create), `src/main.rs`, `tests/cli_integration.rs`.
+**Files:** `src/pager.rs` (+ private `sys` submodule), `src/main.rs`, `Cargo.toml`, `tests/cli_integration.rs`.
 
-**Interfaces — produces (confirm against ADR-0019):**
+**Interfaces — produces (ADR-0019, "The interface"; full doc comments there):**
 
 ```rust
+pub struct ScreenSize { pub rows: u16, pub cols: u16 }
+pub fn screen_size() -> Option<ScreenSize>;                // the probe (sys)
+pub fn fits(text: &str, screen: ScreenSize) -> bool;       // pure
+pub fn less_env(user: Option<&OsStr>) -> OsString;         // pure
+pub fn command(pager: &PagerCommand, user_less: Option<&OsStr>) -> Command; // pure
+
 pub enum Paged {
-    /// The pager ran and exited successfully (including an early quit).
+    /// Exited successfully, or was interrupted by the user (`SIGINT`, 130).
     Shown,
-    /// The pager started and exited with a failure status.
+    /// Started, then any other exit status or signal.
     Failed,
-    /// The pager could not be started at all.
+    /// Could not be started at all.
     NotStarted,
 }
+pub fn classify(status: ExitStatus) -> Paged;              // pure
+pub fn run(command: Command, parts: &[&str]) -> Paged;     // spawn, write, wait
 
-pub fn page(command: &str, text: &str) -> Paged;
+pub enum Delivery<'a> {
+    Direct,
+    Paged { pager: &'a PagerCommand, closing_status: &'a str },
+}
+pub fn deliver(
+    delivery: Delivery<'_>,
+    report: &str,
+    page: &mut dyn FnMut(&PagerCommand, &[&str]) -> Paged,
+    write: &mut dyn FnMut(&str) -> io::Result<()>,
+) -> io::Result<()>;                                       // Err = not delivered
 ```
 
-- [ ] **Step 1: Failing unit tests** in `src/pager.rs` (`#[cfg(unix)]`), using small shell commands as the pager: `cat > <file>` receives exactly `text` → `Shown`; `true` (reads nothing, exits 0) → `Shown`, no panic on the closed pipe; `exit 3` → `Failed`; a command that does not exist → `Failed` or `NotStarted` per ADR-0019; 5 MB of text to a pager that reads one line and exits → returns promptly, `Shown`.
-- [ ] **Step 2: Failing integration tests.** A pty is not available in the suite, so `main`'s wiring takes its facts from a small testable function; end-to-end tests drive the binary through a hidden test hook only if ADR-0019 allows one. Otherwise the wiring is covered by: unit tests of the function that sequences "page → on `Failed`/`NotStarted` print the report → print the status → exit code", with the pager and the writers injected. Required cases: `Shown` → stdout gets only the closing status; `Failed` → report, then status; `NotStarted` → report only, no status; exit code equals the unpaged run's in all three; `--exit-code` with duplicates stays `3`.
-- [ ] **Step 3:** Implement `pager::page` per ADR-0019 and the sequencing in `main.rs`. The text handed to the pager is the report followed by the closing status. `sink.finish()` and all apply-time lines happen before `page`.
-- [ ] **Step 4:** `cargo test`, `make scale`; manual check on a real terminal with `less`, with `PAGER=cat`, with `PAGER=lesss`, and with a report shorter than the screen — record the evidence in the commit message.
+Fixed by ADR-0019: `PagerCommand::Less` → `Command::new("less")`, no arguments; `Shell(v)` → `/bin/sh -c <v>` (Unix) or `cmd.exe /D /S /C "<v>"` via `raw_arg` (Windows); every pager gets `LESS` = `+G$-+E -+e -+F` when the user's `LESS` is unset or empty, else `+G$<user's LESS>$-+E -+e -+F`; stdin piped, stdout/stderr inherited; no writer thread; `SIGINT` ignored after spawn until `wait` returns, previous disposition restored by a guard.
+
+- [ ] **Step 1: Failing unit tests** in `src/pager.rs`:
+  - pure: `fits` (exactly `rows - 1` rows fits, one more does not; a line of `cols + 1` ASCII characters takes two rows; a non-ASCII character counts two columns; empty text fits; the count stops early on a huge text); `less_env` (unset, empty, `-R`, `-Pfoo bar` → the exact strings above); `command` (program, arguments and `LESS` via `get_program` / `get_args` / `get_envs`, for `Less` and `Shell`, per platform); `classify` via `ExitStatusExt::from_raw` (0 → `Shown`; `SIGINT` → `Shown`; 130 → `Shown`; 1, 3, 127, `SIGTERM` → `Failed`).
+  - real processes (`#[cfg(unix)]`, sharing one test-local mutex because they change a process-wide signal disposition): `cat > <file>` receives exactly the parts in order → `Shown`; `true` (reads nothing) → `Shown`, no panic on the closed pipe; `exit 3` → `Failed`; `lesss` through the shell → `Failed`; `kill -INT $$` and `exit 130` → `Shown`; `Command::new("/nonexistent/pager")` → `NotStarted`; 5 MB to `head -n 1 > /dev/null` → returns promptly, `Shown`; the `SIGINT` disposition after `run` equals the one before.
+  - Windows (`#[cfg(windows)]`): `exit /b 3` → `Failed`; `exit /b 0` → `Shown`.
+- [ ] **Step 2: Failing sequencing and integration tests.** No hidden test hook (ADR-0019 §9). `deliver` unit tests with the pager and writer injected: `Direct` → report only; `Shown` → stdout gets only the closing status; `Failed` → report, then status; `NotStarted` → report only, no status; a failing writer on the report → `Err` (on `Shown`, a failing status write is still `Ok`). Exit code: `Shown` counts as delivered, so the code equals the unpaged run's — including `--exit-code` with duplicates (`3`). Integration (`tests/cli_integration.rs`, stdout is a pipe): with `PAGER` set to a command that would create a marker file, the marker is never created and stdout is byte-identical to a run without `PAGER`; the same with `--no-pager`.
+- [ ] **Step 3:** Implement per ADR-0019. `Cargo.toml`: `libc = "0.2"` under `[target.'cfg(unix)'.dependencies]`, `windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }` under `[target.'cfg(windows)'.dependencies]` (both already in `Cargo.lock`; `cargo deny check` must stay clean). `unsafe` only in `pager::sys` (`#[allow(unsafe_code)]`, a `// SAFETY:` comment per block); the crate root gains `#![deny(unsafe_code)]`. `main.rs` follows the ADR's call sequence: the record's completion document is written **before** delivery on every path; then `should_page` → `screen_size` → `fits` → `render_closing_status` (only when paging) → `deliver`. The text handed to the pager is the report followed by the closing status. `sink.finish()` and all apply-time lines happen before the pager starts. A hint naming a failed pager is added only if Task 2 asks for one (stderr, `streams::diag`, escaped).
+- [ ] **Step 4:** `cargo test`, `make scale`; manual check on a real terminal (ADR-0019 §9): default `less` with a long report (opens at the end; `q`; the status below the restored screen); a report shorter than the screen (no pager, no status, no keypress); `PAGER=cat`; `PAGER=lesss`; `PAGER="less -R"`; `LESS=-FRX`; Ctrl-C, then `q`; the `--output` record has its completion document while the pager is still open — record the evidence in the commit message.
 - [ ] **Step 5:** Commit `feat(output): page long reports on an interactive terminal (FR-22)`.
 
 ### Task 6: Docs, review, PR
@@ -164,4 +197,4 @@ pub fn page(command: &str, text: &str) -> Paged;
 | Starting `$PAGER` safely | 1, 5, 6 Step 4 |
 | PRD / guide | 2, 6 |
 
-Open by design: Task 5's interface and tests are provisional until ADR-0019 exists; Task 1 Step 2 requires the plan to be updated then.
+Task 5's interface and tests were provisional until ADR-0019 existed; they now follow it (Task 1 Step 2). Still open: the owner's ruling on unset or empty `TERM` (ADR-0019, "Questions for the owner").
