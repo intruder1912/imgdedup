@@ -75,12 +75,15 @@ final call. See [`docs/adr/0003-main-branch-protection-and-merge-model.md`](docs
 
 ## Licensing of contributions
 
-`imgdedup` is licensed under **`GPL-3.0-only`** ([`LICENSE`](LICENSE),
-[ADR-0014](docs/adr/0014-project-license-gpl-3.0-only.md)). By contributing you
-agree that your contribution is licensed under those same terms. Do not paste in
-code whose license is unknown or GPLv3-incompatible — including dependencies:
-new crates must satisfy the allow-list in [`deny.toml`](deny.toml), which CI
-enforces.
+`imgdedup` is licensed under **`MIT OR Apache-2.0`**
+([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE),
+[ADR-0020](docs/adr/0020-relicense-mit-or-apache-2.0.md)). Unless you
+explicitly state otherwise, any contribution intentionally submitted for
+inclusion in `imgdedup` by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions. Do not
+paste in code whose license is unknown or not permissive — including
+dependencies: new crates must satisfy the allow-list in
+[`deny.toml`](deny.toml), which CI enforces.
 
 ## Security
 

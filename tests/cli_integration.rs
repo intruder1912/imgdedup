@@ -106,7 +106,7 @@ fn version_flag_prints_the_full_license_block_and_exits_0() {
     let expected = format!(
         "imgdedup {}\n\
          Copyright (C) 2026 the imgdedup authors\n\
-         License GPL-3.0-only: GNU GPL version 3 <https://gnu.org/licenses/gpl-3.0.html>\n\
+         License MIT OR Apache-2.0: see LICENSE-MIT and LICENSE-APACHE\n\
          This is free software: you are free to change and redistribute it.\n\
          There is NO WARRANTY, to the extent permitted by law.\n\
          Source: {}\n",

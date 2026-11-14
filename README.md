@@ -305,31 +305,25 @@ content alone.
 
 ## License
 
-`imgdedup` is free software, licensed under the **GNU General Public License
-v3.0 only** (`GPL-3.0-only`) — the full text is in [`LICENSE`](LICENSE), and the
-decision (including why `-only` rather than `-or-later`) is recorded in
-[ADR-0014](docs/adr/0014-project-license-gpl-3.0-only.md).
+`imgdedup` is licensed under either of
+
+- the MIT license ([`LICENSE-MIT`](LICENSE-MIT)), or
+- the Apache License, Version 2.0 ([`LICENSE-APACHE`](LICENSE-APACHE)),
+
+at your option (`MIT OR Apache-2.0`). The decision is recorded in
+[ADR-0020](docs/adr/0020-relicense-mit-or-apache-2.0.md).
 
 Copyright © 2026 the `imgdedup` authors.
 
-The repository is still **private**, which is an access-control state, not a
-licensing one: anyone who receives a copy — for example a collaborator added to
-the repository — receives it under GPL-3.0-only. Whether to publish the
-repository is a separate decision that has not been made.
+Both license files ship in every release archive next to the binary, and
+`imgdedup --version` prints the license and the URL of the source repository.
 
-### Corresponding Source
+Releases up to and including `v0.6.0` were published under `GPL-3.0-only` and
+stay under that license for anyone who received them.
 
-`imgdedup` binaries are distributed only from this repository's
-[GitHub Releases](https://github.com/intruder1912/imgdedup/releases), and the
-complete **Corresponding Source** for any released binary is available from that
-same place: each release is built from the Git tag `v<version>` — the version
-the binary itself reports — and GitHub attaches an auto-generated source archive
-of that tag to the release, alongside the binary archives.
+### Contributions
 
-Every binary carries those directions with it, too: `imgdedup --version` prints
-its version, its license, and the URL of the repository its source lives in.
-
-This is how `imgdedup` satisfies GPLv3 §6(d) — the source is offered from the
-same place as the object code — so no separate written offer is made, and none
-is needed. The reasoning is recorded in
-[ADR-0014](docs/adr/0014-project-license-gpl-3.0-only.md#amendment-2026-08-05--public-release-licensing-readiness-task-0219).
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in `imgdedup` by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.
