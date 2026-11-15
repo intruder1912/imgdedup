@@ -41,7 +41,9 @@ before anything merges.
   language-specific scanners added in Phase 2).
 - **Dependabot** keeps dependencies and GitHub Actions current. (GitHub
   dependency-review requires Advanced Security, unavailable on free private repos;
-  a language-level dependency audit is added in Phase 2 — TASK-0208.)
+  a language-level dependency audit is added in Phase 2 — TASK-0208. For the
+  public repository this is superseded by the
+  [2026-11-15 amendment](#amendment-2026-11-15--dependency-review-action-not-adopted-on-the-public-repository-117).)
 - **Security review** by the architect on every PR (untrusted input, safe
   file/path handling, least-privilege CI tokens).
 - Language-specific static analysis (e.g., CodeQL, dependency audit) added with
@@ -80,6 +82,31 @@ and [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 This closes the gap for this specific tooling surface; it does not change
 the Phase 2 bullet's own scope (Rust static analysis, CodeQL, dependency
 audit), which stands as originally recorded.
+
+## Amendment 2026-11-15 — dependency-review-action not adopted on the public repository (#117)
+
+The security-gate section above left GitHub's `dependency-review-action` out
+because it needs GitHub Advanced Security on a private repository, and
+`SECURITY.md` promised to look again once the repository goes public. On a
+public repository the action is available. It was re-evaluated in the
+pre-flight for going public (#117) and is **not adopted**:
+
+- Its vulnerability and license checks repeat what `cargo-deny` already
+  enforces: RUSTSEC advisories and the license allow-list, read from
+  `Cargo.lock` and `deny.toml`, on every change to a dependency input and in
+  a weekly scheduled run.
+- For the other dependency set, the GitHub Actions in the workflows, it adds
+  nothing: GitHub generates advisory alerts only for actions referenced by
+  semantic version, and every action here is pinned by commit SHA. Dependabot
+  keeps those pins current.
+- It would be one more required job to maintain, and it could not be run
+  before the repository is public.
+
+Dependabot alerts cost no CI time on a public repository and cover
+`Cargo.lock` from GitHub's advisory database; they are switched on when the
+repository is made public (#117).
+
+Revisit if a dependency ecosystem is added that `cargo-deny` does not read.
 
 ## Links
 

@@ -5,7 +5,7 @@ companion to the [top-level README](../../README.md): the README gives you the
 overview and a quick start, and the pages here go deep on each part of using the
 tool.
 
-> **Status: under active development (Phase 3).** Scanning, scope filtering,
+> **Status: pre-1.0, under active development.** Scanning, scope filtering,
 > magic-byte image confirmation, the content-hash deduplication engine, the
 > human-readable report, machine-readable `--json` output, a live progress
 > indicator with elapsed time, a durable `--output` run record, and the

@@ -4,9 +4,17 @@ This guide applies to **both human contributors and AI agents**. The repository
 is the single source of truth: if a rule matters, it is written down here or in
 [`docs/process/`](docs/process/).
 
+**New here?** Start with [Issues and pull requests](#issues-and-pull-requests):
+open an issue first, and send a pull request from a fork once the issue is
+accepted (typo and link fixes can go straight to a pull request). The owner
+runs the architect review on it; you do not need the agent setup to
+contribute.
+
 ## Ground rules
 
 1. **Read [`CLAUDE.md`](CLAUDE.md) and [`docs/process/sdlc.md`](docs/process/sdlc.md) first.**
+   Agents must; human contributors can skim `sdlc.md` and skip the
+   agent-specific parts.
 2. **Brainstorm before building.** Clarify intent and requirements; never assume.
    Surface gaps and hidden assumptions to the owner before writing code or specs.
 3. **Test-Driven Development is mandatory** for product code.
