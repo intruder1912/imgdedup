@@ -30,14 +30,20 @@ Security is a gate on every change, not an afterthought:
 - **No secrets in the repository.** Secrets are kept out of version control
   (see [`.gitignore`](.gitignore)); a secret-scanning check (`gitleaks`, over
   the **full git history** rather than just the diff) runs in CI on every pull
-  request and every push to `main`.
+  request and every push to `main`, and is a required check. GitHub's secret
+  scanning and **push protection** are also enabled on the repository: push
+  protection blocks a push containing a secret of a type GitHub supports for
+  it, before it reaches the repository. The person pushing can override the
+  block by giving a reason, so it is a safeguard against accidents, not a
+  guarantee.
 - **Dependency audit.** `cargo-deny` runs in CI whenever a dependency input
   changes (`Cargo.toml`, `Cargo.lock`, `deny.toml`, or the workflow itself),
   covering RUSTSEC advisories (supersedes a standalone `cargo-audit`), license
   compliance, banned crates, and source allow-listing (config in
   [`deny.toml`](deny.toml)) — plus a weekly scheduled run, so a new advisory
-  against an untouched `Cargo.lock` is still caught. **Dependabot** proposes the
-  resulting dependency and GitHub Actions updates. (GitHub's own
+  against an untouched `Cargo.lock` is still caught. **Dependabot** proposes
+  version updates for dependencies and GitHub Actions, and Dependabot alerts
+  and security updates are enabled. (GitHub's own
   `dependency-review-action` is not used. It was re-evaluated for the public
   repository: its vulnerability and license checks repeat what `cargo-deny`
   already enforces from `Cargo.lock` and `deny.toml`, and GitHub's advisory
@@ -51,6 +57,18 @@ Security is a gate on every change, not an afterthought:
   code, the JavaScript release tooling and the GitHub Actions workflows; its
   results are advisory, not a required check.
 - **Security review** is part of the architect's review on every PR.
+- **Pinned actions.** Every GitHub Action is referenced by a full commit SHA,
+  and the repository's Actions settings require it: a workflow that references
+  an action by tag or branch fails to run.
+- **Protected `main` and release tags.** Changes reach `main` only through a
+  pull request; the required checks (`ci-gate`, `checks`, `security`) must
+  pass, except that the repository admin can merge a pull request whose checks
+  have not passed (kept for cases such as a renamed required check). No one
+  can push to `main` outside a pull request. Published `v*` release tags
+  cannot be moved or deleted by anyone, the admin included, without first
+  disabling the ruleset. Both are enforced by repository rulesets, which
+  anyone can read on GitHub and in [`.github/rulesets/`](.github/rulesets/).
+  See [ADR-0003](docs/adr/0003-main-branch-protection-and-merge-model.md).
 - **Least privilege** for CI: workflows default to `contents: read` and jobs
   widen only where they must. The only `contents: write` in the repository is
   in [`release.yml`](.github/workflows/release.yml) — its `release` job creates
