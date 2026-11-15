@@ -74,9 +74,7 @@ cargo build --release
 ```
 
 See [Getting started](docs/guide/getting-started.md#install) for the
-download/checksum walkthrough and platform-specific notes (the repository is
-currently private, so release assets are not anonymously downloadable — fetch
-them with `gh release download`, which authenticates).
+download/checksum walkthrough and platform-specific notes.
 
 ## Usage
 
@@ -320,8 +318,9 @@ Both license files ship in every release archive next to the binary, and
 
 The binary is built with third-party Rust libraries under permissive licenses
 (MIT, Apache-2.0 and similar). Their license texts are collected in
-[`THIRD-PARTY-LICENSES.txt`](THIRD-PARTY-LICENSES.txt), which also ships in
-every release archive from the release after `v0.7.0` on.
+[`THIRD-PARTY-LICENSES.txt`](THIRD-PARTY-LICENSES.txt). Release `v0.7.0`
+carries that file as a separate release asset; archives bundle it from the
+next release on.
 
 Releases up to and including `v0.6.0` were published under `GPL-3.0-only` and
 stay under that license for anyone who received them.

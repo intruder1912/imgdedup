@@ -11,29 +11,39 @@ This page gets you from nothing to a first, safe scan.
 Each [GitHub Release](https://github.com/intruder1912/imgdedup/releases)
 carries a binary archive for four platforms: `x86_64-unknown-linux-gnu`,
 `aarch64-apple-darwin` (Apple Silicon), `x86_64-apple-darwin` (Intel Mac), and
-`x86_64-pc-windows-msvc`. The repository is currently **private**, so release
-assets are not anonymously downloadable: a plain `curl` of a
-`releases/download/...` URL returns `404` even with a token header. Use the
-authenticated [`gh`](https://cli.github.com) CLI (`gh auth login` once), which
-resolves the asset through the API:
+`x86_64-pc-windows-msvc`. Download the archive for your platform and the
+`.sha256` file next to it from the
+[latest release](https://github.com/intruder1912/imgdedup/releases/latest),
+in a browser or with `curl`:
 
 ```sh
-# Example: Linux — adjust the pattern for your platform. Omitting the tag
-# downloads from the latest release, so this never needs a version bump.
-gh release download --repo intruder1912/imgdedup \
-  --pattern 'imgdedup-*-x86_64-unknown-linux-gnu.tar.gz*'
-sha256sum -c imgdedup-*-x86_64-unknown-linux-gnu.tar.gz.sha256  # macOS: shasum -a 256 -c
-tar -xzf imgdedup-*-x86_64-unknown-linux-gnu.tar.gz
-# the imgdedup binary is now in imgdedup-<version>-x86_64-unknown-linux-gnu/
+# Example: Linux. Set the version shown on the releases page and the target
+# for your platform.
+version=vX.Y.Z
+target=x86_64-unknown-linux-gnu
+base="https://github.com/intruder1912/imgdedup/releases/download/$version"
+curl -LO "$base/imgdedup-$version-$target.tar.gz"
+curl -LO "$base/imgdedup-$version-$target.tar.gz.sha256"
+sha256sum -c "imgdedup-$version-$target.tar.gz.sha256"  # macOS: shasum -a 256 -c
+tar -xzf "imgdedup-$version-$target.tar.gz"
+# the imgdedup binary is now in imgdedup-$version-$target/
 ```
 
-The trailing `*` in the pattern fetches the archive and its `.sha256` together.
-Windows artifacts are `.zip` rather than `.tar.gz` (unzip instead of `tar`).
-Once the repository is public, the same assets are downloadable with a plain
-`curl -LO <asset URL>`.
+Windows artifacts are `.zip` rather than `.tar.gz` (unzip instead of `tar`);
+in PowerShell, use `curl.exe -LO` with the two URLs written out.
+If you use the [`gh`](https://cli.github.com) CLI (signed in once with
+`gh auth login`), it fetches the latest archive and its checksum in one step,
+with no version to fill in:
 
-The archive also contains `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-LICENSES.txt` (the licenses
-of the libraries built into the binary; in releases after `v0.7.0`) and `README.md`. Binaries are unsigned:
+```sh
+gh release download --repo intruder1912/imgdedup \
+  --pattern 'imgdedup-*-x86_64-unknown-linux-gnu.tar.gz*'
+```
+
+The archive also contains `LICENSE-MIT`, `LICENSE-APACHE`,
+`THIRD-PARTY-LICENSES.txt` (the licenses of the libraries built into the
+binary; in releases after `v0.7.0`, while `v0.7.0` has it as a separate file
+on its release page) and `README.md`. Binaries are unsigned:
 on macOS, a browser-downloaded archive is quarantined by Gatekeeper — clear
 the flag after verifying the checksum (`xattr -d com.apple.quarantine
 ./imgdedup`; `gh`/`curl` downloads are not quarantined, so the attribute may

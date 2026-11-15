@@ -147,14 +147,15 @@ runner:
 
 The Linux artifact carries a **glibc ≥ 2.39** floor (Ubuntu 24.04/Debian
 13/Fedora 40+). `musl` static Linux and any `aarch64` Linux/Windows targets are
-intentionally **not** shipped yet — tracked as a follow-up
-(issue #119, formerly TASK-0326) to reconsider before a public release, not blocking this private
-one.
+intentionally **not** shipped yet. Widening the matrix is tracked in issue #119
+(formerly TASK-0326); the owner ruled on 2026-11-15 that it does not gate
+making the repository public and is not urgent.
 
 Each archive is named `imgdedup-v<version>-<target-triple>.{tar.gz,zip}` and
 contains one top-level directory of the same name holding the `imgdedup`
-binary, `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-LICENSES.txt` (from the release after
-`v0.7.0` on), and `README.md`. A same-named `.sha256` file (one per
+binary, `LICENSE-MIT`, `LICENSE-APACHE`, `THIRD-PARTY-LICENSES.txt` (from the
+release after `v0.7.0` on; `v0.7.0` carries it as a separate release asset),
+and `README.md`. A same-named `.sha256` file (one per
 artifact, `sha256sum -c` format) accompanies each archive:
 
 ```sh
@@ -173,8 +174,8 @@ value.
 **Not in scope:** GPG signing, macOS codesigning/notarization, Windows
 Authenticode. Downloaded binaries are unsigned: macOS Gatekeeper will quarantine
 the archive (clear it with `xattr -d com.apple.quarantine <file>` after
-verifying the checksum) and Windows SmartScreen will warn. Revisit only if/when
-this ships publicly with an owner-managed signing identity.
+verifying the checksum) and Windows SmartScreen will warn. Revisit only
+with an owner-managed signing identity.
 
 **Recovering a failed or missing asset leg.** If one platform's build/upload
 fails, re-run just that job from the Actions UI ("Re-run failed jobs") — the
@@ -244,8 +245,11 @@ applies only to the releases published under `GPL-3.0-only`, `v0.1.0` to
 The binary depends on about 80 crates, all under permissive licenses
 (MIT, Apache-2.0, MIT-0, Unicode-3.0). All of those but MIT-0 ask that the
 copyright notice and license text accompany a copy, so every archive bundles
-`THIRD-PARTY-LICENSES.txt` (TASK-0348; first shipped in the release after
-`v0.7.0`).
+`THIRD-PARTY-LICENSES.txt` (TASK-0348; first bundled in the release after
+`v0.7.0`). The `v0.7.0` archives predate it, so the file was attached to that
+release as a separate asset on 2026-11-15: `Cargo.lock` is the same at
+`v0.7.0` and at the commit the file was generated from, so it is exact for
+that binary.
 
 - **The file is committed, not built at release time.**
   `scripts/build-release-artifact.sh` only copies it, so the path that
