@@ -267,7 +267,9 @@ on private repos, and nothing has asked for them). Consequence: the Linux
 artifact carries a glibc ≥ 2.39 floor. `ubuntu-22.04` was rejected as a lower
 floor because its deprecation (with deliberate job failures) begins
 2026-09-17. Tracked as a follow-up (TASK-0326) to widen before a public
-release, not before. `macos-15-intel` is a **dated** label, guaranteed only
+release, not before. *(Note 2026-11-15: the owner ruled that widening, now
+issue #119, does not gate making the repository public.)* `macos-15-intel` is
+a **dated** label, guaranteed only
 through August 2027 — recorded so its eventual removal is a scheduled decision
 rather than a surprised outage.
 
@@ -372,7 +374,8 @@ dependency on its backlog row.
 > *Note (2026-11-14):* superseded for releases after `v0.6.0` by
 > [ADR-0020](0020-relicense-mit-or-apache-2.0.md); archives now bundle
 > `LICENSE-MIT` and `LICENSE-APACHE`, and this §6 analysis applies only to
-> `v0.1.0`–`v0.6.0`.
+> `v0.1.0`–`v0.6.0`. Those releases were deleted on 2026-11-14 (the tags
+> remain), so no binary from that period is published.
 
 **Not in scope:** GPG signing, macOS codesigning/notarization, Windows
 Authenticode — all require an owner-managed signing identity and long-lived

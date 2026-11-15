@@ -32,10 +32,6 @@ repository as a plugin source and install it:
 /plugin install imgdedup
 ```
 
-(The repository is currently private — see [the README](../../README.md#installing)
-for authenticated-access notes that also apply to adding it as a plugin
-source.)
-
 ## Using it
 
 Ask Claude in plain language, or use the command directly:
