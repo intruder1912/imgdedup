@@ -3,7 +3,7 @@
 A fast, cross-platform command-line tool for finding and safely removing
 duplicate images.
 
-> **Status: under active development (Phase 3 — implementation).** `imgdedup`
+> **Status: pre-1.0, under active development.** `imgdedup`
 > scans your paths, finds exact duplicate groups, and prints a human-readable
 > dry-run report showing the keeper and the files that would be removed — or a
 > machine-readable document with `--json`. **The trash/delete actions are

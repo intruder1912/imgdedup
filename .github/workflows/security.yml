@@ -184,7 +184,11 @@ jobs:
           rustup toolchain install --no-self-update
           scripts/notices.sh --check
 
-  # NOTE: GitHub's dependency-review-action requires GitHub Advanced Security,
-  # which is unavailable on free private repositories. Dependency-review is
-  # instead covered by Dependabot + the cargo-deny step above. Re-enable
-  # dependency-review if GHAS becomes available or the repository goes public.
+  # NOTE: GitHub's dependency-review-action is deliberately not used. It was
+  # unavailable while the repository was private (it needs GitHub Advanced
+  # Security there) and was re-evaluated for the public repository (#117): its
+  # vulnerability and license checks repeat what the cargo-deny step above
+  # enforces from Cargo.lock and deny.toml, and GitHub's advisory alerts do
+  # not cover actions pinned by commit SHA, which every action here is.
+  # Dependabot proposes the updates. Recorded in ADR-0005's 2026-11-15
+  # amendment.

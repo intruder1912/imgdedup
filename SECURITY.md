@@ -2,13 +2,15 @@
 
 ## Reporting a vulnerability
 
-This repository is **private**. If you discover a security issue, report it
-privately to the repository owner — do **not** open a public issue or PR that
-describes the vulnerability.
+If you discover a security issue, report it privately — do **not** open a
+public issue or pull request that describes the vulnerability.
 
-- Preferred: open a [GitHub Security Advisory](https://docs.github.com/en/code-security/security-advisories)
-  ("Report a vulnerability") on this repository.
-- Alternatively: contact the repository owner directly.
+- Use GitHub's private vulnerability reporting: on this repository's
+  **Security** tab, choose **Report a vulnerability**
+  ([direct link](https://github.com/intruder1912/imgdedup/security/advisories/new)).
+  The report stays private between you and the maintainer.
+- If you cannot use that form, open an issue that says only that you have a
+  security report and need a private channel. Leave the details out.
 
 Please include reproduction steps, affected versions/commits, and impact. We aim
 to acknowledge reports promptly and will coordinate a fix and disclosure timeline
@@ -36,8 +38,12 @@ Security is a gate on every change, not an afterthought:
   [`deny.toml`](deny.toml)) — plus a weekly scheduled run, so a new advisory
   against an untouched `Cargo.lock` is still caught. **Dependabot** proposes the
   resulting dependency and GitHub Actions updates. (GitHub's own
-  `dependency-review-action` requires GitHub Advanced Security, unavailable on
-  free private repositories; re-evaluated if the repository goes public.)
+  `dependency-review-action` is not used. It was re-evaluated for the public
+  repository: its vulnerability and license checks repeat what `cargo-deny`
+  already enforces from `Cargo.lock` and `deny.toml`, and GitHub's advisory
+  alerts do not cover actions pinned by commit SHA, which every action here
+  is. See the
+  [ADR-0005 amendment](docs/adr/0005-mandatory-tdd-and-security-gate.md#amendment-2026-11-15--dependency-review-action-not-adopted-on-the-public-repository-117).)
 - **Static analysis.** `clippy` with `-D warnings` over all targets runs in CI
   on every code change. CodeQL is deliberately *not* used: it has no
   first-class Rust support, so clippy takes its place
