@@ -103,10 +103,40 @@ pre-flight for going public (#117) and is **not adopted**:
   before the repository is public.
 
 Dependabot alerts cost no CI time on a public repository and cover
-`Cargo.lock` from GitHub's advisory database; they are switched on when the
-repository is made public (#117).
+`Cargo.lock` from GitHub's advisory database; they were switched on when the
+repository was made public (#117).
 
 Revisit if a dependency ecosystem is added that `cargo-deny` does not read.
+
+## Amendment 2026-11-15 — GitHub-side security settings (#132)
+
+Four repository settings now back the security gate. The owner switched them
+on when the repository was made public or shortly after. They are recorded
+here because, unlike the rulesets
+([ADR-0003](0003-main-branch-protection-and-merge-model.md)), they exist only
+in GitHub's settings and no file in the repository holds them:
+
+| Setting | State | What it adds |
+|---|---|---|
+| Secret scanning | enabled | GitHub scans the repository for secrets of the types it recognizes |
+| Push protection | enabled | A push containing such a secret is blocked before it lands; the person pushing can override the block with a reason |
+| Dependabot alerts and security updates | enabled | Advisory alerts for the dependency manifests, and pull requests that fix them |
+| Actions must be pinned to a full commit SHA | required | A workflow referencing an action by tag or branch fails to run |
+
+None of them replaces a required check. `gitleaks` over the full history
+stays the secret-scanning gate, because it runs on every pull request and
+cannot be overridden by the person pushing; `cargo-deny` stays the dependency
+gate. The pinning requirement turns the convention the amendment above relies
+on ("every action here is pinned by commit SHA") into something GitHub
+enforces.
+
+To check the live state:
+
+- `gh api repos/{owner}/{repo} --jq .security_and_analysis`
+- `gh api -i repos/{owner}/{repo}/vulnerability-alerts` (204 means enabled)
+- `gh api repos/{owner}/{repo}/actions/permissions`
+
+Read on 2026-11-15: all four as in the table.
 
 ## Links
 
