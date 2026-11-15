@@ -45,9 +45,11 @@ Security is a gate on every change, not an afterthought:
   is. See the
   [ADR-0005 amendment](docs/adr/0005-mandatory-tdd-and-security-gate.md#amendment-2026-11-15--dependency-review-action-not-adopted-on-the-public-repository-117).)
 - **Static analysis.** `clippy` with `-D warnings` over all targets runs in CI
-  on every code change. CodeQL is deliberately *not* used: it has no
-  first-class Rust support, so clippy takes its place
-  ([ADR-0007](docs/adr/0007-technology-stack-rust-clap.md)).
+  on every code change and is the required static-analysis gate for the Rust
+  code ([ADR-0007](docs/adr/0007-technology-stack-rust-clap.md)). GitHub's
+  CodeQL default setup is also enabled on the repository. It scans the Rust
+  code, the JavaScript release tooling and the GitHub Actions workflows; its
+  results are advisory, not a required check.
 - **Security review** is part of the architect's review on every PR.
 - **Least privilege** for CI: workflows default to `contents: read` and jobs
   widen only where they must. The only `contents: write` in the repository is

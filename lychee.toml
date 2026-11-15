@@ -32,9 +32,6 @@ accept = [200, 206, 301, 302, 308, 429]
 # present, not by reading the config.
 exclude_path = ["node_modules"]
 
-# The repository is private and not yet pushed publicly; skip self-references
-# and common non-resolvable placeholders.
-#
 # gnu.org excludes: found live once the promoted gate actually ran (TASK-0206)
 # — www.gnu.org/licenses/{gpl-3.0.txt,gpl-howto.html} consistently timed out
 # from GitHub-hosted runners (two separate CI runs, max_retries=3 each) while
@@ -42,7 +39,6 @@ exclude_path = ["node_modules"]
 # gnu.org is known to rate-limit/block cloud CI IP ranges; this isn't a broken
 # link, it's the check environment being unable to reach a reachable one.
 exclude = [
-  "^https://github.com/intruder1912/imgdedup",
   "^https://www\\.gnu\\.org/licenses/gpl-3\\.0\\.txt$",
   "^https://www\\.gnu\\.org/licenses/gpl-howto\\.html$",
 ]
