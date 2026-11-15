@@ -115,12 +115,18 @@ and the notes it *would* write.
 
 ### Known advisories in the release tooling
 
-`npm audit` reports DoS advisories (`brace-expansion`, `node-tar`) inside the
-`npm` CLI that ships as a dependency of `@semantic-release/npm`. That plugin is
-**not** in our plugin list and the `npm` CLI is never invoked by a release, so
-the code is unreachable here; it also cannot be patched independently, as it is
-bundled inside the `npm` package. Re-check on each Dependabot bump of
-`semantic-release`. No CI check gates on `npm audit`.
+`npm audit` reports two moderate DoS advisories, `glob`
+(GHSA-3g3m-2fjr-6pw4) and `minimatch` (GHSA-g3hv-75wg-m249), inside the `npm`
+CLI that ships as a dependency of `@semantic-release/npm`; every other finding
+it lists is a package that depends on those two. That plugin is **not** in our
+plugin list and the `npm` CLI is never invoked by a release, so the code is
+unreachable here. It also cannot be patched independently: both packages are
+bundled inside the `npm` package, which an `overrides` entry does not reach,
+and no `npm` release bundles the fixed versions yet (checked 2026-11-15 with
+`npm` 11.21.2, the newest the plugin's range allows, and 12.2.2). Everything
+else Dependabot reported on that date was cleared by refreshing the lockfile
+(#127). Re-check on each Dependabot bump of `semantic-release`. No CI check
+gates on `npm audit`.
 
 ## Distribution targets
 
