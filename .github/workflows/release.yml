@@ -6,10 +6,15 @@ name: Release
 #
 # semantic-release computes the SemVer bump from the Conventional Commit history,
 # creates the `v<version>` tag and the GitHub Release with generated notes.
-# Nothing is committed back to `main`: the tag lives in `refs/tags/*` and branch
-# protection targets `refs/heads/main`, so this needs no release bot, no PAT and
-# no protection bypass — only the workflow's own GITHUB_TOKEN with
+# Nothing is committed back to `main`: the tag lives in `refs/tags/*` and the
+# `main` ruleset targets `refs/heads/main`, so this needs no release bot, no PAT
+# and no protection bypass — only the workflow's own GITHUB_TOKEN with
 # `contents: write`. See docs/process/release.md for the operational procedure.
+#
+# The `release-tags` ruleset (.github/rulesets/release-tags.json, ADR-0003
+# amendment 2026-11-15) blocks moving and deleting `v*` tags and leaves
+# creation open, which is all this workflow does to a tag. It has no bypass
+# actors: nothing here may ever re-point or remove a published tag.
 #
 # A `GITHUB_TOKEN`-pushed tag triggers no other workflow (GitHub suppresses
 # GITHUB_TOKEN-originated events other than workflow_dispatch/repository_dispatch
@@ -148,7 +153,7 @@ jobs:
             exit 1
           fi
 
-          # Exactly the contexts `main`'s branch protection requires, minus
+          # Exactly the contexts the `main` ruleset requires, minus
           # `checks`: `ci-gate` already aggregates it (it fails unless `checks`
           # succeeded and `rust` succeeded or was skipped), so naming both
           # would assert the same fact twice. `security` is aggregated by
@@ -159,7 +164,7 @@ jobs:
           failed=0
           for context in "${contexts[@]}"; do
             # `app_id` pins the answer to GitHub Actions (15368) — the same
-            # pinning branch protection uses for these contexts — so a
+            # pinning the `main` ruleset uses for these contexts — so a
             # same-named check run from any other integration holding
             # `checks: write` cannot satisfy this gate. (Verified against the
             # live API: a wrong `app_id` returns zero check runs rather than
