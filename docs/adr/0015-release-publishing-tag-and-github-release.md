@@ -34,6 +34,13 @@ two different refs. Checked against this repository's actual configuration
 - **There are no repository rulesets at all** (`rulesets` returns `[]`), so
   **no tag protection** exists: `refs/tags/*` is unguarded.
 
+> **Since 2026-11-15** this describes the configuration as it was. The classic
+> rule is replaced by a ruleset on `main`, and a `release-tags` ruleset blocks
+> moving and deleting `v*` tags while leaving creation open — see the
+> [ADR-0003 amendment](0003-main-branch-protection-and-merge-model.md). The
+> reasoning below is unaffected: a tag push is still not a branch push, and the
+> release creates tags only.
+
 So a *tag* push is not a *branch* push. What semantic-release actually pushes
 (verified against its source) is:
 

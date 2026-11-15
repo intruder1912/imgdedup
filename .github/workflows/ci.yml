@@ -72,12 +72,15 @@ jobs:
   #     deferring it one run.
   #
   # OWNER ACTION (carried out since; kept as the record of why the context
-  # names changed). `main`'s branch protection requires the
+  # names changed; the protection has since moved from the classic rule this
+  # describes to a ruleset, .github/rulesets/main.json — ADR-0003 amendment
+  # 2026-11-15 — where a required-check rename now means updating the live
+  # ruleset and that file in the same unit). `main`'s branch protection required the
   # context names `markdownlint`, `spellcheck`, `structure`, `linkcheck` and
   # `pr-title`; none of them exist after this change, so they will sit at
   # "Expected — waiting for status to be reported" on this and every later PR
-  # until they are replaced with `checks`. `enforce_admins` is false, so the
-  # owner can still merge, but the swap belongs with this PR, not after it.
+  # until they are replaced with `checks`. `enforce_admins` was false, so the
+  # owner could still merge, but the swap belonged with this PR, not after it.
   # Same manual step TASK-0206 needed for its `linkcheck` rename.
   checks:
     # Suffixed on a manual run — see the `workflow_dispatch` trigger's note at

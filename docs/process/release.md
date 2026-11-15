@@ -67,12 +67,18 @@ checking the log for rather than assuming a version was cut:
 ## Why nothing is committed back to `main`
 
 `main` is protected and forbids direct pushes (ADR-0003). semantic-release does
-not need to push to it: the tag it creates lives in `refs/tags/*`, and branch
-protection targets `refs/heads/main`. So the release runs on the workflow's own
+not need to push to it: the tag it creates lives in `refs/tags/*`, and the
+`main` ruleset targets `refs/heads/main`. So the release runs on the workflow's own
 `GITHUB_TOKEN` with `contents: write` — **no release bot, GitHub App, personal
 access token, or protection bypass**. The plugins that would commit back
 (`@semantic-release/git`, `@semantic-release/changelog`) are deliberately not
 used. Full reasoning and trade-offs: [ADR-0015](../adr/0015-release-publishing-tag-and-github-release.md).
+
+Release tags are protected from the other side: the `release-tags` ruleset
+blocks moving and deleting any `v*` tag and has no bypass, the owner included
+(ADR-0003, amendment 2026-11-15). Creating a tag stays open, which is all a
+release does. A tag published by mistake cannot simply be deleted — the
+ruleset has to be disabled first, deliberately.
 
 Two consequences worth remembering:
 
