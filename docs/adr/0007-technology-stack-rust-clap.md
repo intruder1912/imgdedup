@@ -125,6 +125,9 @@ wire:
 
 ### Security gate consequence — CodeQL is not used for Rust
 
+> *Note (2026-11-15):* no longer the current state; see the
+> [2026-11-15 amendment](#amendment-2026-11-15--codeql-default-setup-enabled-on-the-public-repository-117).
+
 ADR-0005 and TASK-0208 name **CodeQL** as the planned static-analysis layer.
 **CodeQL has no first-class Rust support**, so it would add little here. This ADR
 records that for the Rust stack the static-analysis and dependency-security gate
@@ -178,6 +181,24 @@ scan). **TASK-0208 should be reframed** from "CodeQL + dependency audit" to
 - Bad: **ecosystem immaturity** — pre-1.0 language and a thin package ecosystem;
   no maintained cross-platform trash library, so we would build NFR-5 from
   scratch; too much foundational risk for a safety-critical v1.
+
+## Amendment 2026-11-15 — CodeQL default setup enabled on the public repository (#117)
+
+The security-gate consequence above rests on "CodeQL has no first-class Rust
+support". That stopped being true: GitHub made CodeQL's Rust support
+generally available in October 2025, default setup included.
+
+When the repository was made public on 2026-11-15 the owner enabled CodeQL
+default setup. It covers `rust`, `javascript-typescript` and `actions`, with
+a weekly scheduled scan; the first analyses of `main` reported no alerts.
+
+What does not change: `clippy`, `cargo-deny` and `gitleaks` remain the
+required gate (the required status checks are `ci-gate`, `checks` and
+`security`). CodeQL is an additional, advisory layer and is not a required
+check.
+
+Revisit whether to make CodeQL a required check once its runtime on pull
+requests and the quality of its Rust findings are known.
 
 ## Links
 
