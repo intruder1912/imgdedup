@@ -107,8 +107,9 @@ Issues, and **what happened in a unit** is in its pull request
    units small with clear interfaces.
 5. **Validate locally:** `make validate` — Markdown lint, spell check, link
    check, shell-script lint (`shellcheck`), GitHub Actions workflow lint
-   (`actionlint`), and (once code exists) format check, lint, and the test
-   suite. **Fix every finding before pushing.**
+   (`actionlint`), format check, lint, the test suite, and the dependency
+   audit (`cargo deny`, the same check as CI's `security` job). **Fix every
+   finding before pushing.**
 6. **Review before the PR opens.** Because a unit now spans **many commits** on
    the branch, the architect reviews the **branch diff vs `main` before the PR is
    opened** (see [Review kinds and timing](#review-kinds-and-timing) below); the

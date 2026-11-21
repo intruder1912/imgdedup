@@ -129,7 +129,9 @@ jobs:
 
       # Rust dependency audit (TASK-0208). cargo-deny covers RUSTSEC advisories
       # (superseding a standalone cargo-audit) plus license, bans, and source
-      # checks — config in deny.toml.
+      # checks — config in deny.toml. The action's pin decides the cargo-deny
+      # version; deny.toml sets its check scopes explicitly, so a bump of this
+      # pin cannot quietly loosen the gate (#137).
       #
       # The condition is deliberately fail-closed: it skips only when the
       # filter *successfully* determined that nothing the audit reads has
@@ -145,7 +147,7 @@ jobs:
       # trigger is to run irrespective of what changed.
       - name: Audit dependencies (advisories, licenses, bans, sources)
         if: ${{ !cancelled() && (github.event_name == 'schedule' || steps.filter.outcome != 'success' || steps.filter.outputs.deps == 'true') }}
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        uses: EmbarkStudios/cargo-deny-action@17aeb3c839e42274e2b8adf721c8c65edfdc74dd # v2.1.3
         with:
           command: check
           rust-version: stable
