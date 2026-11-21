@@ -76,4 +76,13 @@ cargo clippy --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test
 
+if ! command -v cargo-deny >/dev/null 2>&1; then
+  echo "error: cargo-deny is required for the dependency audit." >&2
+  echo "       Install: brew install cargo-deny  (or: cargo install cargo-deny --locked)" >&2
+  exit 1
+fi
+
+echo "==> cargo deny check"
+cargo deny check
+
 echo "✓ local validation passed"

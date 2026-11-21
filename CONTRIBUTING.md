@@ -34,7 +34,8 @@ Summary:
    `docs/<slug>`. See [`docs/process/branching.md`](docs/process/branching.md).
 3. **Implement** using TDD (failing test → pass → refactor).
 4. **Validate locally**: run `make validate` (Markdown/spell/link check, shell
-   script and workflow lint, format check, lint, tests). Fix everything.
+   script and workflow lint, format check, lint, tests, dependency audit).
+   Fix everything.
 5. **Commit** with a Conventional Commit message
    (see [`docs/process/commits.md`](docs/process/commits.md)).
 6. **Push** and **open a PR** with a Conventional Commit title and a description
@@ -71,7 +72,8 @@ make validate
 
 This runs Markdown lint, spell check, link check, shell script lint
 (`shellcheck`), GitHub Actions workflow lint (`actionlint`), `cargo fmt`/
-`clippy`, and the full Rust test suite. See [`scripts/`](scripts/) and the
+`clippy`, the full Rust test suite, and the dependency audit (`cargo deny`,
+which needs `cargo-deny` installed). See [`scripts/`](scripts/) and the
 [`Makefile`](Makefile). If a tool is not installed, the script tells you how to
 install it. CI runs the same checks and is the enforcement boundary.
 

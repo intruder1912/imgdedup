@@ -17,7 +17,7 @@ help: ## Show available targets
 
 # ── Composite gate ────────────────────────────────────────────────────────────
 
-validate: mdlint spell links shellcheck actionlint fmt lint test ## Run all local validation (run before every push)
+validate: mdlint spell links shellcheck actionlint fmt lint test deny ## Run all local validation (run before every push)
 	@echo "✓ local validation passed"
 
 # ── Documentation checks ──────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ build: ## Build the binary (debug)
 test: ## Run all Rust tests
 	cargo test
 
-deny: ## Audit dependencies (advisories/licenses/bans/sources; needs cargo-deny installed)
+deny: ## Audit dependencies (advisories/licenses/bans/sources; needs: brew install cargo-deny / cargo install cargo-deny --locked; CI's version is set by the cargo-deny-action pin in security.yml)
 	cargo deny check
 
 notices: ## Regenerate THIRD-PARTY-LICENSES.txt after a dependency change (needs cargo-about: brew install cargo-about)
